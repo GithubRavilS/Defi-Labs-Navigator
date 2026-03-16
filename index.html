@@ -1,0 +1,1591 @@
+<!DOCTYPE html>
+<html lang="ru" id="htmlRoot">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeFi Labs Navigator — Обзор инвестиционных стратегий</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #0A0E27;
+            --primary-light: #1a1f3a;
+            --accent: #2F80ED;
+            --accent-bright: #4FA3FF;
+            --success: #27AE60;
+            --warning: #F2C94C;
+            --danger: #E74C3C;
+            --white: #FFFFFF;
+            --text-primary: #E8EAED;
+            --text-secondary: #A0A3A8;
+            --border: #2a2f45;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, var(--primary) 0%, #0f1328 100%);
+            color: var(--text-primary);
+            overflow-x: hidden;
+            min-height: 100vh;
+        }
+
+        /* ========== HEADER ========== */
+        header {
+            background: rgba(10, 14, 39, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .header-logo {
+            font-size: 22px;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--success) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            letter-spacing: -0.5px;
+        }
+
+        .header-controls {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .search-box {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 16px;
+            color: var(--text-primary);
+            font-size: 13px;
+            width: 220px;
+            transition: all 0.3s ease;
+        }
+
+        .search-box:focus {
+            outline: none;
+            border-color: var(--accent);
+            background: rgba(47, 128, 237, 0.1);
+        }
+
+        .refresh-btn {
+            background: var(--accent);
+            border: none;
+            color: var(--white);
+            padding: 10px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .refresh-btn:hover {
+            background: var(--accent-bright);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(47, 128, 237, 0.3);
+        }
+
+        /* ========== MAIN LAYOUT ========== */
+        .main-wrapper {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            min-height: calc(100vh - 60px);
+            gap: 0;
+        }
+
+        /* ========== SIDEBAR ========== */
+        .sidebar {
+            background: rgba(10, 14, 39, 0.9);
+            border-right: 1px solid var(--border);
+            overflow-y: auto;
+            padding: 24px 0;
+            height: calc(100vh - 60px);
+            position: sticky;
+            top: 60px;
+        }
+
+        .sidebar-section {
+            margin-bottom: 24px;
+        }
+
+        .sidebar-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            padding: 12px 20px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .sidebar-item {
+            padding: 12px 20px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 14px;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            position: relative;
+        }
+
+        .sidebar-item:hover {
+            color: var(--text-primary);
+            background: rgba(47, 128, 237, 0.1);
+            padding-left: 24px;
+        }
+
+        .sidebar-item.active {
+            color: var(--accent);
+            background: rgba(47, 128, 237, 0.15);
+            border-right: 3px solid var(--accent);
+            font-weight: 600;
+        }
+
+        .sidebar-item-icon {
+            font-size: 16px;
+        }
+
+        .sidebar-item-count {
+            margin-left: auto;
+            font-size: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        /* ========== CONTENT AREA ========== */
+        .content {
+            padding: 32px;
+            overflow-y: auto;
+            height: calc(100vh - 60px);
+            scroll-behavior: smooth;
+            overflow-anchor: auto;
+        }
+
+        /* ========== DASHBOARD PAGE ========== */
+        .dashboard-header {
+            margin-bottom: 40px;
+        }
+
+        .dashboard-title {
+            font-size: 36px;
+            font-weight: 800;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--success) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .dashboard-subtitle {
+            font-size: 15px;
+            color: var(--text-secondary);
+        }
+
+        /* TOP PERFORMERS HEATMAP */
+        .heatmap-section {
+            margin-bottom: 40px;
+        }
+
+        .section-title {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 24px;
+            color: var(--text-primary);
+        }
+
+        .heatmap-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+            gap: 12px;
+            margin-bottom: 32px;
+        }
+
+        .heatmap-block {
+            aspect-ratio: 1;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            border: 2px solid transparent;
+            position: relative;
+            overflow: hidden;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .heatmap-block::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at center, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .heatmap-block:hover::before {
+            opacity: 1;
+        }
+
+        .heatmap-block:hover {
+            transform: scale(1.1) translateY(-8px);
+            border-color: rgba(255, 255, 255, 0.3);
+            box-shadow: var(--shadow);
+        }
+
+        .heatmap-name {
+            font-size: 12px;
+            font-weight: 600;
+            text-align: center;
+            margin-bottom: 6px;
+            z-index: 1;
+        }
+
+        .heatmap-apy {
+            font-size: 20px;
+            font-weight: 800;
+            z-index: 1;
+        }
+
+        .heatmap-low { background: linear-gradient(135deg, rgba(39, 174, 96, 0.2), rgba(39, 174, 96, 0.05)); border: 1px solid rgba(39, 174, 96, 0.3); }
+        .heatmap-medium { background: linear-gradient(135deg, rgba(242, 201, 76, 0.2), rgba(242, 201, 76, 0.05)); border: 1px solid rgba(242, 201, 76, 0.3); }
+        .heatmap-high { background: linear-gradient(135deg, rgba(47, 128, 237, 0.2), rgba(47, 128, 237, 0.05)); border: 1px solid rgba(47, 128, 237, 0.3); }
+        .heatmap-very-high { background: linear-gradient(135deg, rgba(243, 95, 96, 0.2), rgba(243, 95, 96, 0.05)); border: 1px solid rgba(243, 95, 96, 0.3); }
+
+        /* CATEGORY GRID */
+        .category-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+
+        .category-card {
+            background: linear-gradient(135deg, var(--primary-light) 0%, rgba(31, 41, 88, 0.5) 100%);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .category-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(45deg, transparent 0%, rgba(47, 128, 237, 0.08) 50%, transparent 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .category-card:hover {
+            border-color: var(--accent);
+            background: linear-gradient(135deg, rgba(31, 41, 88, 0.8) 0%, rgba(31, 41, 88, 0.4) 100%);
+            transform: translateY(-8px);
+            box-shadow: var(--shadow);
+        }
+
+        .category-card:hover::before {
+            opacity: 1;
+        }
+
+        .category-icon {
+            font-size: 32px;
+            margin-bottom: 12px;
+        }
+
+        .category-name {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .category-desc {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .category-stats {
+            display: flex;
+            gap: 12px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .stat-badge {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* ========== DASHBOARD / CATEGORY PAGE (только один видим — иначе контент уезжает вниз) ========== */
+        .dashboard-page {
+            display: none;
+        }
+        .dashboard-page.active {
+            display: block;
+        }
+        .category-page {
+            display: none;
+        }
+        .category-page.active {
+            display: block;
+        }
+
+        .category-header {
+            margin-bottom: 32px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .category-back {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--accent);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-bottom: 16px;
+            transition: all 0.2s ease;
+            background: none;
+            border: none;
+            padding: 0;
+        }
+
+        .category-back:hover {
+            gap: 12px;
+        }
+
+        .category-page-title {
+            font-size: 32px;
+            font-weight: 800;
+            margin-bottom: 8px;
+        }
+
+        .category-page-desc {
+            font-size: 15px;
+            color: var(--text-secondary);
+            max-width: 600px;
+        }
+
+        /* FILTERS & CONTROLS */
+        .controls-bar {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+
+        .filter-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 10px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        .filter-btn.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: var(--white);
+        }
+
+        .filter-btn:hover {
+            border-color: var(--accent);
+        }
+
+        /* TOOLS GRID */
+        .tools-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .tool-card {
+            background: linear-gradient(135deg, var(--primary-light) 0%, rgba(31, 41, 88, 0.5) 100%);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .tool-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(45deg, transparent 0%, rgba(47, 128, 237, 0.05) 50%, transparent 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .tool-card:hover {
+            border-color: var(--accent);
+            background: linear-gradient(135deg, rgba(31, 41, 88, 0.8) 0%, rgba(31, 41, 88, 0.3) 100%);
+            transform: translateY(-6px);
+            box-shadow: var(--shadow);
+        }
+
+        .tool-card:hover::before {
+            opacity: 1;
+        }
+
+        .tool-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .tool-name {
+            font-size: 16px;
+            font-weight: 700;
+            position: relative;
+            z-index: 1;
+        }
+
+        .tool-apy {
+            font-size: 24px;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--success) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .tool-meta {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .tool-desc {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+            flex-grow: 1;
+            position: relative;
+            z-index: 1;
+        }
+
+        .tool-footer {
+            display: flex;
+            gap: 8px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .tool-link {
+            flex: 1;
+            background: var(--accent);
+            color: var(--white);
+            border: none;
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+
+        .tool-link:hover {
+            background: var(--accent-bright);
+            transform: translateX(2px);
+        }
+
+        .tool-secondary {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .tool-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: var(--accent);
+        }
+
+        /* TABLE VIEW */
+        .table-view {
+            background: var(--primary-light);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 40px;
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            background: rgba(10, 14, 39, 0.8);
+            padding: 16px 20px;
+            text-align: left;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border);
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+            position: relative;
+            z-index: 1;
+        }
+
+        tbody tr {
+            transition: all 0.2s ease;
+        }
+
+        tbody tr:hover {
+            background: rgba(47, 128, 237, 0.08);
+        }
+
+        tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .apy-cell {
+            font-weight: 700;
+            font-size: 16px;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--success) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .status-active {
+            background: rgba(39, 174, 96, 0.2);
+            color: var(--success);
+            border: 1px solid rgba(39, 174, 96, 0.3);
+        }
+
+        .status-warning {
+            background: rgba(242, 201, 76, 0.2);
+            color: var(--warning);
+            border: 1px solid rgba(242, 201, 76, 0.3);
+        }
+
+        /* CHART */
+        .chart-section {
+            background: var(--primary-light);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 40px;
+        }
+
+        .chart-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 24px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin-bottom: 20px;
+        }
+
+        /* GUIDES SECTION */
+        .guides-section {
+            margin-bottom: 40px;
+        }
+
+        .guides-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .guide-card {
+            background: linear-gradient(135deg, var(--primary-light) 0%, rgba(31, 41, 88, 0.5) 100%);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .guide-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-4px);
+            box-shadow: var(--shadow);
+        }
+
+        .guide-icon {
+            font-size: 28px;
+            margin-bottom: 12px;
+        }
+
+        .guide-title {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .guide-desc {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+        }
+
+        .guide-link {
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: gap 0.2s ease;
+        }
+
+        .guide-link:hover {
+            gap: 10px;
+        }
+
+        /* RESPONSIVE */
+        @media (max-width: 1200px) {
+            .main-wrapper {
+                grid-template-columns: 240px 1fr;
+            }
+
+            .heatmap-container {
+                grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
+            }
+
+            .tools-grid {
+                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            }
+        }
+
+        @media (max-width: 768px) {
+            .main-wrapper {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                display: none;
+                position: fixed;
+                left: 0;
+                top: 60px;
+                width: 100%;
+                height: calc(100vh - 60px);
+                z-index: 999;
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+            }
+
+            .sidebar.mobile-open {
+                display: block;
+            }
+
+            .content {
+                padding: 24px;
+            }
+
+            .dashboard-title {
+                font-size: 28px;
+            }
+
+            .category-page-title {
+                font-size: 24px;
+            }
+
+            .heatmap-container {
+                grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+                gap: 8px;
+            }
+
+            .category-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .tools-grid {
+                grid-template-columns: 1fr;
+            }
+
+            table {
+                font-size: 12px;
+            }
+
+            th, td {
+                padding: 12px 16px;
+            }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        /* Language switcher */
+        .lang-switcher {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 4px;
+        }
+        .lang-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        .lang-btn:hover {
+            color: var(--text-primary);
+        }
+        .lang-btn.active {
+            background: var(--accent);
+            color: var(--white);
+        }
+        /* Mobile menu button */
+        .mobile-menu-btn {
+            display: none;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 20px;
+            align-items: center;
+            justify-content: center;
+        }
+        @media (max-width: 768px) {
+            .mobile-menu-btn { display: flex; }
+            .header-logo { font-size: 18px; }
+        }
+
+        /* Loading */
+        .loading-spinner {
+            display: inline-block;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <!-- HEADER -->
+    <header>
+        <div class="header-logo">
+            🧪 <span data-i18n="logo">DeFi Labs</span>
+        </div>
+        <div class="header-controls">
+            <div class="lang-switcher">
+                <button type="button" class="lang-btn" data-lang="en">EN</button>
+                <button type="button" class="lang-btn active" data-lang="ru">RU</button>
+            </div>
+            <span id="dataSourceIndicator" style="font-size:11px;color:var(--text-secondary);max-width:120px;overflow:hidden;text-overflow:ellipsis;" title="Источник данных"></span>
+            <input type="text" class="search-box" id="searchBox" placeholder="" data-i18n-placeholder="searchPlaceholder">
+            <button class="refresh-btn" onclick="refreshData()" data-i18n="refreshBtn">↻ Обновить</button>
+            <button type="button" class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Menu">☰</button>
+        </div>
+    </header>
+
+    <div class="main-wrapper">
+        <!-- SIDEBAR -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-section">
+                <div class="sidebar-title" data-i18n="navTitle">Навигация</div>
+                <div class="sidebar-item active" onclick="showDashboard()" style="cursor: pointer;">
+                    <span class="sidebar-item-icon">📊</span>
+                    <span data-i18n="dashboard">Дашборд</span>
+                </div>
+            </div>
+
+            <div class="sidebar-section" id="categoriesSidebar">
+                <div class="sidebar-title" data-i18n="categoriesTitle">Категории</div>
+                <!-- Populated by JS -->
+            </div>
+        </div>
+
+        <!-- CONTENT -->
+        <div class="content">
+            <!-- DASHBOARD PAGE -->
+            <div id="dashboardPage" class="dashboard-page active">
+                <div class="dashboard-header">
+                    <h1 class="dashboard-title" data-i18n="pageTitle">DeFi Labs Navigator</h1>
+                    <p class="dashboard-subtitle" data-i18n="pageSubtitle">Обзор 100+ инвестиционных инструментов в стратегиях DeFi</p>
+                </div>
+
+                <!-- TOP PERFORMERS -->
+                <div class="heatmap-section">
+                    <h2 class="section-title" data-i18n="topPerformers">🔥 Лучшие за 7 дней</h2>
+                    <div class="heatmap-container" id="heatmapContainer">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <!-- CATEGORIES OVERVIEW -->
+                <div class="section-title" data-i18n="allCategories">📂 Все категории</div>
+                <div class="category-grid" id="categoriesGrid">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <!-- CATEGORY PAGE -->
+            <div id="categoryPage" class="category-page">
+                <button class="category-back" onclick="showDashboard()" data-i18n="backToDashboard">← Назад к дашборду</button>
+                
+                <div class="category-header">
+                    <h1 class="category-page-title" id="categoryPageTitle">Category Name</h1>
+                    <p class="category-page-desc" id="categoryPageDesc">Category description</p>
+                </div>
+
+                <div class="controls-bar">
+                    <button class="filter-btn active" onclick="setView('grid')" data-i18n="gridView">🔲 Сетка</button>
+                    <button class="filter-btn" onclick="setView('table')" data-i18n="tableView">📊 Таблица</button>
+                    <button class="filter-btn" onclick="setSortBy('apy-desc')" data-i18n="topApy">По APY</button>
+                    <button class="filter-btn" onclick="setSortBy('name')">A–Я</button>
+                </div>
+
+                <div id="gridView">
+                    <div class="tools-grid" id="toolsGrid">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <div id="tableView" class="hidden">
+                    <div class="table-view">
+                        <div class="table-wrapper">
+                            <table id="toolsTable">
+                                <thead>
+                                    <tr>
+                                        <th data-i18n="thInstrument">Инструмент</th>
+                                        <th>APY</th>
+                                        <th data-i18n="thPeriod">Период</th>
+                                        <th data-i18n="thStatus">Статус</th>
+                                        <th data-i18n="thAction">Действие</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="toolsTableBody">
+                                    <!-- Populated by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CHART -->
+                <div class="chart-section">
+                    <h3 class="chart-title" data-i18n="chartTitle">Сравнение APY</h3>
+                    <div class="chart-container">
+                        <canvas id="categoryChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- GUIDES -->
+                <div class="guides-section">
+                    <h3 class="section-title" data-i18n="guidesTitle">📚 Гайды и материалы</h3>
+                    <div class="guides-grid" id="guidesGrid">
+                        <div class="guide-card">
+                            <div class="guide-icon">🎥</div>
+                            <div class="guide-title" data-i18n="guide1Title">С чего начать</div>
+                            <div class="guide-desc" data-i18n="guide1Desc">Пошаговый разбор для новичков</div>
+                            <a href="#" class="guide-link" data-i18n="guide1Link">Смотреть туториал →</a>
+                        </div>
+                        <div class="guide-card">
+                            <div class="guide-icon">📖</div>
+                            <div class="guide-title" data-i18n="guide2Title">Лучшие практики</div>
+                            <div class="guide-desc" data-i18n="guide2Desc">Советы по оптимизации доходности</div>
+                            <a href="#" class="guide-link" data-i18n="guide2Link">Читать гайд →</a>
+                        </div>
+                        <div class="guide-card">
+                            <div class="guide-icon">⚠️</div>
+                            <div class="guide-title" data-i18n="guide3Title">Управление рисками</div>
+                            <div class="guide-desc" data-i18n="guide3Desc">Понимание рисков в этой категории</div>
+                            <a href="#" class="guide-link" data-i18n="guide3Link">Подробнее →</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <script>
+        // ========== I18N ==========
+        let currentLang = localStorage.getItem('defilabs-lang') || 'ru';
+
+        const translations = {
+            ru: {
+                logo: 'DeFi Labs',
+                searchPlaceholder: 'Поиск инструментов...',
+                refreshBtn: '↻ Обновить',
+                navTitle: 'Навигация',
+                dashboard: 'Дашборд',
+                categoriesTitle: 'Категории',
+                pageTitle: 'DeFi Labs Navigator',
+                pageSubtitle: 'Обзор 100+ инвестиционных инструментов в стратегиях DeFi',
+                topPerformers: '🔥 Лучшие за 7 дней',
+                allCategories: '📂 Все категории',
+                backToDashboard: '← Назад к дашборду',
+                gridView: '🔲 Сетка',
+                tableView: '📊 Таблица',
+                topApy: 'По APY',
+                thInstrument: 'Инструмент',
+                thPeriod: 'Период',
+                thStatus: 'Статус',
+                thAction: 'Действие',
+                chartTitle: 'Сравнение APY',
+                guidesTitle: '📚 Гайды и материалы',
+                guide1Title: 'С чего начать',
+                guide1Desc: 'Пошаговый разбор для новичков',
+                guide1Link: 'Смотреть туториал →',
+                guide2Title: 'Лучшие практики',
+                guide2Desc: 'Советы по оптимизации доходности',
+                guide2Link: 'Читать гайд →',
+                guide3Title: 'Управление рисками',
+                guide3Desc: 'Понимание рисков в этой категории',
+                guide3Link: 'Подробнее →',
+                toolsCount: 'инстр.',
+                avgApy: 'Средн. APY',
+                period: 'Период',
+                status: 'Статус',
+                visitProtocol: 'Перейти на протокол',
+                addToPortfolio: 'В портфель',
+                open: 'Открыть →',
+                active: 'Активно',
+                warning: 'Внимание',
+                chartApyLabel: 'APY (%)',
+                titleTag: 'DeFi Labs Navigator — Обзор инвестиционных стратегий'
+            },
+            en: {
+                logo: 'DeFi Labs',
+                searchPlaceholder: 'Search instruments...',
+                refreshBtn: '↻ Refresh',
+                navTitle: 'Navigation',
+                dashboard: 'Dashboard',
+                categoriesTitle: 'Categories',
+                pageTitle: 'DeFi Labs Navigator',
+                pageSubtitle: 'Explore 100+ investment instruments across DeFi strategies',
+                topPerformers: '🔥 Top Performers (Last 7 days)',
+                allCategories: '📂 All Categories',
+                backToDashboard: '← Back to Dashboard',
+                gridView: '🔲 Grid View',
+                tableView: '📊 Table View',
+                topApy: 'Top APY',
+                thInstrument: 'Instrument',
+                thPeriod: 'Period',
+                thStatus: 'Status',
+                thAction: 'Action',
+                chartTitle: 'APY Comparison Chart',
+                guidesTitle: '📚 Guides & Resources',
+                guide1Title: 'Getting Started',
+                guide1Desc: 'Complete walkthrough for beginners',
+                guide1Link: 'Watch Tutorial →',
+                guide2Title: 'Best Practices',
+                guide2Desc: 'Pro tips for optimizing returns',
+                guide2Link: 'Read Guide →',
+                guide3Title: 'Risk Management',
+                guide3Desc: 'Understanding the risks in this category',
+                guide3Link: 'Learn More →',
+                toolsCount: 'Tools',
+                avgApy: 'Avg APY',
+                period: 'Period',
+                status: 'Status',
+                visitProtocol: 'Visit Protocol',
+                addToPortfolio: 'Add to Portfolio',
+                open: 'Open →',
+                active: 'Active',
+                warning: 'Warning',
+                chartApyLabel: 'APY (%)',
+                titleTag: 'DeFi Labs Navigator - Investment Strategy Explorer'
+            }
+        };
+
+        const categoryNames = {
+            ru: {
+                stables: 'Стейблкоин-стратегии',
+                ethereum: 'Пуллы Ethereum',
+                bitcoin: 'Обёрнутый Bitcoin',
+                looping: 'Стратегии с плечом',
+                lending: 'Лендинг-протоколы',
+                'yield-tokens': 'Токены с доходностью'
+            },
+            en: {
+                stables: 'Stablecoin Strategies',
+                ethereum: 'Ethereum Pools',
+                bitcoin: 'Bitcoin Wrapped',
+                looping: 'Looping Strategies',
+                lending: 'Lending Protocols',
+                'yield-tokens': 'Yield Tokens'
+            }
+        };
+
+        const categoryDescs = {
+            ru: {
+                stables: 'Консервативные стратегии на стейблкоинах, привязанных к доллару',
+                ethereum: 'Ликвидность в пулах на блокчейне Ethereum',
+                bitcoin: 'Доходность от обёрнутого BTC в DeFi',
+                looping: 'Плечо и рекурсивные стратегии',
+                lending: 'Пассивное кредитование и награды за поставку ликвидности',
+                'yield-tokens': 'Стратегии с доходными токенами'
+            },
+            en: {
+                stables: 'Conservative strategies on USD-pegged tokens',
+                ethereum: 'Liquidity provision on Ethereum blockchain',
+                bitcoin: 'BTC exposure through DeFi instruments',
+                looping: 'Advanced leverage and recursion strategies',
+                lending: 'Passive lending and supply rewards',
+                'yield-tokens': 'Yield-bearing token strategies'
+            }
+        };
+
+        function t(key) { return translations[currentLang][key] || key; }
+        function formatOneDecimal(val) {
+            var n = parseFloat(val);
+            if (isNaN(n)) return '0.0';
+            return (Math.round(n * 10) / 10).toFixed(1);
+        }
+        function getCategories() { return categories.length ? categories : mockData.categories; }
+        function categoryName(id) {
+            var cat = getCategories().find(function(c){ return c.id === id; });
+            return cat ? cat.name : (categoryNames[currentLang][id] || id);
+        }
+        function categoryDesc(id) {
+            var cat = getCategories().find(function(c){ return c.id === id; });
+            return cat ? cat.description : (categoryDescs[currentLang][id] || '');
+        }
+
+        function applyLang() {
+            document.documentElement.lang = currentLang === 'ru' ? 'ru' : 'en';
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (translations[currentLang] && translations[currentLang][key]) el.textContent = translations[currentLang][key];
+            });
+            document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+                const key = el.getAttribute('data-i18n-placeholder');
+                if (translations[currentLang] && translations[currentLang][key]) el.placeholder = translations[currentLang][key];
+            });
+            document.querySelectorAll('.lang-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.getAttribute('data-lang') === currentLang);
+            });
+            if (translations[currentLang].titleTag) document.title = translations[currentLang].titleTag;
+            if (typeof renderDashboard === 'function') renderDashboard();
+            if (currentCategory && typeof renderTools === 'function') {
+                const tools = allTools.filter(function(t){ return t.categoryId === currentCategory; });
+                renderTools(tools);
+                renderToolsTable(tools);
+                var cat = getCategories().find(function(c){ return c.id === currentCategory; });
+                if (cat) {
+                    document.getElementById('categoryPageTitle').textContent = categoryName(cat.id);
+                    document.getElementById('categoryPageDesc').textContent = categoryDesc(cat.id);
+                }
+            }
+        }
+
+        // ========== DATA STRUCTURE ==========
+        // Вставь сюда URL из Google Apps Script (Развёртывание → Веб-приложение → скопировать ссылку).
+        // Если оставить пустым или не менять — будут использоваться тестовые данные.
+        var DATA_API_URL = 'https://script.google.com/macros/s/AKfycbwap2a3QP0VNx-p9cv-MbDXLuWKq0eOqNyCT8ZjwDblbXPIN0uOkV_FFPCR2ujhSlSngw/exec';
+
+        const mockData = {
+            categories: [
+                { id: 'stables', name: 'Stablecoin Strategies', icon: '💰', description: '', color: '#27AE60' },
+                { id: 'ethereum', name: 'Ethereum Pools', icon: '⟠', description: '', color: '#627EEA' },
+                { id: 'bitcoin', name: 'Bitcoin Wrapped', icon: '₿', description: '', color: '#F7931A' },
+                { id: 'looping', name: 'Looping Strategies', icon: '🔄', description: '', color: '#FF6B6B' },
+                { id: 'lending', name: 'Lending Protocols', icon: '🏦', description: '', color: '#4FA3FF' },
+                { id: 'yield-tokens', name: 'Yield Tokens', icon: '🪙', description: '', color: '#F2C94C' }
+            ],
+            tools: [
+                { id: 1, categoryId: 'stables', name: 'Hyperliquid HLP', apy: '18.5', period: '7d', status: 'active', link: 'https://hyperliquid.xyz', desc: 'Доход от комиссий трейдинга', descEn: 'Trading commission yield' },
+                { id: 2, categoryId: 'stables', name: 'Pendle PT-USDC', apy: '14.2', period: '7d', status: 'active', link: 'https://pendle.finance', desc: 'Стекинг доходности principal token', descEn: 'Principal token yield stacking' },
+                { id: 3, categoryId: 'stables', name: 'Aave USDC Supply', apy: '8.7', period: '7d', status: 'active', link: 'https://aave.com', desc: 'Награды лендинг-пула', descEn: 'Lending pool rewards' },
+                { id: 4, categoryId: 'stables', name: 'Compound USDT', apy: '7.3', period: '7d', status: 'active', link: 'https://compound.finance', desc: 'Фарминг под залог', descEn: 'Collateral farming' },
+                { id: 5, categoryId: 'stables', name: 'Curve USDC/USDT', apy: '12.1', period: '7d', status: 'warning', link: 'https://curve.fi', desc: 'Ликвидность в DEX', descEn: 'DEX LP providing' },
+                { id: 6, categoryId: 'ethereum', name: 'Uniswap V3 0.3%', apy: '24.3', period: '7d', status: 'active', link: 'https://uniswap.org', desc: 'Концентрированная ликвидность по парам ETH', descEn: 'Concentrated liquidity on ETH pairs' },
+                { id: 7, categoryId: 'ethereum', name: 'Lido stETH/ETH', apy: '16.8', period: '7d', status: 'active', link: 'https://lido.fi', desc: 'Доходность стейкинга ETH + LP', descEn: 'Staked ETH yield + LP' },
+                { id: 8, categoryId: 'ethereum', name: 'Balancer ETH Pool', apy: '13.5', period: '7d', status: 'active', link: 'https://balancer.fi', desc: 'Награды пула ликвидности', descEn: 'Liquidity pool rewards' },
+                { id: 9, categoryId: 'ethereum', name: 'Convex cvxETH', apy: '9.2', period: '7d', status: 'warning', link: 'https://convexfinance.com', desc: 'Усиленные награды Curve', descEn: 'Boosted Curve rewards' },
+                { id: 10, categoryId: 'bitcoin', name: 'WBTC Lending', apy: '6.5', period: '7d', status: 'active', link: 'https://aave.com', desc: 'Доходность от поставки обёрнутого BTC', descEn: 'Wrapped BTC supply yield' },
+                { id: 11, categoryId: 'bitcoin', name: 'tBTC Pool', apy: '11.2', period: '7d', status: 'active', link: 'https://threshold.network', desc: 'Ликвидность моста Bitcoin', descEn: 'Bitcoin bridge liquidity' },
+                { id: 12, categoryId: 'bitcoin', name: 'SBTC Farming', apy: '8.9', period: '7d', status: 'active', link: 'https://stacks.co', desc: 'Доходность обёрнутого BTC в Stacks', descEn: 'Stacks BTC wrapped yield' },
+                { id: 13, categoryId: 'looping', name: 'AaveLoop USDC', apy: '32.1', period: '7d', status: 'warning', link: 'https://aave.com', desc: 'Фарминг с плечом (5x)', descEn: 'Leverage farming (5x)' },
+                { id: 14, categoryId: 'looping', name: 'MorphoLoop ETH', apy: '28.7', period: '7d', status: 'active', link: 'https://morpho.org', desc: 'Оптимизированное плечо в DEX', descEn: 'Optimized DEX leverage' },
+                { id: 15, categoryId: 'lending', name: 'MakerDAO USDC', apy: '9.1', period: '7d', status: 'active', link: 'https://makerdao.com', desc: 'Комиссия стабильности залога', descEn: 'Collateral stability fee' },
+                { id: 16, categoryId: 'lending', name: 'Morpho Supply', apy: '10.5', period: '7d', status: 'active', link: 'https://morpho.org', desc: 'Оптимизированные ставки лендинга', descEn: 'Optimized lending rates' },
+                { id: 17, categoryId: 'yield-tokens', name: 'eUSDC (Ethena)', apy: '13.4', period: '7d', status: 'active', link: 'https://ethena.fi', desc: 'Доходность синтетического стейблкоина', descEn: 'Synthetic stablecoin yield' }
+            ]
+        };
+
+        let currentView = 'grid';
+        let currentSort = 'apy-desc';
+        let currentCategory = null;
+        let allTools = [];
+        let categories = [];
+
+        // ========== INIT ==========
+        window.addEventListener('DOMContentLoaded', function() {
+            currentLang = localStorage.getItem('defilabs-lang') || 'ru';
+            loadData().then(function() {
+                applyLang();
+                setupEventListeners();
+            });
+            document.querySelectorAll('.lang-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    currentLang = btn.getAttribute('data-lang');
+                    localStorage.setItem('defilabs-lang', currentLang);
+                    applyLang();
+                });
+            });
+            var mobileMenuBtn = document.getElementById('mobileMenuBtn');
+            var sidebar = document.getElementById('sidebar');
+            if (mobileMenuBtn && sidebar) {
+                mobileMenuBtn.addEventListener('click', function() { sidebar.classList.toggle('mobile-open'); });
+            }
+        });
+
+        function loadData() {
+            var apiUrl = (typeof DATA_API_URL === 'string' && DATA_API_URL.trim()) ? DATA_API_URL.trim() : '';
+            var useApi = apiUrl.length > 0 && apiUrl.indexOf('script.google.com') !== -1;
+
+            if (!useApi) {
+                try { document.getElementById('dataSourceIndicator').textContent = 'Данные: офлайн'; } catch (e) {}
+                categories = mockData.categories.slice();
+                allTools = mockData.tools.slice();
+                renderDashboard();
+                if (currentCategory) {
+                    var tools = allTools.filter(function(t){ return t.categoryId === currentCategory; });
+                    document.getElementById('categoryPageTitle').textContent = categoryName(currentCategory);
+                    document.getElementById('categoryPageDesc').textContent = categoryDesc(currentCategory);
+                    renderTools(tools);
+                    renderToolsTable(tools);
+                    renderChart(tools);
+                }
+                return Promise.resolve();
+            }
+
+            return new Promise(function(resolve) {
+                var resolved = false;
+                function done(fromApi) {
+                    if (resolved) return;
+                    resolved = true;
+                    try {
+                        var ind = document.getElementById('dataSourceIndicator');
+                        if (ind && !ind.textContent) ind.textContent = fromApi ? 'Данные: из таблицы' : 'Данные: офлайн';
+                    } catch (e) {}
+                    renderDashboard();
+                    if (currentCategory) {
+                        var tools = allTools.filter(function(t){ return t.categoryId === currentCategory; });
+                        document.getElementById('categoryPageTitle').textContent = categoryName(currentCategory);
+                        document.getElementById('categoryPageDesc').textContent = categoryDesc(currentCategory);
+                        renderTools(tools);
+                        renderToolsTable(tools);
+                        renderChart(tools);
+                    }
+                    resolve();
+                }
+                window.__defilabsDataCallback = function(data) {
+                    if (window.__defilabsDataCallbackTimeout) window.__defilabsDataCallbackTimeout();
+                    if (data && data.categories && data.categories.length) categories = data.categories;
+                    else categories = mockData.categories.slice();
+                    if (data && data.tools && Array.isArray(data.tools)) allTools = data.tools;
+                    else allTools = mockData.tools.slice();
+                    var fromApi = categories.length > 0 || allTools.length > 0;
+                    if (data && data.error) console.warn('DeFi Navigator: ошибка таблицы', data.error);
+                    else console.log('DeFi Navigator: данные загружены из таблицы', { categories: categories.length, tools: allTools.length });
+                    try {
+                        var ind = document.getElementById('dataSourceIndicator');
+                        ind.textContent = fromApi ? 'Данные: из таблицы' : (data && data.error ? 'Данные: ошибка' : 'Данные: офлайн');
+                    } catch (e) {}
+                    done(true);
+                };
+                var sep = apiUrl.indexOf('?') >= 0 ? '&' : '?';
+                var script = document.createElement('script');
+                script.src = apiUrl + sep + 'callback=__defilabsDataCallback';
+                script.onerror = function() {
+                    console.warn('DeFi Navigator: запрос к API не удался, используются резервные данные.');
+                    categories = mockData.categories.slice();
+                    allTools = mockData.tools.slice();
+                    done(false);
+                };
+                var timeout = setTimeout(function() {
+                    if (resolved) return;
+                    console.warn('DeFi Navigator: таймаут загрузки данных, используются резервные данные.');
+                    categories = mockData.categories.slice();
+                    allTools = mockData.tools.slice();
+                    done(false);
+                }, 12000);
+                window.__defilabsDataCallbackTimeout = function() { clearTimeout(timeout); };
+                document.head.appendChild(script);
+            });
+        }
+
+        function setupEventListeners() {
+            document.getElementById('searchBox').addEventListener('input', handleSearch);
+        }
+
+        // ========== DASHBOARD RENDERING ==========
+        function renderDashboard() {
+            renderHeatmap();
+            renderCategoriesGrid();
+            renderSidebar();
+        }
+
+        function renderHeatmap() {
+            const topTools = [...allTools]
+                .sort((a, b) => parseFloat(b.apy) - parseFloat(a.apy))
+                .slice(0, 12);
+
+            const container = document.getElementById('heatmapContainer');
+            container.innerHTML = topTools.map(tool => {
+                const category = getCategories().find(function(c){ return c.id === tool.categoryId; });
+                const apy = parseFloat(tool.apy);
+                let sizeClass = 'heatmap-low';
+                if (apy > 20) sizeClass = 'heatmap-very-high';
+                else if (apy > 15) sizeClass = 'heatmap-high';
+                else if (apy > 10) sizeClass = 'heatmap-medium';
+
+                return `
+                    <a href="#" class="heatmap-block ${sizeClass}" onclick="showCategory('${tool.categoryId}'); return false;">
+                        <div class="heatmap-name">${tool.name}</div>
+                        <div class="heatmap-apy">${formatOneDecimal(tool.apy)}%</div>
+                    </a>
+                `;
+            }).join('');
+        }
+
+        function renderCategoriesGrid() {
+            const container = document.getElementById('categoriesGrid');
+            container.innerHTML = getCategories().map(function(cat){
+                const toolCount = allTools.filter(function(t){ return t.categoryId === cat.id; }).length;
+                const avgApy = toolCount ? allTools
+                    .filter(function(t){ return t.categoryId === cat.id; })
+                    .reduce(function(sum, t){ return sum + parseFloat(t.apy); }, 0) / toolCount : 0;
+
+                return `
+                    <div class="category-card" onclick="showCategory('${cat.id}')">
+                        <div class="category-icon">${cat.icon}</div>
+                        <div class="category-name">${categoryName(cat.id)}</div>
+                        <div class="category-desc">${categoryDesc(cat.id)}</div>
+                        <div class="category-stats">
+                            <div class="stat-badge">📊 ${toolCount} ${t('toolsCount')}</div>
+                            <div class="stat-badge">💰 ${t('avgApy')} ${formatOneDecimal(avgApy)}%</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderSidebar() {
+            const container = document.getElementById('categoriesSidebar');
+            container.innerHTML = getCategories().map(function(cat){
+                const toolCount = allTools.filter(function(t){ return t.categoryId === cat.id; }).length;
+                return `
+                    <div class="sidebar-item" data-category-id="${cat.id}" onclick="showCategory('${cat.id}')">
+                        <span class="sidebar-item-icon">${cat.icon}</span>
+                        <span>${categoryName(cat.id)}</span>
+                        <span class="sidebar-item-count">${toolCount}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // ========== SCROLL TO ACTIVE VIEW (единая точка прокрутки при любом переходе) ==========
+        function scrollToActiveView() {
+            var content = document.querySelector('.content');
+            var activePage = document.getElementById('categoryPage').classList.contains('active')
+                ? document.getElementById('categoryPage')
+                : document.getElementById('dashboardPage');
+            if (content) content.scrollTop = 0;
+            window.scrollTo(0, 0);
+            document.documentElement.scrollTop = 0;
+            document.body.scrollTop = 0;
+            if (activePage) activePage.scrollIntoView({ behavior: 'auto', block: 'start', inline: 'nearest' });
+        }
+
+        function scheduleScrollToActiveView() {
+            requestAnimationFrame(function() {
+                requestAnimationFrame(function() {
+                    scrollToActiveView();
+                });
+            });
+        }
+
+        // ========== CATEGORY PAGE ==========
+        function showCategory(categoryId) {
+            currentCategory = categoryId;
+            const category = getCategories().find(function(c){ return c.id === categoryId; });
+            const tools = allTools.filter(function(t){ return t.categoryId === categoryId; });
+
+            document.getElementById('dashboardPage').classList.remove('active');
+            document.getElementById('categoryPage').classList.add('active');
+
+            document.getElementById('categoryPageTitle').textContent = categoryName(categoryId);
+            document.getElementById('categoryPageDesc').textContent = categoryDesc(categoryId);
+
+            renderTools(tools);
+            renderToolsTable(tools);
+            renderChart(tools);
+
+            document.querySelectorAll('.sidebar-item').forEach(item => {
+                item.classList.remove('active');
+                if (item.getAttribute('data-category-id') === categoryId) item.classList.add('active');
+            });
+            document.querySelector('.sidebar-item:first-child').classList.remove('active');
+
+            document.getElementById('sidebar').classList.remove('mobile-open');
+            scheduleScrollToActiveView();
+        }
+
+        function toolDesc(tool) {
+            return currentLang === 'ru' ? tool.desc : (tool.descEn || tool.desc);
+        }
+        function statusLabel(s) {
+            return s === 'active' ? t('active') : t('warning');
+        }
+
+        function renderTools(tools) {
+            const sorted = sortTools(tools);
+            const container = document.getElementById('toolsGrid');
+            container.innerHTML = sorted.map(tool => `
+                <div class="tool-card">
+                    <div class="tool-header">
+                        <div class="tool-name">${tool.name}</div>
+                        <div class="tool-apy">${formatOneDecimal(tool.apy)}%</div>
+                    </div>
+                    <div class="tool-meta">📊 ${t('period')}: ${tool.period} • ${t('status')}: ${statusLabel(tool.status)}</div>
+                    <div class="tool-desc">${toolDesc(tool)}</div>
+                    <div class="tool-footer">
+                        <a href="${tool.link}" target="_blank" class="tool-link">${t('visitProtocol')}</a>
+                        <button class="tool-link tool-secondary">${t('addToPortfolio')}</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderToolsTable(tools) {
+            const sorted = sortTools(tools);
+            const tbody = document.getElementById('toolsTableBody');
+            tbody.innerHTML = sorted.map(tool => `
+                <tr>
+                    <td>${tool.name}</td>
+                    <td class="apy-cell">${formatOneDecimal(tool.apy)}%</td>
+                    <td>${tool.period}</td>
+                    <td><span class="status-badge status-${tool.status}">${statusLabel(tool.status)}</span></td>
+                    <td><a href="${tool.link}" target="_blank" class="tool-link">${t('open')}</a></td>
+                </tr>
+            `).join('');
+        }
+
+        function renderChart(tools) {
+            const sorted = sortTools(tools);
+            const ctx = document.getElementById('categoryChart');
+            
+            if (window.categoryChartInstance) {
+                window.categoryChartInstance.destroy();
+            }
+
+            window.categoryChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: sorted.map(t => t.name),
+                    datasets: [{
+                        label: t('chartApyLabel'),
+                        data: sorted.map(t => parseFloat(t.apy)),
+                        backgroundColor: sorted.map(t => {
+                            const apy = parseFloat(t.apy);
+                            if (apy > 20) return 'rgba(243, 95, 96, 0.6)';
+                            if (apy > 15) return 'rgba(47, 128, 237, 0.6)';
+                            if (apy > 10) return 'rgba(242, 201, 76, 0.6)';
+                            return 'rgba(39, 174, 96, 0.6)';
+                        }),
+                        borderColor: 'rgba(255, 255, 255, 0.1)',
+                        borderWidth: 1,
+                        borderRadius: 8,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: sorted.length > 8 ? 'y' : 'x',
+                    scales: {
+                        x: {
+                            ticks: {
+                                color: '#A0A3A8',
+                                callback: function(value) { return formatOneDecimal(value); }
+                            },
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                        },
+                        y: {
+                            ticks: {
+                                color: '#A0A3A8',
+                                callback: function(value) { return formatOneDecimal(value); }
+                            },
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                        }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#E8EAED', font: { size: 12 } } },
+                        tooltip: {
+                            callbacks: {
+                                label: function(ctx) { return (ctx.dataset.label || '') + ': ' + formatOneDecimal(ctx.raw) + '%'; }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function sortTools(tools) {
+            const copy = [...tools];
+            if (currentSort === 'apy-desc') {
+                return copy.sort((a, b) => parseFloat(b.apy) - parseFloat(a.apy));
+            } else if (currentSort === 'name') {
+                return copy.sort((a, b) => a.name.localeCompare(b.name));
+            }
+            return copy;
+        }
+
+        // ========== CONTROLS ==========
+        function showDashboard() {
+            document.getElementById('dashboardPage').classList.add('active');
+            document.getElementById('categoryPage').classList.remove('active');
+            document.querySelectorAll('.sidebar-item').forEach(item => item.classList.remove('active'));
+            var first = document.querySelector('.sidebar-section:first-child .sidebar-item');
+            if (first) first.classList.add('active');
+            document.getElementById('sidebar').classList.remove('mobile-open');
+            scheduleScrollToActiveView();
+        }
+
+        function setView(view) {
+            currentView = view;
+            if (view === 'grid') {
+                document.getElementById('gridView').classList.remove('hidden');
+                document.getElementById('tableView').classList.add('hidden');
+            } else {
+                document.getElementById('gridView').classList.add('hidden');
+                document.getElementById('tableView').classList.remove('hidden');
+            }
+            document.querySelectorAll('.filter-btn').forEach((btn, i) => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+        }
+
+        function setSortBy(sort) {
+            currentSort = sort;
+            if (currentCategory) {
+                const tools = allTools.filter(t => t.categoryId === currentCategory);
+                renderTools(tools);
+                renderToolsTable(tools);
+                renderChart(tools);
+            }
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+        }
+
+        function handleSearch(e) {
+            const query = e.target.value.toLowerCase();
+            const filtered = allTools.filter(t => 
+                t.name.toLowerCase().includes(query) ||
+                t.desc.toLowerCase().includes(query)
+            );
+            
+            if (currentCategory) {
+                renderTools(filtered.filter(t => t.categoryId === currentCategory));
+            } else {
+                renderHeatmap();
+            }
+        }
+
+        function refreshData() {
+            document.body.style.opacity = '0.5';
+            loadData().then(function() {
+                if (currentCategory) {
+                    var tools = allTools.filter(function(t){ return t.categoryId === currentCategory; });
+                    document.getElementById('categoryPageTitle').textContent = categoryName(currentCategory);
+                    document.getElementById('categoryPageDesc').textContent = categoryDesc(currentCategory);
+                    renderTools(tools);
+                    renderToolsTable(tools);
+                    renderChart(tools);
+                }
+                document.body.style.opacity = '1';
+            }).catch(function() { document.body.style.opacity = '1'; });
+        }
+    </script>
+</body>
+</html>
