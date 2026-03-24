@@ -2,7 +2,7 @@
 <html lang="ru" id="htmlRoot">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>DeFi Labs Navigator — Обзор инвестиционных стратегий</title>
     <style>
         * {
@@ -75,6 +75,47 @@
             align-items: center;
             flex-shrink: 0;
             min-width: 0;
+        }
+
+        .data-source-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            max-width: min(260px, 36vw);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex-shrink: 1;
+            transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+        }
+
+        .data-source-badge.ok {
+            background: rgba(39, 174, 96, 0.14);
+            border: 1px solid rgba(39, 174, 96, 0.45);
+            color: #8be9a8;
+        }
+
+        .data-source-badge.ok .data-source-check {
+            color: #27AE60;
+            font-size: 13px;
+            line-height: 1;
+        }
+
+        .data-source-badge.warn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+
+        .data-source-badge.err {
+            background: rgba(231, 76, 60, 0.1);
+            border: 1px solid rgba(231, 76, 60, 0.35);
+            color: #f5a5a0;
         }
 
         .search-box {
@@ -279,8 +320,72 @@
             font-size: 12px;
             font-weight: 600;
             text-align: center;
-            margin-bottom: 6px;
+            margin-bottom: 4px;
             z-index: 1;
+            line-height: 1.2;
+            padding: 0 4px;
+        }
+
+        .heatmap-pair-wrap {
+            font-size: 9px;
+            text-align: center;
+            margin-bottom: 4px;
+            z-index: 1;
+            line-height: 1.2;
+            padding: 0 4px;
+            max-width: 100%;
+        }
+
+        .heatmap-pair-lbl {
+            color: rgba(255, 255, 255, 0.65);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .heatmap-pair-val {
+            font-size: 11px;
+            font-weight: 800;
+            color: rgba(255, 255, 255, 0.98);
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+            display: block;
+            margin-top: 2px;
+            word-break: break-word;
+        }
+
+        .heatmap-pair {
+            font-size: 10px;
+            font-weight: 700;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.92);
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+            margin-bottom: 4px;
+            z-index: 1;
+            line-height: 1.15;
+            padding: 0 4px;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+        }
+
+        .heatmap-meta {
+            font-size: 9px;
+            font-weight: 600;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.78);
+            margin-bottom: 4px;
+            z-index: 1;
+            line-height: 1.2;
+            padding: 0 4px;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
         }
 
         .heatmap-apy {
@@ -512,11 +617,39 @@
             z-index: 1;
         }
 
+        .tool-title-block {
+            flex: 1;
+            min-width: 0;
+        }
+
         .tool-name {
             font-size: 16px;
             font-weight: 700;
             position: relative;
             z-index: 1;
+        }
+
+        .tool-pair {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--accent-bright);
+            margin-top: 6px;
+            letter-spacing: 0.02em;
+            line-height: 1.35;
+        }
+
+        .tool-pair-prefix {
+            color: var(--text-secondary);
+            font-weight: 700;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-right: 4px;
+        }
+
+        .tool-pair-value {
+            font-weight: 700;
+            color: var(--accent-bright);
         }
 
         .tool-apy {
@@ -531,7 +664,7 @@
         .tool-meta {
             font-size: 12px;
             color: var(--text-secondary);
-            margin-bottom: 12px;
+            margin-bottom: 16px;
             position: relative;
             z-index: 1;
         }
@@ -539,7 +672,7 @@
         .tool-desc {
             font-size: 13px;
             color: var(--text-secondary);
-            margin-bottom: 16px;
+            margin-bottom: 10px;
             flex-grow: 1;
             position: relative;
             z-index: 1;
@@ -547,9 +680,15 @@
 
         .tool-footer {
             display: flex;
+            flex-direction: row;
+            flex-wrap: wrap;
             gap: 8px;
             position: relative;
             z-index: 1;
+        }
+
+        .tool-footer .tool-link {
+            min-width: min(100%, 140px);
         }
 
         .tool-link {
@@ -582,6 +721,246 @@
         .tool-secondary:hover {
             background: rgba(255, 255, 255, 0.1);
             border-color: var(--accent);
+        }
+
+        .tool-fav-btn.fav-active {
+            border-color: rgba(242, 201, 76, 0.5);
+            background: rgba(242, 201, 76, 0.12);
+            color: var(--warning);
+        }
+
+        /* Favorites panel (session / device via localStorage) */
+        .favorites-fab {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 1100;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 16px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: linear-gradient(135deg, rgba(31, 41, 88, 0.95) 0%, rgba(10, 14, 39, 0.98) 100%);
+            color: var(--text-primary);
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: var(--shadow);
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+
+        .favorites-fab:hover {
+            transform: translateY(-2px);
+            border-color: var(--accent);
+        }
+
+        .favorites-fab-count {
+            min-width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: var(--white);
+            font-size: 11px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+        }
+
+        .favorites-panel {
+            position: fixed;
+            inset: 0;
+            z-index: 1200;
+            background: rgba(0, 0, 0, 0.55);
+            backdrop-filter: blur(4px);
+            display: none;
+            align-items: flex-end;
+            justify-content: flex-end;
+            padding: 16px;
+        }
+
+        .favorites-panel.open {
+            display: flex;
+        }
+
+        .favorites-panel-inner {
+            width: min(420px, 100%);
+            max-height: min(80vh, 640px);
+            background: var(--primary-light);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .favorites-panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 18px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(10, 14, 39, 0.6);
+        }
+
+        .favorites-panel-head h3 {
+            font-size: 17px;
+            font-weight: 800;
+            margin: 0;
+        }
+
+        .favorites-close {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            font-size: 22px;
+            line-height: 1;
+            cursor: pointer;
+        }
+
+        .favorites-close:hover {
+            border-color: var(--accent);
+        }
+
+        .favorites-hint {
+            font-size: 12px;
+            color: var(--text-secondary);
+            padding: 10px 18px 0;
+            margin: 0;
+        }
+
+        .favorites-list {
+            padding: 12px 16px 16px;
+            overflow-y: auto;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .fav-mini-card {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            position: relative;
+        }
+
+        .fav-mini-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .fav-mini-title {
+            font-weight: 700;
+            font-size: 14px;
+            line-height: 1.3;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .fav-mini-remove {
+            flex-shrink: 0;
+            width: 32px;
+            height: 32px;
+            padding: 0;
+            margin: 0;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-secondary);
+            font-size: 22px;
+            line-height: 1;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: border-color 0.2s, color 0.2s, background 0.2s;
+        }
+
+        .fav-mini-remove:hover {
+            border-color: rgba(243, 95, 96, 0.55);
+            color: #f35f60;
+            background: rgba(243, 95, 96, 0.12);
+        }
+
+        .fav-mini-pair {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--accent-bright);
+        }
+
+        .fav-mini-meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .fav-mini-desc {
+            font-size: 12px;
+            line-height: 1.45;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        .fav-mini-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .fav-mini-actions a,
+        .fav-mini-actions button {
+            flex: 1;
+            min-width: 120px;
+            text-align: center;
+            font-size: 11px;
+            padding: 8px 10px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            border: none;
+        }
+
+        .fav-mini-actions a {
+            background: var(--accent);
+            color: var(--white);
+        }
+
+        .fav-mini-actions button {
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .fav-mini-actions button:hover {
+            border-color: var(--accent);
+        }
+
+        .favorites-empty {
+            font-size: 13px;
+            color: var(--text-secondary);
+            text-align: center;
+            padding: 24px 12px;
+        }
+
+        @media (max-width: 768px) {
+            .favorites-fab {
+                bottom: 16px;
+                right: 16px;
+                padding: 10px 14px;
+                font-size: 12px;
+            }
         }
 
         /* TABLE VIEW */
@@ -692,9 +1071,10 @@
             margin-bottom: 20px;
         }
 
-        /* GUIDES SECTION */
+        /* GUIDES SECTION — скрыто до активации (разметку не удаляли) */
         .guides-section {
             margin-bottom: 40px;
+            display: none !important; /* REACTIVATE: убрать эту строку */
         }
 
         .guides-grid {
@@ -771,27 +1151,45 @@
         @media (max-width: 768px) {
             header {
                 padding: 10px 12px;
-                flex-wrap: nowrap;
+                padding-top: max(10px, env(safe-area-inset-top));
+                flex-wrap: wrap;
+                align-items: flex-start;
+                row-gap: 8px;
                 min-width: 0;
             }
             .header-logo {
                 flex-shrink: 1;
                 min-width: 0;
                 font-size: 16px;
+                max-width: calc(100% - 120px);
             }
             .header-controls {
-                flex-shrink: 0;
+                flex: 1;
+                flex-wrap: wrap;
+                justify-content: flex-end;
                 gap: 6px;
+                min-width: 0;
+            }
+            .data-source-badge {
+                flex-basis: 100%;
+                order: 10;
+                max-width: 100%;
+                justify-content: center;
+                font-size: 10px;
+                padding: 5px 10px;
+                white-space: normal;
+                text-align: center;
+                line-height: 1.25;
             }
             .header-controls .search-box {
-                width: 0;
-                min-width: 0;
-                padding: 8px 0;
-                border: none;
-                overflow: hidden;
-            }
-            .header-controls #dataSourceIndicator {
-                display: none;
+                flex: 1 1 120px;
+                min-width: 100px;
+                max-width: none;
+                width: auto;
+                padding: 8px 10px;
+                border: 1px solid var(--border);
+                overflow: visible;
+                font-size: 13px;
             }
             .lang-switcher .lang-btn {
                 padding: 4px 8px;
@@ -800,6 +1198,7 @@
             .refresh-btn {
                 padding: 8px 12px;
                 font-size: 12px;
+                flex-shrink: 0;
             }
 
             .main-wrapper {
@@ -811,9 +1210,11 @@
                 position: fixed;
                 left: 0;
                 top: 0;
-                width: 280px;
-                max-width: 85vw;
+                width: min(300px, 88vw);
+                max-width: 88vw;
                 height: 100vh;
+                height: 100dvh;
+                padding-top: env(safe-area-inset-top);
                 z-index: 1002;
                 border-right: none;
                 border-bottom: none;
@@ -836,7 +1237,7 @@
             }
 
             .content {
-                padding: 16px;
+                padding: 12px 12px max(20px, env(safe-area-inset-bottom));
                 width: 100%;
                 max-width: 100vw;
             }
@@ -849,15 +1250,41 @@
                 margin-right: auto;
             }
             .dashboard-title {
-                font-size: 24px;
+                font-size: 22px;
+                line-height: 1.2;
+            }
+            .dashboard-subtitle {
+                font-size: 14px;
+            }
+            .section-title {
+                font-size: 17px;
             }
             .category-page-title {
-                font-size: 22px;
+                font-size: 20px;
+                line-height: 1.25;
             }
             .heatmap-container {
-                grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+                grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
                 gap: 8px;
                 max-width: 100%;
+            }
+            .heatmap-block {
+                min-height: 0;
+            }
+            .heatmap-name {
+                font-size: 10px;
+            }
+            .heatmap-meta {
+                font-size: 8px;
+            }
+            .heatmap-pair-wrap {
+                font-size: 8px;
+            }
+            .heatmap-pair-val {
+                font-size: 10px;
+            }
+            .heatmap-apy {
+                font-size: clamp(14px, 4vw, 18px);
             }
             .category-grid {
                 grid-template-columns: 1fr;
@@ -866,32 +1293,83 @@
             .tools-grid {
                 grid-template-columns: 1fr;
                 max-width: 100%;
+                gap: 16px;
             }
             .tool-card {
                 max-width: 100%;
                 width: 100%;
             }
+            .tool-footer {
+                flex-direction: column;
+            }
+            .tool-footer .tool-link {
+                width: 100%;
+                min-width: 0;
+            }
+            .controls-bar {
+                gap: 8px;
+            }
+            .filter-btn {
+                padding: 8px 12px;
+                font-size: 12px;
+            }
             .table-view {
                 width: 100%;
                 max-width: 100%;
             }
+            .table-wrapper {
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior-x: contain;
+            }
             .chart-section {
                 width: 100%;
                 max-width: 100%;
-                padding: 16px;
+                padding: 12px;
+                margin-left: -4px;
+                margin-right: -4px;
+            }
+            .chart-title {
+                font-size: 16px;
+                margin-bottom: 12px;
             }
             .chart-container {
-                height: 280px;
+                min-height: 260px;
             }
             .guides-grid {
                 max-width: 100%;
             }
 
             table {
-                font-size: 12px;
+                font-size: 11px;
             }
             th, td {
-                padding: 12px 16px;
+                padding: 10px 12px;
+            }
+            .favorites-fab {
+                bottom: max(16px, env(safe-area-inset-bottom));
+                right: max(12px, env(safe-area-inset-right));
+                padding: 10px 14px;
+                font-size: 12px;
+                max-width: calc(100vw - 24px);
+            }
+            .favorites-panel {
+                padding: 8px;
+                padding-bottom: max(8px, env(safe-area-inset-bottom));
+            }
+            .favorites-panel-inner {
+                max-height: min(85dvh, 640px);
+                width: 100%;
+            }
+        }
+
+        @media (max-width: 380px) {
+            .header-controls .search-box {
+                flex: 1 1 100%;
+                order: 4;
+                max-width: 100%;
+            }
+            .data-source-badge {
+                font-size: 9px;
             }
         }
 
@@ -972,7 +1450,7 @@
                 <button type="button" class="lang-btn" data-lang="en">EN</button>
                 <button type="button" class="lang-btn active" data-lang="ru">RU</button>
             </div>
-            <span id="dataSourceIndicator" style="font-size:11px;color:var(--text-secondary);max-width:120px;overflow:hidden;text-overflow:ellipsis;" title="Источник данных"></span>
+            <span id="dataSourceIndicator" class="data-source-badge warn" role="status" title=""></span>
             <input type="text" class="search-box" id="searchBox" placeholder="" data-i18n-placeholder="searchPlaceholder">
             <button class="refresh-btn" onclick="refreshData()" data-i18n="refreshBtn">↻ Обновить</button>
             <button type="button" class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Menu">☰</button>
@@ -1034,7 +1512,7 @@
                     <button class="filter-btn active" onclick="setView('grid')" data-i18n="gridView">🔲 Сетка</button>
                     <button class="filter-btn" onclick="setView('table')" data-i18n="tableView">📊 Таблица</button>
                     <button class="filter-btn" onclick="setSortBy('apy-desc')" data-i18n="topApy">По APY</button>
-                    <button class="filter-btn" onclick="setSortBy('name')">A–Я</button>
+                    <button class="filter-btn" onclick="setSortBy('name')" data-i18n="sortByName">A–Я</button>
                 </div>
 
                 <div id="gridView">
@@ -1050,9 +1528,9 @@
                                 <thead>
                                     <tr>
                                         <th data-i18n="thInstrument">Инструмент</th>
+                                        <th data-i18n="thPair">Пара</th>
                                         <th>APY</th>
                                         <th data-i18n="thPeriod">Период</th>
-                                        <th data-i18n="thStatus">Статус</th>
                                         <th data-i18n="thAction">Действие</th>
                                     </tr>
                                 </thead>
@@ -1100,8 +1578,31 @@
         </div>
     </div>
 
+    <button type="button" class="favorites-fab" id="favoritesFab" aria-label="">
+        <span aria-hidden="true">⭐</span>
+        <span data-i18n="favoritesShort">Избранное</span>
+        <span class="favorites-fab-count" id="favoritesFabCount">0</span>
+    </button>
+
+    <div class="favorites-panel" id="favoritesPanel" aria-hidden="true" role="dialog">
+        <div class="favorites-panel-inner">
+            <div class="favorites-panel-head">
+                <h3 data-i18n="favoritesTitle">Избранные стратегии</h3>
+                <button type="button" class="favorites-close" id="favoritesClose" data-i18n-aria="favoritesCloseAria">×</button>
+            </div>
+            <p class="favorites-hint" data-i18n="favoritesHint">Сохраняется в этом браузере на этом устройстве.</p>
+            <div class="favorites-list" id="favoritesList"></div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
     <script>
+        try {
+            if (typeof Chart !== 'undefined' && typeof ChartDataLabels !== 'undefined') {
+                Chart.register(ChartDataLabels);
+            }
+        } catch (e) { console.warn('ChartDataLabels register', e); }
         // ========== I18N ==========
         let currentLang = localStorage.getItem('defilabs-lang') || 'ru';
 
@@ -1121,7 +1622,10 @@
                 gridView: '🔲 Сетка',
                 tableView: '📊 Таблица',
                 topApy: 'По APY',
+                sortByName: 'А-Я',
                 thInstrument: 'Инструмент',
+                thPair: 'Пара',
+                pairLabel: 'Пара:',
                 thPeriod: 'Период',
                 thStatus: 'Статус',
                 thAction: 'Действие',
@@ -1140,13 +1644,31 @@
                 avgApy: 'Средн. APY',
                 period: 'Период',
                 status: 'Статус',
-                visitProtocol: 'Перейти на протокол',
-                addToPortfolio: 'В портфель',
+                visitPosition: 'Перейти к позиции',
+                addToFavorites: 'В избранное',
+                removeFromFavorites: 'Убрать из избранного',
+                favoritesTitle: 'Избранные стратегии',
+                favoritesShort: 'Избранное',
+                favoritesHint: 'Сохраняется в этом браузере на этом устройстве. Очистка данных сайта сбросит список.',
+                favoritesEmpty: 'Пока пусто — нажмите «В избранное» на карточке позиции.',
+                favoritesCloseAria: 'Закрыть панель избранного',
+                favoritesRemoveAria: 'Удалить из избранного',
+                favoritesOpenCategory: 'К направлению',
                 open: 'Открыть →',
                 active: 'Активно',
                 warning: 'Внимание',
-                chartApyLabel: 'APY (%)',
-                titleTag: 'DeFi Labs Navigator — Обзор инвестиционных стратегий'
+                chartApyLabel: '',
+                titleTag: 'DeFi Labs Навигатор — Обзор инвестиционных стратегий',
+                dataSourceOffline: 'Офлайн-режим',
+                dataSourceUpdated: 'Данные обновлены',
+                dataSourceError: 'Ошибка загрузки',
+                tooltipApyLine: 'APY',
+                tooltipPlatform: 'Платформа',
+                tooltipInstrument: 'Инструмент',
+                tooltipPair: 'Пара',
+                tooltipFee: 'Комиссия',
+                tooltipChain: 'Сеть',
+                tooltipDesc: 'Описание'
             },
             en: {
                 logo: 'DeFi Labs',
@@ -1163,7 +1685,10 @@
                 gridView: '🔲 Grid View',
                 tableView: '📊 Table View',
                 topApy: 'Top APY',
+                sortByName: 'A-Z',
                 thInstrument: 'Instrument',
+                thPair: 'Pair',
+                pairLabel: 'Pair:',
                 thPeriod: 'Period',
                 thStatus: 'Status',
                 thAction: 'Action',
@@ -1182,21 +1707,39 @@
                 avgApy: 'Avg APY',
                 period: 'Period',
                 status: 'Status',
-                visitProtocol: 'Visit Protocol',
-                addToPortfolio: 'Add to Portfolio',
+                visitPosition: 'Go to position',
+                addToFavorites: 'Add to favorites',
+                removeFromFavorites: 'Remove from favorites',
+                favoritesTitle: 'Saved strategies',
+                favoritesShort: 'Favorites',
+                favoritesHint: 'Stored in this browser on this device. Clearing site data will reset the list.',
+                favoritesEmpty: 'Nothing saved yet — tap “Add to favorites” on a position card.',
+                favoritesCloseAria: 'Close favorites panel',
+                favoritesRemoveAria: 'Remove from favorites',
+                favoritesOpenCategory: 'Open category',
                 open: 'Open →',
                 active: 'Active',
                 warning: 'Warning',
-                chartApyLabel: 'APY (%)',
-                titleTag: 'DeFi Labs Navigator - Investment Strategy Explorer'
+                chartApyLabel: '',
+                titleTag: 'DeFi Labs Navigator - Investment Strategy Explorer',
+                dataSourceOffline: 'Offline mode',
+                dataSourceUpdated: 'Data refreshed',
+                dataSourceError: 'Load error',
+                tooltipApyLine: 'APY',
+                tooltipPlatform: 'Platform',
+                tooltipInstrument: 'Instrument',
+                tooltipPair: 'Pair',
+                tooltipFee: 'Fee tier',
+                tooltipChain: 'Network',
+                tooltipDesc: 'Description'
             }
         };
 
         const categoryNames = {
             ru: {
                 stables: 'Стейблкоин-стратегии',
-                ethereum: 'Пуллы Ethereum',
-                bitcoin: 'Обёрнутый Bitcoin',
+                ethereum: 'Пулы Ethereum',
+                bitcoin: 'Пулы Bitcoin',
                 looping: 'Стратегии с плечом',
                 lending: 'Лендинг-протоколы',
                 'yield-tokens': 'Токены с доходностью'
@@ -1204,7 +1747,7 @@
             en: {
                 stables: 'Stablecoin Strategies',
                 ethereum: 'Ethereum Pools',
-                bitcoin: 'Bitcoin Wrapped',
+                bitcoin: 'Bitcoin Pools',
                 looping: 'Looping Strategies',
                 lending: 'Lending Protocols',
                 'yield-tokens': 'Yield Tokens'
@@ -1215,7 +1758,7 @@
             ru: {
                 stables: 'Консервативные стратегии на стейблкоинах, привязанных к доллару',
                 ethereum: 'Ликвидность в пулах на блокчейне Ethereum',
-                bitcoin: 'Доходность от обёрнутого BTC в DeFi',
+                bitcoin: 'Инструменты ликвидности и доходности в пулах Bitcoin',
                 looping: 'Плечо и рекурсивные стратегии',
                 lending: 'Пассивное кредитование и награды за поставку ликвидности',
                 'yield-tokens': 'Стратегии с доходными токенами'
@@ -1237,14 +1780,303 @@
             if (typeof window !== 'undefined' && window.innerWidth <= 768 && n >= 100) return Math.round(n).toString();
             return (Math.round(n * 10) / 10).toFixed(1);
         }
-        function getCategories() { return categories.length ? categories : mockData.categories; }
+        const VISIBLE_CATEGORY_IDS = ['ethereum', 'bitcoin'];
+
+        function getAllCategories() { return categories.length ? categories : mockData.categories; }
+        function getCategories() {
+            return getAllCategories().filter(function(c){ return VISIBLE_CATEGORY_IDS.indexOf(c.id) !== -1; });
+        }
+        function getVisibleTools() {
+            return allTools.filter(function(t){ return VISIBLE_CATEGORY_IDS.indexOf(t.categoryId) !== -1; });
+        }
         function categoryName(id) {
-            var cat = getCategories().find(function(c){ return c.id === id; });
-            return cat ? cat.name : (categoryNames[currentLang][id] || id);
+            if (categoryNames[currentLang] && categoryNames[currentLang][id]) return categoryNames[currentLang][id];
+            var cat = getAllCategories().find(function(c){ return c.id === id; });
+            return cat ? cat.name : id;
         }
         function categoryDesc(id) {
-            var cat = getCategories().find(function(c){ return c.id === id; });
-            return cat ? cat.description : (categoryDescs[currentLang][id] || '');
+            if (categoryDescs[currentLang] && categoryDescs[currentLang][id]) return categoryDescs[currentLang][id];
+            var cat = getAllCategories().find(function(c){ return c.id === id; });
+            return cat ? cat.description : '';
+        }
+
+        var FAV_STORAGE_KEY = 'defilabs-favorites';
+
+        function normalizeTool(t) {
+            if (!t || typeof t !== 'object') return t;
+            var o = Object.assign({}, t);
+            var rawPair = o.pair;
+            if (rawPair == null || String(rawPair).trim() === '') {
+                rawPair = o.Pair || o.PAIR || o.currency_pair || o.currencyPair || '';
+            }
+            o.pair = (rawPair != null && String(rawPair).trim() !== '') ? String(rawPair).trim() : '';
+            o.platform = (o.platform != null && String(o.platform).trim() !== '') ? String(o.platform).trim() : '';
+            o.fee = (o.fee != null && String(o.fee).trim() !== '') ? String(o.fee).trim() : '';
+            o.chain = (o.chain != null && String(o.chain).trim() !== '') ? String(o.chain).trim() : '';
+            o.link = (o.link != null && String(o.link).trim() !== '') ? String(o.link).trim() : '#';
+            if (!o.descEn) o.descEn = o.desc || '';
+            return o;
+        }
+
+        function normalizeToolsList(arr) {
+            if (!arr || !Array.isArray(arr)) return [];
+            return arr.map(normalizeTool);
+        }
+
+        function escapeHtml(s) {
+            if (s == null) return '';
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function toolKey(tool) {
+            return String(tool.id) + '|' + (tool.categoryId || '') + '|' + (tool.name || '') + '|' + (tool.link || '');
+        }
+
+        function snapshotTool(tool) {
+            return {
+                key: toolKey(tool),
+                id: tool.id,
+                categoryId: tool.categoryId,
+                name: tool.name || '',
+                pair: tool.pair || '',
+                apy: tool.apy,
+                link: tool.link || '#',
+                period: tool.period || '',
+                status: tool.status || 'active',
+                desc: tool.desc || '',
+                descEn: tool.descEn != null ? tool.descEn : (tool.desc || '')
+            };
+        }
+
+        function favoriteItemDescriptionHtml(item) {
+            var d = '';
+            if (currentLang === 'ru') {
+                d = (item.desc || '').trim();
+            } else {
+                d = (item.descEn || item.desc || '').trim();
+            }
+            if (!d && typeof allTools !== 'undefined' && allTools && allTools.length) {
+                var live = allTools.find(function(t) { return toolKey(t) === item.key; });
+                if (live && typeof toolDesc === 'function') d = String(toolDesc(live) || '').trim();
+            }
+            if (!d) return '';
+            return '<div class="fav-mini-desc">' + escapeHtml(d) + '</div>';
+        }
+
+        function getFavoritesList() {
+            try {
+                var raw = localStorage.getItem(FAV_STORAGE_KEY);
+                if (!raw) return [];
+                var arr = JSON.parse(raw);
+                return Array.isArray(arr) ? arr : [];
+            } catch (e) {
+                return [];
+            }
+        }
+
+        function saveFavoritesList(arr) {
+            try {
+                localStorage.setItem(FAV_STORAGE_KEY, JSON.stringify(arr));
+            } catch (e) {}
+        }
+
+        function isFavorite(tool) {
+            var k = toolKey(tool);
+            return getFavoritesList().some(function(x) { return x.key === k; });
+        }
+
+        function toggleFavorite(tool) {
+            var list = getFavoritesList();
+            var snap = snapshotTool(tool);
+            var idx = list.findIndex(function(x) { return x.key === snap.key; });
+            if (idx >= 0) list.splice(idx, 1);
+            else list.push(snap);
+            saveFavoritesList(list);
+            updateFavoritesUI();
+            if (currentCategory) {
+                var tools = getVisibleTools().filter(function(t) { return t.categoryId === currentCategory; });
+                renderTools(tools);
+                renderToolsTable(tools);
+                renderChart(tools);
+            }
+        }
+
+        function removeFavoriteByKey(key) {
+            if (!key) return;
+            var list = getFavoritesList().filter(function(x) { return x.key !== key; });
+            saveFavoritesList(list);
+            updateFavoritesUI();
+            if (currentCategory) {
+                var tools = getVisibleTools().filter(function(t) { return t.categoryId === currentCategory; });
+                renderTools(tools);
+                renderToolsTable(tools);
+                renderChart(tools);
+            }
+        }
+
+        function updateFavoritesUI() {
+            var cnt = document.getElementById('favoritesFabCount');
+            if (cnt) cnt.textContent = String(getFavoritesList().length);
+            var fab = document.getElementById('favoritesFab');
+            if (fab && typeof t === 'function') fab.setAttribute('aria-label', t('favoritesTitle'));
+            renderFavoritesPanelContent();
+        }
+
+        function renderFavoritesPanelContent() {
+            var box = document.getElementById('favoritesList');
+            if (!box) return;
+            var list = getFavoritesList();
+            if (list.length === 0) {
+                box.innerHTML = '<div class="favorites-empty">' + escapeHtml(t('favoritesEmpty')) + '</div>';
+                return;
+            }
+            box.innerHTML = list.map(function(item) {
+                var pairLine = '<div class="fav-mini-pair">' + escapeHtml(t('pairLabel')) + ' ' + escapeHtml(item.pair || '—') + '</div>';
+                var descBlock = favoriteItemDescriptionHtml(item);
+                var removeAria = typeof t === 'function' ? t('favoritesRemoveAria') : 'Удалить из избранного';
+                return (
+                    '<div class="fav-mini-card" data-fav-key="' + escapeHtml(item.key) + '">' +
+                    '<div class="fav-mini-head">' +
+                    '<div class="fav-mini-title">' + escapeHtml(item.name) + '</div>' +
+                    '<button type="button" class="fav-mini-remove" data-fav-key="' + escapeHtml(item.key) + '" aria-label="' + escapeHtml(removeAria) + '" title="' + escapeHtml(removeAria) + '">×</button>' +
+                    '</div>' +
+                    pairLine +
+                    descBlock +
+                    '<div class="fav-mini-meta">' + escapeHtml(categoryName(item.categoryId)) + ' · APY ' + formatOneDecimal(item.apy) + '%</div>' +
+                    '<div class="fav-mini-actions">' +
+                    '<a href="' + escapeHtml(item.link) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(t('visitPosition')) + '</a>' +
+                    '<button type="button" class="fav-open-category" data-cat="' + escapeHtml(item.categoryId) + '">' + escapeHtml(t('favoritesOpenCategory')) + '</button>' +
+                    '</div></div>'
+                );
+            }).join('');
+            box.querySelectorAll('.fav-open-category').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var cid = btn.getAttribute('data-cat');
+                    closeFavoritesPanel();
+                    if (cid) showCategory(cid);
+                });
+            });
+            box.querySelectorAll('.fav-mini-remove').forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    var k = btn.getAttribute('data-fav-key');
+                    removeFavoriteByKey(k);
+                });
+            });
+        }
+
+        function openFavoritesPanel() {
+            var p = document.getElementById('favoritesPanel');
+            if (!p) return;
+            renderFavoritesPanelContent();
+            p.classList.add('open');
+            p.setAttribute('aria-hidden', 'false');
+        }
+
+        function closeFavoritesPanel() {
+            var p = document.getElementById('favoritesPanel');
+            if (!p) return;
+            p.classList.remove('open');
+            p.setAttribute('aria-hidden', 'true');
+        }
+
+        /** Ось Y: ровно 2 строки — название; вторая: пара/мета или краткое описание */
+        function chartLabelForAxis(tool) {
+            var L1 = (tool.name || '').trim() || '—';
+            if (L1.length > 52) L1 = L1.slice(0, 49) + '…';
+            var parts = [];
+            var pv = (tool.pair || '').trim();
+            if (pv) parts.push(pv);
+            if ((tool.platform || '').trim()) parts.push((tool.platform || '').trim());
+            if ((tool.fee || '').trim()) parts.push((tool.fee || '').trim());
+            if ((tool.chain || '').trim()) parts.push((tool.chain || '').trim());
+            var L2 = '';
+            if (parts.length) {
+                L2 = parts.join(' · ');
+            } else if (typeof toolDesc === 'function') {
+                var d = String(toolDesc(tool) || '').replace(/\s+/g, ' ').trim();
+                L2 = d.length > 58 ? d.slice(0, 55) + '…' : d;
+            }
+            if (!L2) L2 = '—';
+            if (L2.length > 68) L2 = L2.slice(0, 65) + '…';
+            return L1 + '\n' + L2;
+        }
+
+        /** Цвет плитки heatmap: квантили по всем видимым инструментам (min–max APY), не фиксированные пороги */
+        function heatmapApyColorClass(apy) {
+            var pool = getVisibleTools();
+            var vals = pool.map(function(x) { return parseFloat(x.apy); }).filter(function(n) { return !isNaN(n); });
+            if (!vals.length) return 'heatmap-medium';
+            var min = Math.min.apply(null, vals);
+            var max = Math.max.apply(null, vals);
+            var span = max - min;
+            if (span < 1e-9) return 'heatmap-high';
+            var r = (apy - min) / span;
+            if (r <= 0.25) return 'heatmap-low';
+            if (r <= 0.5) return 'heatmap-medium';
+            if (r <= 0.75) return 'heatmap-high';
+            return 'heatmap-very-high';
+        }
+
+        function formatDaysPlural(n) {
+            n = Math.round(Number(n));
+            if (!Number.isFinite(n) || n < 0) return String(n);
+            if (currentLang === 'ru') {
+                var mod10 = n % 10;
+                var mod100 = n % 100;
+                if (mod100 >= 11 && mod100 <= 14) return n + ' дней';
+                if (mod10 === 1) return n + ' день';
+                if (mod10 >= 2 && mod10 <= 4) return n + ' дня';
+                return n + ' дней';
+            }
+            return n === 1 ? n + ' day' : n + ' days';
+        }
+
+        function formatPeriodDisplay(tool) {
+            var p = (tool.period != null) ? String(tool.period).trim() : '';
+            if (!p) return '—';
+            var mDay = /^(\d+(?:[.,]\d+)?)\s*d$/i.exec(p.replace(/\s/g, ''));
+            if (mDay) {
+                var n = parseFloat(mDay[1].replace(',', '.'));
+                if (!Number.isNaN(n)) return formatDaysPlural(n);
+            }
+            if (/[a-zA-Zа-яА-ЯёЁ]/.test(p)) return p;
+            var num = parseFloat(String(p).replace(',', '.'));
+            if (!Number.isNaN(num)) return formatDaysPlural(num);
+            return p;
+        }
+
+        function setDataBadge(kind, loadedAt) {
+            window.__defilabsBadgeKind = kind || 'warn';
+            if (kind === 'ok' && loadedAt) window.__defilabsLoadedAt = loadedAt;
+            else if (kind !== 'ok') window.__defilabsLoadedAt = null;
+            refreshDataBadgeDisplay();
+        }
+
+        function refreshDataBadgeDisplay() {
+            var el = document.getElementById('dataSourceIndicator');
+            if (!el || typeof t !== 'function') return;
+            var kind = window.__defilabsBadgeKind || 'warn';
+            var loadedAt = window.__defilabsLoadedAt;
+            el.className = 'data-source-badge ' + (kind === 'ok' ? 'ok' : kind === 'err' ? 'err' : 'warn');
+            if (kind === 'ok' && loadedAt instanceof Date) {
+                var loc = currentLang === 'ru' ? 'ru-RU' : 'en-GB';
+                var timeStr = loadedAt.toLocaleString(loc, { dateStyle: 'short', timeStyle: 'short' });
+                el.innerHTML = '<span class="data-source-check" aria-hidden="true">✓</span><span>' +
+                    escapeHtml(t('dataSourceUpdated')) + ' · ' + escapeHtml(timeStr) + '</span>';
+                el.title = t('dataSourceUpdated') + ' — ' + timeStr;
+            } else if (kind === 'err') {
+                el.innerHTML = '<span>' + escapeHtml(t('dataSourceError')) + '</span>';
+                el.title = t('dataSourceError');
+            } else {
+                el.innerHTML = '<span>' + escapeHtml(t('dataSourceOffline')) + '</span>';
+                el.title = t('dataSourceOffline');
+            }
         }
 
         function applyLang() {
@@ -1257,27 +2089,34 @@
                 const key = el.getAttribute('data-i18n-placeholder');
                 if (translations[currentLang] && translations[currentLang][key]) el.placeholder = translations[currentLang][key];
             });
+            document.querySelectorAll('[data-i18n-aria]').forEach(function(el) {
+                var key = el.getAttribute('data-i18n-aria');
+                if (translations[currentLang] && translations[currentLang][key]) el.setAttribute('aria-label', translations[currentLang][key]);
+            });
             document.querySelectorAll('.lang-btn').forEach(btn => {
                 btn.classList.toggle('active', btn.getAttribute('data-lang') === currentLang);
             });
             if (translations[currentLang].titleTag) document.title = translations[currentLang].titleTag;
             if (typeof renderDashboard === 'function') renderDashboard();
             if (currentCategory && typeof renderTools === 'function') {
-                const tools = allTools.filter(function(t){ return t.categoryId === currentCategory; });
+                const tools = getVisibleTools().filter(function(t){ return t.categoryId === currentCategory; });
                 renderTools(tools);
                 renderToolsTable(tools);
+                if (typeof renderChart === 'function') renderChart(tools);
                 var cat = getCategories().find(function(c){ return c.id === currentCategory; });
                 if (cat) {
                     document.getElementById('categoryPageTitle').textContent = categoryName(cat.id);
                     document.getElementById('categoryPageDesc').textContent = categoryDesc(cat.id);
                 }
             }
+            if (typeof updateFavoritesUI === 'function') updateFavoritesUI();
+            if (typeof refreshDataBadgeDisplay === 'function') refreshDataBadgeDisplay();
         }
 
         // ========== DATA STRUCTURE ==========
         // Вставь сюда URL из Google Apps Script (Развёртывание → Веб-приложение → скопировать ссылку).
         // Если оставить пустым или не менять — будут использоваться тестовые данные.
-        var DATA_API_URL = 'https://script.google.com/macros/s/AKfycbwap2a3QP0VNx-p9cv-MbDXLuWKq0eOqNyCT8ZjwDblbXPIN0uOkV_FFPCR2ujhSlSngw/exec';
+        var DATA_API_URL = 'https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec';
 
         const mockData = {
             categories: [
@@ -1289,23 +2128,23 @@
                 { id: 'yield-tokens', name: 'Yield Tokens', icon: '🪙', description: '', color: '#F2C94C' }
             ],
             tools: [
-                { id: 1, categoryId: 'stables', name: 'Hyperliquid HLP', apy: '18.5', period: '7d', status: 'active', link: 'https://hyperliquid.xyz', desc: 'Доход от комиссий трейдинга', descEn: 'Trading commission yield' },
-                { id: 2, categoryId: 'stables', name: 'Pendle PT-USDC', apy: '14.2', period: '7d', status: 'active', link: 'https://pendle.finance', desc: 'Стекинг доходности principal token', descEn: 'Principal token yield stacking' },
-                { id: 3, categoryId: 'stables', name: 'Aave USDC Supply', apy: '8.7', period: '7d', status: 'active', link: 'https://aave.com', desc: 'Награды лендинг-пула', descEn: 'Lending pool rewards' },
-                { id: 4, categoryId: 'stables', name: 'Compound USDT', apy: '7.3', period: '7d', status: 'active', link: 'https://compound.finance', desc: 'Фарминг под залог', descEn: 'Collateral farming' },
-                { id: 5, categoryId: 'stables', name: 'Curve USDC/USDT', apy: '12.1', period: '7d', status: 'warning', link: 'https://curve.fi', desc: 'Ликвидность в DEX', descEn: 'DEX LP providing' },
-                { id: 6, categoryId: 'ethereum', name: 'Uniswap V3 0.3%', apy: '24.3', period: '7d', status: 'active', link: 'https://uniswap.org', desc: 'Концентрированная ликвидность по парам ETH', descEn: 'Concentrated liquidity on ETH pairs' },
-                { id: 7, categoryId: 'ethereum', name: 'Lido stETH/ETH', apy: '16.8', period: '7d', status: 'active', link: 'https://lido.fi', desc: 'Доходность стейкинга ETH + LP', descEn: 'Staked ETH yield + LP' },
-                { id: 8, categoryId: 'ethereum', name: 'Balancer ETH Pool', apy: '13.5', period: '7d', status: 'active', link: 'https://balancer.fi', desc: 'Награды пула ликвидности', descEn: 'Liquidity pool rewards' },
-                { id: 9, categoryId: 'ethereum', name: 'Convex cvxETH', apy: '9.2', period: '7d', status: 'warning', link: 'https://convexfinance.com', desc: 'Усиленные награды Curve', descEn: 'Boosted Curve rewards' },
-                { id: 10, categoryId: 'bitcoin', name: 'WBTC Lending', apy: '6.5', period: '7d', status: 'active', link: 'https://aave.com', desc: 'Доходность от поставки обёрнутого BTC', descEn: 'Wrapped BTC supply yield' },
-                { id: 11, categoryId: 'bitcoin', name: 'tBTC Pool', apy: '11.2', period: '7d', status: 'active', link: 'https://threshold.network', desc: 'Ликвидность моста Bitcoin', descEn: 'Bitcoin bridge liquidity' },
-                { id: 12, categoryId: 'bitcoin', name: 'SBTC Farming', apy: '8.9', period: '7d', status: 'active', link: 'https://stacks.co', desc: 'Доходность обёрнутого BTC в Stacks', descEn: 'Stacks BTC wrapped yield' },
-                { id: 13, categoryId: 'looping', name: 'AaveLoop USDC', apy: '32.1', period: '7d', status: 'warning', link: 'https://aave.com', desc: 'Фарминг с плечом (5x)', descEn: 'Leverage farming (5x)' },
-                { id: 14, categoryId: 'looping', name: 'MorphoLoop ETH', apy: '28.7', period: '7d', status: 'active', link: 'https://morpho.org', desc: 'Оптимизированное плечо в DEX', descEn: 'Optimized DEX leverage' },
-                { id: 15, categoryId: 'lending', name: 'MakerDAO USDC', apy: '9.1', period: '7d', status: 'active', link: 'https://makerdao.com', desc: 'Комиссия стабильности залога', descEn: 'Collateral stability fee' },
-                { id: 16, categoryId: 'lending', name: 'Morpho Supply', apy: '10.5', period: '7d', status: 'active', link: 'https://morpho.org', desc: 'Оптимизированные ставки лендинга', descEn: 'Optimized lending rates' },
-                { id: 17, categoryId: 'yield-tokens', name: 'eUSDC (Ethena)', apy: '13.4', period: '7d', status: 'active', link: 'https://ethena.fi', desc: 'Доходность синтетического стейблкоина', descEn: 'Synthetic stablecoin yield' }
+                { id: 1, categoryId: 'stables', name: 'Hyperliquid HLP', pair: 'USDC', apy: '18.5', period: '7d', status: 'active', link: 'https://hyperliquid.xyz', desc: 'Доход от комиссий трейдинга', descEn: 'Trading commission yield' },
+                { id: 2, categoryId: 'stables', name: 'Pendle PT-USDC', pair: 'USDC', apy: '14.2', period: '7d', status: 'active', link: 'https://pendle.finance', desc: 'Стекинг доходности principal token', descEn: 'Principal token yield stacking' },
+                { id: 3, categoryId: 'stables', name: 'Aave USDC Supply', pair: 'USDC', apy: '8.7', period: '7d', status: 'active', link: 'https://aave.com', desc: 'Награды лендинг-пула', descEn: 'Lending pool rewards' },
+                { id: 4, categoryId: 'stables', name: 'Compound USDT', pair: 'USDT', apy: '7.3', period: '7d', status: 'active', link: 'https://compound.finance', desc: 'Фарминг под залог', descEn: 'Collateral farming' },
+                { id: 5, categoryId: 'stables', name: 'Curve USDC/USDT', pair: 'USDC/USDT', apy: '12.1', period: '7d', status: 'warning', link: 'https://curve.fi', desc: 'Ликвидность в DEX', descEn: 'DEX LP providing' },
+                { id: 6, categoryId: 'ethereum', name: 'Uniswap V3', platform: 'Uniswap', pair: 'ETH/USDC', fee: '0.30%', chain: 'Ethereum', apy: '24.3', period: '7', status: 'active', link: 'https://uniswap.org', desc: 'Концентрированная ликвидность по парам ETH', descEn: 'Concentrated liquidity on ETH pairs' },
+                { id: 7, categoryId: 'ethereum', name: 'Lido', platform: 'Lido', pair: 'stETH/ETH', fee: '—', chain: 'Ethereum', apy: '16.8', period: '7', status: 'active', link: 'https://lido.fi', desc: 'Доходность стейкинга ETH + LP', descEn: 'Staked ETH yield + LP' },
+                { id: 8, categoryId: 'ethereum', name: 'Balancer', platform: 'Balancer', pair: 'ETH/wstETH', fee: '0.25%', chain: 'Ethereum', apy: '13.5', period: '7', status: 'active', link: 'https://balancer.fi', desc: 'Награды пула ликвидности', descEn: 'Liquidity pool rewards' },
+                { id: 9, categoryId: 'ethereum', name: 'Convex', platform: 'Convex', pair: 'cvxETH/ETH', fee: '—', chain: 'Ethereum', apy: '9.2', period: '7', status: 'warning', link: 'https://convexfinance.com', desc: 'Усиленные награды Curve', descEn: 'Boosted Curve rewards' },
+                { id: 10, categoryId: 'bitcoin', name: 'Aave WBTC', platform: 'Aave', pair: 'WBTC', fee: '—', chain: 'Ethereum', apy: '6.5', period: '7', status: 'active', link: 'https://aave.com', desc: 'Доходность от поставки обёрнутого BTC', descEn: 'Wrapped BTC supply yield' },
+                { id: 11, categoryId: 'bitcoin', name: 'Threshold', platform: 'Curve', pair: 'tBTC/WBTC', fee: '0.04%', chain: 'Ethereum', apy: '11.2', period: '7', status: 'active', link: 'https://threshold.network', desc: 'Ликвидность моста Bitcoin', descEn: 'Bitcoin bridge liquidity' },
+                { id: 12, categoryId: 'bitcoin', name: 'Stacks', platform: 'Stacks', pair: 'sBTC/BTC', fee: '—', chain: 'Stacks', apy: '8.9', period: '7', status: 'active', link: 'https://stacks.co', desc: 'Доходность обёрнутого BTC в Stacks', descEn: 'Stacks BTC wrapped yield' },
+                { id: 13, categoryId: 'looping', name: 'AaveLoop USDC', pair: 'USDC', apy: '32.1', period: '7d', status: 'warning', link: 'https://aave.com', desc: 'Фарминг с плечом (5x)', descEn: 'Leverage farming (5x)' },
+                { id: 14, categoryId: 'looping', name: 'MorphoLoop ETH', pair: 'ETH', apy: '28.7', period: '7d', status: 'active', link: 'https://morpho.org', desc: 'Оптимизированное плечо в DEX', descEn: 'Optimized DEX leverage' },
+                { id: 15, categoryId: 'lending', name: 'MakerDAO USDC', pair: 'USDC', apy: '9.1', period: '7d', status: 'active', link: 'https://makerdao.com', desc: 'Комиссия стабильности залога', descEn: 'Collateral stability fee' },
+                { id: 16, categoryId: 'lending', name: 'Morpho Supply', pair: 'USDC', apy: '10.5', period: '7d', status: 'active', link: 'https://morpho.org', desc: 'Оптимизированные ставки лендинга', descEn: 'Optimized lending rates' },
+                { id: 17, categoryId: 'yield-tokens', name: 'eUSDC (Ethena)', pair: 'USDe/USDC', apy: '13.4', period: '7d', status: 'active', link: 'https://ethena.fi', desc: 'Доходность синтетического стейблкоина', descEn: 'Synthetic stablecoin yield' }
             ]
         };
 
@@ -1347,12 +2186,12 @@
             var useApi = apiUrl.length > 0 && apiUrl.indexOf('script.google.com') !== -1;
 
             if (!useApi) {
-                try { document.getElementById('dataSourceIndicator').textContent = 'Данные: офлайн'; } catch (e) {}
+                try { setDataBadge('warn'); } catch (e) {}
                 categories = mockData.categories.slice();
-                allTools = mockData.tools.slice();
+                allTools = normalizeToolsList(mockData.tools.slice());
                 renderDashboard();
                 if (currentCategory) {
-                    var tools = allTools.filter(function(t){ return t.categoryId === currentCategory; });
+                    var tools = getVisibleTools().filter(function(t){ return t.categoryId === currentCategory; });
                     document.getElementById('categoryPageTitle').textContent = categoryName(currentCategory);
                     document.getElementById('categoryPageDesc').textContent = categoryDesc(currentCategory);
                     renderTools(tools);
@@ -1367,13 +2206,9 @@
                 function done(fromApi) {
                     if (resolved) return;
                     resolved = true;
-                    try {
-                        var ind = document.getElementById('dataSourceIndicator');
-                        if (ind && !ind.textContent) ind.textContent = fromApi ? 'Данные: из таблицы' : 'Данные: офлайн';
-                    } catch (e) {}
                     renderDashboard();
                     if (currentCategory) {
-                        var tools = allTools.filter(function(t){ return t.categoryId === currentCategory; });
+                        var tools = getVisibleTools().filter(function(t){ return t.categoryId === currentCategory; });
                         document.getElementById('categoryPageTitle').textContent = categoryName(currentCategory);
                         document.getElementById('categoryPageDesc').textContent = categoryDesc(currentCategory);
                         renderTools(tools);
@@ -1386,14 +2221,15 @@
                     if (window.__defilabsDataCallbackTimeout) window.__defilabsDataCallbackTimeout();
                     if (data && data.categories && data.categories.length) categories = data.categories;
                     else categories = mockData.categories.slice();
-                    if (data && data.tools && Array.isArray(data.tools)) allTools = data.tools;
-                    else allTools = mockData.tools.slice();
+                    if (data && data.tools && Array.isArray(data.tools)) allTools = normalizeToolsList(data.tools);
+                    else allTools = normalizeToolsList(mockData.tools.slice());
+                    if (currentCategory && VISIBLE_CATEGORY_IDS.indexOf(currentCategory) === -1) currentCategory = null;
                     var fromApi = categories.length > 0 || allTools.length > 0;
                     if (data && data.error) console.warn('DeFi Navigator: ошибка таблицы', data.error);
                     else console.log('DeFi Navigator: данные загружены из таблицы', { categories: categories.length, tools: allTools.length });
                     try {
-                        var ind = document.getElementById('dataSourceIndicator');
-                        ind.textContent = fromApi ? 'Данные: из таблицы' : (data && data.error ? 'Данные: ошибка' : 'Данные: офлайн');
+                        if (data && data.error) setDataBadge('err');
+                        else setDataBadge('ok', new Date());
                     } catch (e) {}
                     done(true);
                 };
@@ -1402,15 +2238,17 @@
                 script.src = apiUrl + sep + 'callback=__defilabsDataCallback';
                 script.onerror = function() {
                     console.warn('DeFi Navigator: запрос к API не удался, используются резервные данные.');
+                    try { setDataBadge('warn'); } catch (e) {}
                     categories = mockData.categories.slice();
-                    allTools = mockData.tools.slice();
+                    allTools = normalizeToolsList(mockData.tools.slice());
                     done(false);
                 };
                 var timeout = setTimeout(function() {
                     if (resolved) return;
                     console.warn('DeFi Navigator: таймаут загрузки данных, используются резервные данные.');
+                    try { setDataBadge('warn'); } catch (e) {}
                     categories = mockData.categories.slice();
-                    allTools = mockData.tools.slice();
+                    allTools = normalizeToolsList(mockData.tools.slice());
                     done(false);
                 }, 12000);
                 window.__defilabsDataCallbackTimeout = function() { clearTimeout(timeout); };
@@ -1420,6 +2258,41 @@
 
         function setupEventListeners() {
             document.getElementById('searchBox').addEventListener('input', handleSearch);
+            var grid = document.getElementById('toolsGrid');
+            if (grid) {
+                grid.addEventListener('click', function(e) {
+                    var btn = e.target.closest('.tool-fav-btn');
+                    if (!btn) return;
+                    e.preventDefault();
+                    var key = btn.getAttribute('data-tool-key');
+                    var tool = getVisibleTools().find(function(t) { return toolKey(t) === key; });
+                    if (tool) toggleFavorite(tool);
+                });
+            }
+            var fab = document.getElementById('favoritesFab');
+            var panel = document.getElementById('favoritesPanel');
+            var closeBtn = document.getElementById('favoritesClose');
+            if (fab) fab.addEventListener('click', function() { openFavoritesPanel(); });
+            if (closeBtn) closeBtn.addEventListener('click', function() { closeFavoritesPanel(); });
+            if (panel) {
+                panel.addEventListener('click', function(e) {
+                    if (e.target === panel) closeFavoritesPanel();
+                });
+            }
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') closeFavoritesPanel();
+            });
+            var chartResizeTimer;
+            window.addEventListener('resize', function() {
+                if (!currentCategory) return;
+                clearTimeout(chartResizeTimer);
+                chartResizeTimer = setTimeout(function() {
+                    var tools = getVisibleTools().filter(function(t) { return t.categoryId === currentCategory; });
+                    if (document.getElementById('categoryPage').classList.contains('active')) {
+                        renderChart(tools);
+                    }
+                }, 280);
+            });
         }
 
         // ========== DASHBOARD RENDERING ==========
@@ -1430,22 +2303,32 @@
         }
 
         function renderHeatmap() {
-            const topTools = [...allTools]
+            const topTools = [...getVisibleTools()]
                 .sort((a, b) => parseFloat(b.apy) - parseFloat(a.apy))
                 .slice(0, 12);
 
             const container = document.getElementById('heatmapContainer');
             container.innerHTML = topTools.map(tool => {
-                const category = getCategories().find(function(c){ return c.id === tool.categoryId; });
                 const apy = parseFloat(tool.apy);
-                let sizeClass = 'heatmap-low';
-                if (apy > 20) sizeClass = 'heatmap-very-high';
-                else if (apy > 15) sizeClass = 'heatmap-high';
-                else if (apy > 10) sizeClass = 'heatmap-medium';
+                var sizeClass = heatmapApyColorClass(apy);
 
+                var pairTrim = (tool.pair != null && String(tool.pair).trim() !== '') ? String(tool.pair).trim() : '';
+                var pairHtml =
+                    '<div class="heatmap-pair-wrap">' +
+                    '<span class="heatmap-pair-val">' + escapeHtml(pairTrim || '—') + '</span>' +
+                    '</div>';
+                var metaParts = [];
+                if ((tool.platform || '').trim()) metaParts.push((tool.platform || '').trim());
+                if ((tool.fee || '').trim()) metaParts.push((tool.fee || '').trim());
+                if ((tool.chain || '').trim()) metaParts.push((tool.chain || '').trim());
+                var metaHtml = metaParts.length
+                    ? '<div class="heatmap-meta">' + escapeHtml(metaParts.join(' · ')) + '</div>'
+                    : '';
                 return `
                     <a href="#" class="heatmap-block ${sizeClass}" onclick="showCategory('${tool.categoryId}'); return false;">
-                        <div class="heatmap-name">${tool.name}</div>
+                        <div class="heatmap-name">${escapeHtml(tool.name)}</div>
+                        ${pairHtml}
+                        ${metaHtml}
                         <div class="heatmap-apy">${formatOneDecimal(tool.apy)}%</div>
                     </a>
                 `;
@@ -1455,8 +2338,8 @@
         function renderCategoriesGrid() {
             const container = document.getElementById('categoriesGrid');
             container.innerHTML = getCategories().map(function(cat){
-                const toolCount = allTools.filter(function(t){ return t.categoryId === cat.id; }).length;
-                const avgApy = toolCount ? allTools
+                const toolCount = getVisibleTools().filter(function(t){ return t.categoryId === cat.id; }).length;
+                const avgApy = toolCount ? getVisibleTools()
                     .filter(function(t){ return t.categoryId === cat.id; })
                     .reduce(function(sum, t){ return sum + parseFloat(t.apy); }, 0) / toolCount : 0;
 
@@ -1477,7 +2360,7 @@
         function renderSidebar() {
             const container = document.getElementById('categoriesSidebar');
             container.innerHTML = getCategories().map(function(cat){
-                const toolCount = allTools.filter(function(t){ return t.categoryId === cat.id; }).length;
+                const toolCount = getVisibleTools().filter(function(t){ return t.categoryId === cat.id; }).length;
                 return `
                     <div class="sidebar-item" data-category-id="${cat.id}" onclick="showCategory('${cat.id}')">
                         <span class="sidebar-item-icon">${cat.icon}</span>
@@ -1511,9 +2394,10 @@
 
         // ========== CATEGORY PAGE ==========
         function showCategory(categoryId) {
+            if (VISIBLE_CATEGORY_IDS.indexOf(categoryId) === -1) { showDashboard(); return; }
             currentCategory = categoryId;
             const category = getCategories().find(function(c){ return c.id === categoryId; });
-            const tools = allTools.filter(function(t){ return t.categoryId === categoryId; });
+            const tools = getVisibleTools().filter(function(t){ return t.categoryId === categoryId; });
 
             document.getElementById('dashboardPage').classList.remove('active');
             document.getElementById('categoryPage').classList.add('active');
@@ -1541,64 +2425,90 @@
         function toolDesc(tool) {
             return currentLang === 'ru' ? tool.desc : (tool.descEn || tool.desc);
         }
-        function statusLabel(s) {
-            return s === 'active' ? t('active') : t('warning');
-        }
-
         function renderTools(tools) {
             const sorted = sortTools(tools);
             const container = document.getElementById('toolsGrid');
-            container.innerHTML = sorted.map(tool => `
-                <div class="tool-card">
-                    <div class="tool-header">
-                        <div class="tool-name">${tool.name}</div>
-                        <div class="tool-apy">${formatOneDecimal(tool.apy)}%</div>
-                    </div>
-                    <div class="tool-meta">📊 ${t('period')}: ${tool.period} • ${t('status')}: ${statusLabel(tool.status)}</div>
-                    <div class="tool-desc">${toolDesc(tool)}</div>
-                    <div class="tool-footer">
-                        <a href="${tool.link}" target="_blank" class="tool-link">${t('visitProtocol')}</a>
-                        <button class="tool-link tool-secondary">${t('addToPortfolio')}</button>
-                    </div>
-                </div>
-            `).join('');
+            container.innerHTML = sorted.map(function(tool) {
+                var pairBlock =
+                    '<div class="tool-pair">' +
+                    '<span class="tool-pair-prefix">' + escapeHtml(t('pairLabel')) + '</span>' +
+                    '<span class="tool-pair-value">' + escapeHtml(tool.pair || '—') + '</span>' +
+                    '</div>';
+                var fav = isFavorite(tool);
+                return (
+                    '<div class="tool-card" data-tool-key="' + escapeHtml(toolKey(tool)) + '">' +
+                    '<div class="tool-header">' +
+                    '<div class="tool-title-block">' +
+                    '<div class="tool-name">' + escapeHtml(tool.name) + '</div>' +
+                    pairBlock +
+                    '</div>' +
+                    '<div class="tool-apy">' + formatOneDecimal(tool.apy) + '%</div>' +
+                    '</div>' +
+                    '<div class="tool-desc">' + escapeHtml(toolDesc(tool)) + '</div>' +
+                    '<div class="tool-meta">📊 ' + t('period') + ': ' + escapeHtml(formatPeriodDisplay(tool)) + '</div>' +
+                    '<div class="tool-footer">' +
+                    '<a href="' + escapeHtml(tool.link) + '" target="_blank" rel="noopener noreferrer" class="tool-link">' + t('visitPosition') + '</a>' +
+                    '<button type="button" class="tool-link tool-secondary tool-fav-btn' + (fav ? ' fav-active' : '') + '" data-tool-key="' + escapeHtml(toolKey(tool)) + '">' +
+                    (fav ? t('removeFromFavorites') : t('addToFavorites')) +
+                    '</button>' +
+                    '</div></div>'
+                );
+            }).join('');
         }
 
         function renderToolsTable(tools) {
             const sorted = sortTools(tools);
             const tbody = document.getElementById('toolsTableBody');
-            tbody.innerHTML = sorted.map(tool => `
-                <tr>
-                    <td>${tool.name}</td>
-                    <td class="apy-cell">${formatOneDecimal(tool.apy)}%</td>
-                    <td>${tool.period}</td>
-                    <td><span class="status-badge status-${tool.status}">${statusLabel(tool.status)}</span></td>
-                    <td><a href="${tool.link}" target="_blank" class="tool-link">${t('open')}</a></td>
-                </tr>
-            `).join('');
+            tbody.innerHTML = sorted.map(function(tool) {
+                return (
+                    '<tr>' +
+                    '<td>' + escapeHtml(tool.name) + '</td>' +
+                    '<td>' + escapeHtml(tool.pair || '—') + '</td>' +
+                    '<td class="apy-cell">' + formatOneDecimal(tool.apy) + '%</td>' +
+                    '<td>' + escapeHtml(formatPeriodDisplay(tool)) + '</td>' +
+                    '<td><a href="' + escapeHtml(tool.link) + '" target="_blank" rel="noopener noreferrer" class="tool-link">' + t('visitPosition') + '</a></td>' +
+                    '</tr>'
+                );
+            }).join('');
         }
 
         function renderChart(tools) {
             const sorted = sortTools(tools);
             const ctx = document.getElementById('categoryChart');
-            
+            var wrap = document.querySelector('.chart-container');
+
             if (window.categoryChartInstance) {
                 window.categoryChartInstance.destroy();
+                window.categoryChartInstance = null;
             }
+
+            if (!sorted.length) {
+                if (wrap) wrap.style.height = '280px';
+                return;
+            }
+
+            var isMobileChart = typeof window !== 'undefined' && window.innerWidth <= 768;
+            if (wrap) {
+                var rowH = isMobileChart ? 118 : 102;
+                var h = Math.max(isMobileChart ? 380 : 400, sorted.length * rowH + 160);
+                wrap.style.height = h + 'px';
+            }
+
+            var chartSorted = sorted;
 
             window.categoryChartInstance = new Chart(ctx, {
                 type: 'bar',
                 data: {
-                    labels: sorted.map(t => t.name),
+                    labels: sorted.map(function(t) { return chartLabelForAxis(t); }),
                     datasets: [{
-                        label: t('chartApyLabel'),
-                        data: sorted.map(t => parseFloat(t.apy)),
-                        backgroundColor: sorted.map(t => {
-                            const apy = parseFloat(t.apy);
-                            if (apy > 20) return 'rgba(243, 95, 96, 0.6)';
-                            if (apy > 15) return 'rgba(47, 128, 237, 0.6)';
-                            if (apy > 10) return 'rgba(242, 201, 76, 0.6)';
-                            return 'rgba(39, 174, 96, 0.6)';
+                        label: '',
+                        data: sorted.map(function(t) { return parseFloat(t.apy); }),
+                        backgroundColor: sorted.map(function(t) {
+                            var cls = heatmapApyColorClass(parseFloat(t.apy));
+                            if (cls === 'heatmap-low') return 'rgba(39, 174, 96, 0.68)';
+                            if (cls === 'heatmap-medium') return 'rgba(242, 201, 76, 0.68)';
+                            if (cls === 'heatmap-high') return 'rgba(47, 128, 237, 0.68)';
+                            return 'rgba(243, 95, 96, 0.68)';
                         }),
                         borderColor: 'rgba(255, 255, 255, 0.1)',
                         borderWidth: 1,
@@ -1608,28 +2518,86 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    indexAxis: sorted.length > 8 ? 'y' : 'x',
+                    indexAxis: 'y',
+                    layout: { padding: { right: isMobileChart ? 36 : 48, left: isMobileChart ? 18 : 26 } },
                     scales: {
                         x: {
+                            title: { display: false },
                             ticks: {
                                 color: '#A0A3A8',
-                                callback: function(value) { return formatOneDecimal(value); }
+                                maxRotation: 0,
+                                callback: function(value) { return formatOneDecimal(value) + '%'; }
                             },
-                            grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                            grid: { color: 'rgba(255, 255, 255, 0.06)' }
                         },
                         y: {
                             ticks: {
-                                color: '#A0A3A8',
-                                callback: function(value) { return formatOneDecimal(value); }
+                                color: '#E8EAED',
+                                font: {
+                                    size: isMobileChart ? 11 : 13,
+                                    lineHeight: 1.28,
+                                    weight: '600'
+                                },
+                                autoSkip: false,
+                                padding: isMobileChart ? 10 : 12,
+                                crossAlign: 'far'
                             },
-                            grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                            grid: { display: false }
                         }
                     },
                     plugins: {
-                        legend: { labels: { color: '#E8EAED', font: { size: 12 } } },
+                        legend: { display: false },
+                        datalabels: {
+                            display: function(ctx) {
+                                return ctx.chart.canvas && ctx.chart.canvas.id === 'categoryChart';
+                            },
+                            color: '#FFFFFF',
+                            anchor: 'end',
+                            align: 'end',
+                            offset: 6,
+                            clip: false,
+                            textShadowBlur: 6,
+                            textShadowColor: 'rgba(0, 0, 0, 0.75)',
+                            font: { weight: '800', size: isMobileChart ? 10 : 11 },
+                            formatter: function(value) {
+                                return formatOneDecimal(value) + '%';
+                            }
+                        },
                         tooltip: {
+                            backgroundColor: 'rgba(12, 16, 38, 0.96)',
+                            titleColor: '#F4F6FB',
+                            bodyColor: '#C8CDD8',
+                            borderColor: 'rgba(79, 163, 255, 0.35)',
+                            borderWidth: 1,
+                            padding: 14,
+                            titleFont: { size: 14, weight: '700' },
+                            bodyFont: { size: 12, lineHeight: 1.45 },
+                            titleMarginBottom: 10,
                             callbacks: {
-                                label: function(ctx) { return (ctx.dataset.label || '') + ': ' + formatOneDecimal(ctx.raw) + '%'; }
+                                title: function(items) {
+                                    if (!items.length) return '';
+                                    var tool = chartSorted[items[0].dataIndex];
+                                    return tool ? String(tool.name || '').trim() : '';
+                                },
+                                label: function(ctx) {
+                                    var tool = chartSorted[ctx.dataIndex];
+                                    if (!tool) return '';
+                                    var lines = [];
+                                    lines.push(t('tooltipApyLine') + ': ' + formatOneDecimal(ctx.raw) + '%');
+                                    if (tool.platform && tool.platform !== tool.name) {
+                                        lines.push(t('tooltipPlatform') + ': ' + tool.platform);
+                                    }
+                                    lines.push(tool.pair ? String(tool.pair) : '—');
+                                    if (tool.fee) lines.push(t('tooltipFee') + ': ' + tool.fee);
+                                    if (tool.chain) lines.push(t('tooltipChain') + ': ' + tool.chain);
+                                    lines.push(t('period') + ': ' + formatPeriodDisplay(tool));
+                                    var d = toolDesc(tool);
+                                    if (d) {
+                                        var short = d.length > 220 ? d.slice(0, 220) + '…' : d;
+                                        lines.push(t('tooltipDesc') + ': ' + short);
+                                    }
+                                    return lines;
+                                }
                             }
                         }
                     }
@@ -1679,7 +2647,7 @@
         function setSortBy(sort) {
             currentSort = sort;
             if (currentCategory) {
-                const tools = allTools.filter(t => t.categoryId === currentCategory);
+                const tools = getVisibleTools().filter(t => t.categoryId === currentCategory);
                 renderTools(tools);
                 renderToolsTable(tools);
                 renderChart(tools);
@@ -1690,13 +2658,23 @@
 
         function handleSearch(e) {
             const query = e.target.value.toLowerCase();
-            const filtered = allTools.filter(t => 
-                t.name.toLowerCase().includes(query) ||
-                t.desc.toLowerCase().includes(query)
-            );
+            const filtered = getVisibleTools().filter(function(t) {
+                return (
+                    (t.name && t.name.toLowerCase().includes(query)) ||
+                    (t.desc && t.desc.toLowerCase().includes(query)) ||
+                    (t.pair && String(t.pair).toLowerCase().includes(query)) ||
+                    (t.platform && String(t.platform).toLowerCase().includes(query)) ||
+                    (t.fee && String(t.fee).toLowerCase().includes(query)) ||
+                    (t.chain && String(t.chain).toLowerCase().includes(query)) ||
+                    (t.descEn && t.descEn.toLowerCase().includes(query))
+                );
+            });
             
             if (currentCategory) {
-                renderTools(filtered.filter(t => t.categoryId === currentCategory));
+                var ft = filtered.filter(function(t) { return t.categoryId === currentCategory; });
+                renderTools(ft);
+                renderToolsTable(ft);
+                renderChart(ft);
             } else {
                 renderHeatmap();
             }
@@ -1706,7 +2684,7 @@
             document.body.style.opacity = '0.5';
             loadData().then(function() {
                 if (currentCategory) {
-                    var tools = allTools.filter(function(t){ return t.categoryId === currentCategory; });
+                    var tools = getVisibleTools().filter(function(t){ return t.categoryId === currentCategory; });
                     document.getElementById('categoryPageTitle').textContent = categoryName(currentCategory);
                     document.getElementById('categoryPageDesc').textContent = categoryDesc(currentCategory);
                     renderTools(tools);
