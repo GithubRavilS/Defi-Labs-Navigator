@@ -1985,23 +1985,14 @@
             p.setAttribute('aria-hidden', 'true');
         }
 
-        /** Ось Y: ровно 2 строки — название; вторая: пара/мета или краткое описание */
+        /** Ось Y: 1 строка name+pair, 2 строка — description */
         function chartLabelForAxis(tool) {
-            var L1 = (tool.name || '').trim() || '—';
-            if (L1.length > 52) L1 = L1.slice(0, 49) + '…';
-            var parts = [];
             var pv = (tool.pair || '').trim();
-            if (pv) parts.push(pv);
-            if ((tool.platform || '').trim()) parts.push((tool.platform || '').trim());
-            if ((tool.fee || '').trim()) parts.push((tool.fee || '').trim());
-            if ((tool.chain || '').trim()) parts.push((tool.chain || '').trim());
-            var L2 = '';
-            if (parts.length) {
-                L2 = parts.join(' · ');
-            } else if (typeof toolDesc === 'function') {
-                var d = String(toolDesc(tool) || '').replace(/\s+/g, ' ').trim();
-                L2 = d.length > 58 ? d.slice(0, 55) + '…' : d;
-            }
+            var L1 = ((tool.name || '').trim() + (pv ? ' ' + pv : '')).trim() || '—';
+            if (L1.length > 56) L1 = L1.slice(0, 53) + '…';
+
+            var d = typeof toolDesc === 'function' ? String(toolDesc(tool) || '').replace(/\s+/g, ' ').trim() : '';
+            var L2 = d;
             if (!L2) L2 = '—';
             if (L2.length > 68) L2 = L2.slice(0, 65) + '…';
             return L1 + '\n' + L2;
@@ -2116,7 +2107,7 @@
         // ========== DATA STRUCTURE ==========
         // Вставь сюда URL из Google Apps Script (Развёртывание → Веб-приложение → скопировать ссылку).
         // Если оставить пустым или не менять — будут использоваться тестовые данные.
-        var DATA_API_URL = 'https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec';
+        var DATA_API_URL = 'https://script.google.com/macros/s/AKfycbwap2a3QP0VNx-p9cv-MbDXLuWKq0eOqNyCT8ZjwDblbXPIN0uOkV_FFPCR2ujhSlSngw/exec?project=main';
 
         const mockData = {
             categories: [
@@ -2540,7 +2531,11 @@
                                 },
                                 autoSkip: false,
                                 padding: isMobileChart ? 10 : 12,
-                                crossAlign: 'far'
+                                crossAlign: 'far',
+                                callback: function(value) {
+                                    var lbl = this && this.getLabelForValue ? this.getLabelForValue(value) : value;
+                                    return String(lbl).split('\n');
+                                }
                             },
                             grid: { display: false }
                         }
