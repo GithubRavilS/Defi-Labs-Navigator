@@ -1780,7 +1780,7 @@
             if (typeof window !== 'undefined' && window.innerWidth <= 768 && n >= 100) return Math.round(n).toString();
             return (Math.round(n * 10) / 10).toFixed(1);
         }
-        const VISIBLE_CATEGORY_IDS = ['ethereum', 'bitcoin'];
+        const VISIBLE_CATEGORY_IDS = ['stables', 'ethereum', 'bitcoin'];
 
         function getAllCategories() { return categories.length ? categories : mockData.categories; }
         function getCategories() {
