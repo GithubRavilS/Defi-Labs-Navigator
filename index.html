@@ -281,6 +281,23 @@
             max-width: 100%;
         }
 
+        .empty-data-hint {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 40px 20px 48px;
+            color: var(--text-secondary);
+            font-size: 15px;
+            line-height: 1.5;
+            max-width: 440px;
+            margin: 0 auto;
+        }
+
+        .tools-table .empty-table-msg {
+            text-align: center;
+            color: var(--text-secondary);
+            padding: 28px 16px !important;
+        }
+
         .heatmap-block {
             aspect-ratio: 1;
             border-radius: 12px;
@@ -1668,7 +1685,10 @@
                 tooltipPair: 'Пара',
                 tooltipFee: 'Комиссия',
                 tooltipChain: 'Сеть',
-                tooltipDesc: 'Описание'
+                tooltipDesc: 'Описание',
+                emptyDataDashboard: 'Данные из таблицы ещё не загружены. Нажмите «Обновить» или подождите — позиции и доходности появятся после ответа сервера.',
+                emptyDataCategory: 'В этом направлении пока нет позиций из таблицы.',
+                noValue: '—'
             },
             en: {
                 logo: 'DeFi Labs',
@@ -1731,7 +1751,10 @@
                 tooltipPair: 'Pair',
                 tooltipFee: 'Fee tier',
                 tooltipChain: 'Network',
-                tooltipDesc: 'Description'
+                tooltipDesc: 'Description',
+                emptyDataDashboard: 'Spreadsheet data is not loaded yet. Click Refresh or wait — positions and yields appear once the server responds.',
+                emptyDataCategory: 'No positions from the spreadsheet in this category yet.',
+                noValue: '—'
             }
         };
 
@@ -1782,7 +1805,7 @@
         }
         const VISIBLE_CATEGORY_IDS = ['stables', 'ethereum', 'bitcoin'];
 
-        function getAllCategories() { return categories.length ? categories : mockData.categories; }
+        function getAllCategories() { return categories.length ? categories : STATIC_NAV_CATEGORIES; }
         function getCategories() {
             return getAllCategories().filter(function(c){ return VISIBLE_CATEGORY_IDS.indexOf(c.id) !== -1; });
         }
@@ -2105,39 +2128,19 @@
         }
 
         // ========== DATA STRUCTURE ==========
-        // Вставь сюда URL из Google Apps Script (Развёртывание → Веб-приложение → скопировать ссылку).
-        // Если оставить пустым или не менять — будут использоваться тестовые данные.
+        // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
         var DATA_API_URL = 'https://script.google.com/macros/s/AKfycbwap2a3QP0VNx-p9cv-MbDXLuWKq0eOqNyCT8ZjwDblbXPIN0uOkV_FFPCR2ujhSlSngw/exec?project=main';
+        var DATA_LOAD_TIMEOUT_MS = 45000;
 
-        const mockData = {
-            categories: [
-                { id: 'stables', name: 'Stablecoin Strategies', icon: '💰', description: '', color: '#27AE60' },
-                { id: 'ethereum', name: 'Ethereum Pools', icon: '⟠', description: '', color: '#627EEA' },
-                { id: 'bitcoin', name: 'Bitcoin Wrapped', icon: '₿', description: '', color: '#F7931A' },
-                { id: 'looping', name: 'Looping Strategies', icon: '🔄', description: '', color: '#FF6B6B' },
-                { id: 'lending', name: 'Lending Protocols', icon: '🏦', description: '', color: '#4FA3FF' },
-                { id: 'yield-tokens', name: 'Yield Tokens', icon: '🪙', description: '', color: '#F2C94C' }
-            ],
-            tools: [
-                { id: 1, categoryId: 'stables', name: 'Hyperliquid HLP', pair: 'USDC', apy: '18.5', period: '7d', status: 'active', link: 'https://hyperliquid.xyz', desc: 'Доход от комиссий трейдинга', descEn: 'Trading commission yield' },
-                { id: 2, categoryId: 'stables', name: 'Pendle PT-USDC', pair: 'USDC', apy: '14.2', period: '7d', status: 'active', link: 'https://pendle.finance', desc: 'Стекинг доходности principal token', descEn: 'Principal token yield stacking' },
-                { id: 3, categoryId: 'stables', name: 'Aave USDC Supply', pair: 'USDC', apy: '8.7', period: '7d', status: 'active', link: 'https://aave.com', desc: 'Награды лендинг-пула', descEn: 'Lending pool rewards' },
-                { id: 4, categoryId: 'stables', name: 'Compound USDT', pair: 'USDT', apy: '7.3', period: '7d', status: 'active', link: 'https://compound.finance', desc: 'Фарминг под залог', descEn: 'Collateral farming' },
-                { id: 5, categoryId: 'stables', name: 'Curve USDC/USDT', pair: 'USDC/USDT', apy: '12.1', period: '7d', status: 'warning', link: 'https://curve.fi', desc: 'Ликвидность в DEX', descEn: 'DEX LP providing' },
-                { id: 6, categoryId: 'ethereum', name: 'Uniswap V3', platform: 'Uniswap', pair: 'ETH/USDC', fee: '0.30%', chain: 'Ethereum', apy: '24.3', period: '7', status: 'active', link: 'https://uniswap.org', desc: 'Концентрированная ликвидность по парам ETH', descEn: 'Concentrated liquidity on ETH pairs' },
-                { id: 7, categoryId: 'ethereum', name: 'Lido', platform: 'Lido', pair: 'stETH/ETH', fee: '—', chain: 'Ethereum', apy: '16.8', period: '7', status: 'active', link: 'https://lido.fi', desc: 'Доходность стейкинга ETH + LP', descEn: 'Staked ETH yield + LP' },
-                { id: 8, categoryId: 'ethereum', name: 'Balancer', platform: 'Balancer', pair: 'ETH/wstETH', fee: '0.25%', chain: 'Ethereum', apy: '13.5', period: '7', status: 'active', link: 'https://balancer.fi', desc: 'Награды пула ликвидности', descEn: 'Liquidity pool rewards' },
-                { id: 9, categoryId: 'ethereum', name: 'Convex', platform: 'Convex', pair: 'cvxETH/ETH', fee: '—', chain: 'Ethereum', apy: '9.2', period: '7', status: 'warning', link: 'https://convexfinance.com', desc: 'Усиленные награды Curve', descEn: 'Boosted Curve rewards' },
-                { id: 10, categoryId: 'bitcoin', name: 'Aave WBTC', platform: 'Aave', pair: 'WBTC', fee: '—', chain: 'Ethereum', apy: '6.5', period: '7', status: 'active', link: 'https://aave.com', desc: 'Доходность от поставки обёрнутого BTC', descEn: 'Wrapped BTC supply yield' },
-                { id: 11, categoryId: 'bitcoin', name: 'Threshold', platform: 'Curve', pair: 'tBTC/WBTC', fee: '0.04%', chain: 'Ethereum', apy: '11.2', period: '7', status: 'active', link: 'https://threshold.network', desc: 'Ликвидность моста Bitcoin', descEn: 'Bitcoin bridge liquidity' },
-                { id: 12, categoryId: 'bitcoin', name: 'Stacks', platform: 'Stacks', pair: 'sBTC/BTC', fee: '—', chain: 'Stacks', apy: '8.9', period: '7', status: 'active', link: 'https://stacks.co', desc: 'Доходность обёрнутого BTC в Stacks', descEn: 'Stacks BTC wrapped yield' },
-                { id: 13, categoryId: 'looping', name: 'AaveLoop USDC', pair: 'USDC', apy: '32.1', period: '7d', status: 'warning', link: 'https://aave.com', desc: 'Фарминг с плечом (5x)', descEn: 'Leverage farming (5x)' },
-                { id: 14, categoryId: 'looping', name: 'MorphoLoop ETH', pair: 'ETH', apy: '28.7', period: '7d', status: 'active', link: 'https://morpho.org', desc: 'Оптимизированное плечо в DEX', descEn: 'Optimized DEX leverage' },
-                { id: 15, categoryId: 'lending', name: 'MakerDAO USDC', pair: 'USDC', apy: '9.1', period: '7d', status: 'active', link: 'https://makerdao.com', desc: 'Комиссия стабильности залога', descEn: 'Collateral stability fee' },
-                { id: 16, categoryId: 'lending', name: 'Morpho Supply', pair: 'USDC', apy: '10.5', period: '7d', status: 'active', link: 'https://morpho.org', desc: 'Оптимизированные ставки лендинга', descEn: 'Optimized lending rates' },
-                { id: 17, categoryId: 'yield-tokens', name: 'eUSDC (Ethena)', pair: 'USDe/USDC', apy: '13.4', period: '7d', status: 'active', link: 'https://ethena.fi', desc: 'Доходность синтетического стейблкоина', descEn: 'Synthetic stablecoin yield' }
-            ]
-        };
+        /** Только навигация (id / иконки / цвета). Никаких заполненных пулов или доходностей — всё из таблицы. */
+        const STATIC_NAV_CATEGORIES = [
+            { id: 'stables', name: 'Stablecoin Strategies', icon: '💰', description: '', color: '#27AE60' },
+            { id: 'ethereum', name: 'Ethereum Pools', icon: '⟠', description: '', color: '#627EEA' },
+            { id: 'bitcoin', name: 'Bitcoin Wrapped', icon: '₿', description: '', color: '#F7931A' },
+            { id: 'looping', name: 'Looping Strategies', icon: '🔄', description: '', color: '#FF6B6B' },
+            { id: 'lending', name: 'Lending Protocols', icon: '🏦', description: '', color: '#4FA3FF' },
+            { id: 'yield-tokens', name: 'Yield Tokens', icon: '🪙', description: '', color: '#F2C94C' }
+        ];
 
         let currentView = 'grid';
         let currentSort = 'apy-desc';
@@ -2148,10 +2151,14 @@
         // ========== INIT ==========
         window.addEventListener('DOMContentLoaded', function() {
             currentLang = localStorage.getItem('defilabs-lang') || 'ru';
-            loadData().then(function() {
+            applyLoadedData(null);
+            finishDataLoad();
+            document.body.style.opacity = '0.5';
+            loadData({ maxRetries: 5, retryDelayMs: 2000 }).then(function() {
                 applyLang();
                 setupEventListeners();
-            });
+                document.body.style.opacity = '1';
+            }).catch(function() { document.body.style.opacity = '1'; });
             document.querySelectorAll('.lang-btn').forEach(function(btn) {
                 btn.addEventListener('click', function() {
                     currentLang = btn.getAttribute('data-lang');
@@ -2172,79 +2179,106 @@
             if (sidebarBackdrop) sidebarBackdrop.addEventListener('click', function() { setMobileMenuOpen(false); });
         });
 
-        function loadData() {
+        function getGoogleAppsScriptApiUrl() {
             var apiUrl = (typeof DATA_API_URL === 'string' && DATA_API_URL.trim()) ? DATA_API_URL.trim() : '';
             var useApi = apiUrl.length > 0 && apiUrl.indexOf('script.google.com') !== -1;
+            return { apiUrl: apiUrl, useApi: useApi };
+        }
 
-            if (!useApi) {
+        function applyLoadedData(data) {
+            if (data && data.categories && data.categories.length) {
+                categories = data.categories;
+            } else {
+                categories = STATIC_NAV_CATEGORIES.slice();
+            }
+            if (data && data.tools && Array.isArray(data.tools)) {
+                allTools = normalizeToolsList(data.tools);
+            } else {
+                allTools = [];
+            }
+            if (currentCategory && VISIBLE_CATEGORY_IDS.indexOf(currentCategory) === -1) currentCategory = null;
+        }
+
+        function finishDataLoad() {
+            renderDashboard();
+            if (currentCategory) {
+                var tools = getVisibleTools().filter(function(t){ return t.categoryId === currentCategory; });
+                document.getElementById('categoryPageTitle').textContent = categoryName(currentCategory);
+                document.getElementById('categoryPageDesc').textContent = categoryDesc(currentCategory);
+                renderTools(tools);
+                renderToolsTable(tools);
+                renderChart(tools);
+            }
+        }
+
+        function loadDataOnce() {
+            var g = getGoogleAppsScriptApiUrl();
+            if (!g.useApi) {
                 try { setDataBadge('warn'); } catch (e) {}
-                categories = mockData.categories.slice();
-                allTools = normalizeToolsList(mockData.tools.slice());
-                renderDashboard();
-                if (currentCategory) {
-                    var tools = getVisibleTools().filter(function(t){ return t.categoryId === currentCategory; });
-                    document.getElementById('categoryPageTitle').textContent = categoryName(currentCategory);
-                    document.getElementById('categoryPageDesc').textContent = categoryDesc(currentCategory);
-                    renderTools(tools);
-                    renderToolsTable(tools);
-                    renderChart(tools);
-                }
-                return Promise.resolve();
+                applyLoadedData(null);
+                finishDataLoad();
+                return Promise.resolve({ apiCallbackReceived: false });
             }
 
             return new Promise(function(resolve) {
-                var resolved = false;
-                function done(fromApi) {
-                    if (resolved) return;
-                    resolved = true;
-                    renderDashboard();
-                    if (currentCategory) {
-                        var tools = getVisibleTools().filter(function(t){ return t.categoryId === currentCategory; });
-                        document.getElementById('categoryPageTitle').textContent = categoryName(currentCategory);
-                        document.getElementById('categoryPageDesc').textContent = categoryDesc(currentCategory);
-                        renderTools(tools);
-                        renderToolsTable(tools);
-                        renderChart(tools);
-                    }
-                    resolve();
+                var finished = false;
+                var timeout;
+                var cbSeq = (window.__defilabsCbSeq = (window.__defilabsCbSeq || 0) + 1);
+                var cbName = '__defilabsDataCb_' + cbSeq;
+
+                function finish(apiCallbackReceived) {
+                    if (finished) return;
+                    finished = true;
+                    clearTimeout(timeout);
+                    window[cbName] = function() {};
+                    finishDataLoad();
+                    resolve({ apiCallbackReceived: !!apiCallbackReceived });
                 }
-                window.__defilabsDataCallback = function(data) {
-                    if (window.__defilabsDataCallbackTimeout) window.__defilabsDataCallbackTimeout();
-                    if (data && data.categories && data.categories.length) categories = data.categories;
-                    else categories = mockData.categories.slice();
-                    if (data && data.tools && Array.isArray(data.tools)) allTools = normalizeToolsList(data.tools);
-                    else allTools = normalizeToolsList(mockData.tools.slice());
-                    if (currentCategory && VISIBLE_CATEGORY_IDS.indexOf(currentCategory) === -1) currentCategory = null;
-                    var fromApi = categories.length > 0 || allTools.length > 0;
+
+                window[cbName] = function(data) {
+                    applyLoadedData(data);
                     if (data && data.error) console.warn('DeFi Navigator: ошибка таблицы', data.error);
                     else console.log('DeFi Navigator: данные загружены из таблицы', { categories: categories.length, tools: allTools.length });
                     try {
                         if (data && data.error) setDataBadge('err');
                         else setDataBadge('ok', new Date());
                     } catch (e) {}
-                    done(true);
+                    finish(true);
                 };
-                var sep = apiUrl.indexOf('?') >= 0 ? '&' : '?';
+
+                var sep = g.apiUrl.indexOf('?') >= 0 ? '&' : '?';
                 var script = document.createElement('script');
-                script.src = apiUrl + sep + 'callback=__defilabsDataCallback';
                 script.onerror = function() {
-                    console.warn('DeFi Navigator: запрос к API не удался, используются резервные данные.');
+                    console.warn('DeFi Navigator: запрос к API не удался.');
                     try { setDataBadge('warn'); } catch (e) {}
-                    categories = mockData.categories.slice();
-                    allTools = normalizeToolsList(mockData.tools.slice());
-                    done(false);
+                    applyLoadedData(null);
+                    finish(false);
                 };
-                var timeout = setTimeout(function() {
-                    if (resolved) return;
-                    console.warn('DeFi Navigator: таймаут загрузки данных, используются резервные данные.');
+                timeout = setTimeout(function() {
+                    console.warn('DeFi Navigator: таймаут загрузки данных.');
                     try { setDataBadge('warn'); } catch (e) {}
-                    categories = mockData.categories.slice();
-                    allTools = normalizeToolsList(mockData.tools.slice());
-                    done(false);
-                }, 12000);
-                window.__defilabsDataCallbackTimeout = function() { clearTimeout(timeout); };
+                    applyLoadedData(null);
+                    finish(false);
+                }, DATA_LOAD_TIMEOUT_MS);
+                script.src = g.apiUrl + sep + 'callback=' + encodeURIComponent(cbName) + '&_=' + Date.now();
                 document.head.appendChild(script);
             });
+        }
+
+        function loadData(options) {
+            options = options || {};
+            var maxRetries = typeof options.maxRetries === 'number' ? options.maxRetries : 4;
+            var retryDelayMs = options.retryDelayMs != null ? options.retryDelayMs : 2000;
+            var g = getGoogleAppsScriptApiUrl();
+            function attempt(i) {
+                return loadDataOnce().then(function(meta) {
+                    if (!g.useApi || meta.apiCallbackReceived || i >= maxRetries) return;
+                    return new Promise(function(resolve) {
+                        setTimeout(function() { attempt(i + 1).then(resolve); }, retryDelayMs);
+                    });
+                });
+            }
+            return attempt(0);
         }
 
         function setupEventListeners() {
@@ -2294,11 +2328,16 @@
         }
 
         function renderHeatmap() {
-            const topTools = [...getVisibleTools()]
+            const container = document.getElementById('heatmapContainer');
+            const visible = getVisibleTools();
+            if (!visible.length) {
+                container.innerHTML = '<div class="empty-data-hint">' + escapeHtml(t('emptyDataDashboard')) + '</div>';
+                return;
+            }
+            const topTools = [...visible]
                 .sort((a, b) => parseFloat(b.apy) - parseFloat(a.apy))
                 .slice(0, 12);
 
-            const container = document.getElementById('heatmapContainer');
             container.innerHTML = topTools.map(tool => {
                 const apy = parseFloat(tool.apy);
                 var sizeClass = heatmapApyColorClass(apy);
@@ -2332,7 +2371,8 @@
                 const toolCount = getVisibleTools().filter(function(t){ return t.categoryId === cat.id; }).length;
                 const avgApy = toolCount ? getVisibleTools()
                     .filter(function(t){ return t.categoryId === cat.id; })
-                    .reduce(function(sum, t){ return sum + parseFloat(t.apy); }, 0) / toolCount : 0;
+                    .reduce(function(sum, t){ return sum + parseFloat(t.apy); }, 0) / toolCount : NaN;
+                var avgLabel = toolCount ? formatOneDecimal(avgApy) + '%' : t('noValue');
 
                 return `
                     <div class="category-card" onclick="showCategory('${cat.id}')">
@@ -2341,7 +2381,7 @@
                         <div class="category-desc">${categoryDesc(cat.id)}</div>
                         <div class="category-stats">
                             <div class="stat-badge">📊 ${toolCount} ${t('toolsCount')}</div>
-                            <div class="stat-badge">💰 ${t('avgApy')} ${formatOneDecimal(avgApy)}%</div>
+                            <div class="stat-badge">💰 ${t('avgApy')} ${avgLabel}</div>
                         </div>
                     </div>
                 `;
@@ -2419,6 +2459,10 @@
         function renderTools(tools) {
             const sorted = sortTools(tools);
             const container = document.getElementById('toolsGrid');
+            if (!sorted.length) {
+                container.innerHTML = '<div class="empty-data-hint">' + escapeHtml(t('emptyDataCategory')) + '</div>';
+                return;
+            }
             container.innerHTML = sorted.map(function(tool) {
                 var pairBlock =
                     '<div class="tool-pair">' +
@@ -2450,6 +2494,10 @@
         function renderToolsTable(tools) {
             const sorted = sortTools(tools);
             const tbody = document.getElementById('toolsTableBody');
+            if (!sorted.length) {
+                tbody.innerHTML = '<tr><td colspan="5" class="empty-table-msg">' + escapeHtml(t('emptyDataCategory')) + '</td></tr>';
+                return;
+            }
             tbody.innerHTML = sorted.map(function(tool) {
                 return (
                     '<tr>' +
@@ -2677,7 +2725,7 @@
 
         function refreshData() {
             document.body.style.opacity = '0.5';
-            loadData().then(function() {
+            loadData({ maxRetries: 4, retryDelayMs: 1800 }).then(function() {
                 if (currentCategory) {
                     var tools = getVisibleTools().filter(function(t){ return t.categoryId === currentCategory; });
                     document.getElementById('categoryPageTitle').textContent = categoryName(currentCategory);
