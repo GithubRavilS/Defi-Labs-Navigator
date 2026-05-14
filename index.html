@@ -834,12 +834,22 @@
             box-shadow: 0 0 10px rgba(39, 174, 96, 0.55);
         }
 
-        .pool-battle-title-row {
+        .pool-battle-instrument-head {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 6px;
+            min-width: 0;
+            width: 100%;
+        }
+
+        .pool-battle-meta-row {
             display: flex;
             flex-wrap: wrap;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
             min-width: 0;
+            max-width: 100%;
         }
 
         .pool-battle-instrument-name {
@@ -849,8 +859,8 @@
             line-height: 1.25;
         }
 
-        .pool-battle-table-name .pool-battle-title-row {
-            margin-bottom: 0;
+        .pool-battle-table-name .pool-battle-instrument-head {
+            gap: 4px;
         }
 
         .pool-battle-chain-chip {
@@ -865,6 +875,21 @@
             font-weight: 700;
             letter-spacing: 0.05em;
             text-transform: capitalize;
+            white-space: nowrap;
+        }
+
+        .pool-battle-fee-chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 9px;
+            border-radius: 999px;
+            border: 1px solid rgba(242, 201, 76, 0.32);
+            background: rgba(242, 201, 76, 0.12);
+            color: #fff0bf;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            font-variant-numeric: tabular-nums;
             white-space: nowrap;
         }
 
@@ -1818,9 +1843,20 @@
             }
 
             .pool-battle-range-chip,
-            .pool-battle-chain-chip {
+            .pool-battle-chain-chip,
+            .pool-battle-fee-chip {
                 padding: 3px 7px;
                 font-size: 9px;
+                flex: 0 0 auto;
+            }
+
+            .pool-battle-meta-row {
+                width: 100%;
+                gap: 5px;
+            }
+
+            .pool-battle-instrument-head {
+                gap: 4px;
             }
 
             .pool-battle-instrument-name {
@@ -2572,19 +2608,48 @@
             return parsePoolMetaFromDesc(tool.desc).chain || '';
         }
 
+        function formatFeeLabelFromTool(tool) {
+            var fee = String(tool.fee || '').trim();
+            if (!fee) fee = parsePoolMetaFromDesc(tool.desc).fee || '';
+            if (!fee) return '';
+            return formatFeeLabel(fee);
+        }
+
         function renderPoolBattleChainChip(tool) {
             var label = formatChainLabel(tool);
             if (!label) return '';
             return '<span class="pool-battle-chain-chip">' + escapeHtml(label) + '</span>';
         }
 
+        function renderPoolBattleFeeChip(tool) {
+            var label = formatFeeLabelFromTool(tool);
+            if (!label) return '';
+            return '<span class="pool-battle-fee-chip">' + escapeHtml(label) + '</span>';
+        }
+
         function renderPoolBattleInstrumentHead(tool) {
             return (
-                '<div class="pool-battle-title-row">' +
-                    '<span class="pool-battle-instrument-name">' + escapeHtml(tool.name) + '</span>' +
-                    renderPoolBattleChainChip(tool) +
+                '<div class="pool-battle-instrument-head">' +
+                    '<div class="pool-battle-instrument-name">' + escapeHtml(tool.name) + '</div>' +
+                    '<div class="pool-battle-meta-row">' +
+                        renderPoolBattleChainChip(tool) +
+                        renderPoolBattleFeeChip(tool) +
+                    '</div>' +
                 '</div>'
             );
+        }
+
+        function isPoolMetaDescription(tool) {
+            var desc = String(toolDesc(tool) || '').trim();
+            if (!desc) return false;
+            var meta = parsePoolMetaFromDesc(desc);
+            return !!(meta.chain || meta.fee);
+        }
+
+        function shouldShowToolCardDesc(tool, categoryId) {
+            if (!categoryUsesPoolBattleGrouping(categoryId)) return true;
+            if (formatChainLabel(tool) || formatFeeLabelFromTool(tool)) return !isPoolMetaDescription(tool);
+            return true;
         }
 
         function formatPoolBattleAltRange(tool) {
@@ -3463,7 +3528,9 @@
                     chevron +
                     '</div>' +
                     rangeRow +
-                    '<div class="tool-desc">' + escapeHtml(toolDesc(tool)) + '</div>' +
+                    (shouldShowToolCardDesc(tool, categoryId)
+                        ? '<div class="tool-desc">' + escapeHtml(toolDesc(tool)) + '</div>'
+                        : '') +
                     '<div class="tool-meta">📊 ' + t('period') + ': ' + escapeHtml(formatPeriodDisplay(tool)) + '</div>' +
                     '<div class="tool-footer">' +
                     '<a href="' + escapeHtml(tool.link) + '" target="_blank" rel="noopener noreferrer" class="tool-link">' + t('visitPosition') + '</a>' +
