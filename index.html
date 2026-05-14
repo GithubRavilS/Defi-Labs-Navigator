@@ -1851,16 +1851,32 @@
             }
 
             .pool-battle-meta-row {
-                width: 100%;
-                gap: 5px;
-            }
-
-            .pool-battle-instrument-head {
+                width: auto;
                 gap: 4px;
             }
 
+            .pool-battle-instrument-head {
+                flex-direction: row;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 4px 6px;
+            }
+
             .pool-battle-instrument-name {
+                flex: 0 1 auto;
+                max-width: 100%;
                 font-size: 14px;
+            }
+
+            #toolsTable .pool-battle-instrument-head {
+                flex-direction: row;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 4px 5px;
+            }
+
+            #toolsTable .pool-battle-meta-row {
+                width: auto;
             }
 
             .pool-battle-variant-count {
