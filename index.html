@@ -746,6 +746,336 @@
             color: var(--warning);
         }
 
+        .pool-battle-card-wrap {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            min-width: 0;
+        }
+
+        .tool-card.pool-battle-card--expandable {
+            cursor: pointer;
+        }
+
+        .tool-card.pool-battle-card.is-expanded {
+            border-color: rgba(79, 163, 255, 0.55);
+            box-shadow: 0 12px 40px rgba(47, 128, 237, 0.18);
+        }
+
+        .pool-battle-card-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .pool-battle-card-head .tool-header {
+            flex: 1;
+            min-width: 0;
+            margin-bottom: 0;
+        }
+
+        .pool-battle-chevron {
+            flex-shrink: 0;
+            width: 30px;
+            height: 30px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text-secondary);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.42s cubic-bezier(0.32, 0.72, 0, 1), background 0.25s ease, color 0.25s ease, border-color 0.25s ease;
+            pointer-events: none;
+        }
+
+        .pool-battle-card.is-expanded .pool-battle-chevron {
+            transform: rotate(180deg);
+            color: var(--accent-bright);
+            border-color: rgba(79, 163, 255, 0.35);
+            background: rgba(47, 128, 237, 0.12);
+        }
+
+        .pool-battle-range-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .pool-battle-range-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(79, 163, 255, 0.22);
+            background: rgba(47, 128, 237, 0.08);
+            color: #d9e8ff;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .pool-battle-range-chip.is-narrowest::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--success);
+            box-shadow: 0 0 10px rgba(39, 174, 96, 0.55);
+        }
+
+        .pool-battle-title-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .pool-battle-instrument-name {
+            min-width: 0;
+            font-size: 16px;
+            font-weight: 700;
+            line-height: 1.25;
+        }
+
+        .pool-battle-table-name .pool-battle-title-row {
+            margin-bottom: 0;
+        }
+
+        .pool-battle-chain-chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 9px;
+            border-radius: 999px;
+            border: 1px solid rgba(167, 139, 250, 0.28);
+            background: rgba(124, 58, 237, 0.12);
+            color: #e9ddff;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: capitalize;
+            white-space: nowrap;
+        }
+
+        .pool-battle-variant-count {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            letter-spacing: 0.02em;
+        }
+
+        .pool-battle-alt-panel {
+            display: grid;
+            grid-template-rows: 0fr;
+            transition: grid-template-rows 0.48s cubic-bezier(0.32, 0.72, 0, 1);
+        }
+
+        .pool-battle-card.is-expanded .pool-battle-alt-panel {
+            grid-template-rows: 1fr;
+        }
+
+        .pool-battle-alt-panel-inner {
+            overflow: hidden;
+            min-height: 0;
+        }
+
+        .pool-battle-card.is-expanded .pool-battle-alt-panel-inner {
+            overflow: visible;
+        }
+
+        .pool-battle-alt-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding-top: 0;
+            opacity: 0;
+            transform: translateY(-6px);
+            transition: opacity 0.32s ease, transform 0.42s cubic-bezier(0.32, 0.72, 0, 1), padding-top 0.42s cubic-bezier(0.32, 0.72, 0, 1);
+        }
+
+        .pool-battle-card.is-expanded .pool-battle-alt-list {
+            padding-top: 12px;
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .pool-battle-alt-item {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px 12px;
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(8px);
+        }
+
+        .pool-battle-alt-range {
+            flex: 1 1 160px;
+            min-width: 0;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-primary);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .pool-battle-alt-apy {
+            flex: 0 0 auto;
+            font-size: 14px;
+            font-weight: 800;
+            color: var(--accent-bright);
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+
+        .pool-battle-alt-period {
+            flex: 0 0 auto;
+            font-size: 11px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .pool-battle-alt-link {
+            flex: 1 1 100%;
+            justify-self: start;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--accent-bright);
+            text-decoration: none;
+        }
+
+        .pool-battle-alt-link:hover {
+            text-decoration: underline;
+        }
+
+        .pool-battle-table-row {
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .pool-battle-table-row:hover {
+            background: rgba(47, 128, 237, 0.06);
+        }
+
+        .pool-battle-table-row.is-expanded {
+            background: rgba(47, 128, 237, 0.08);
+        }
+
+        .pool-battle-table-main {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+        }
+
+        .pool-battle-table-main .pool-battle-chevron {
+            width: 26px;
+            height: 26px;
+            font-size: 11px;
+        }
+
+        .pool-battle-table-name {
+            min-width: 0;
+        }
+
+        .pool-battle-table-range {
+            margin-top: 4px;
+        }
+
+        .pool-battle-alt-table-row td {
+            background: rgba(255, 255, 255, 0.02);
+            border-top: none;
+            padding-top: 0;
+            padding-bottom: 12px;
+        }
+
+        .pool-battle-alt-table-wrap {
+            display: grid;
+            grid-template-rows: 0fr;
+            transition: grid-template-rows 0.42s cubic-bezier(0.32, 0.72, 0, 1);
+        }
+
+        .pool-battle-alt-table-row.is-open .pool-battle-alt-table-wrap {
+            grid-template-rows: 1fr;
+        }
+
+        .pool-battle-alt-table-inner {
+            overflow: hidden;
+            min-height: 0;
+        }
+
+        .pool-battle-alt-table-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding: 0 0 0 36px;
+            opacity: 0;
+            transform: translateY(-4px);
+            transition: opacity 0.28s ease, transform 0.36s cubic-bezier(0.32, 0.72, 0, 1), padding-top 0.36s ease;
+        }
+
+        .pool-battle-alt-table-row.is-open .pool-battle-alt-table-list {
+            padding-top: 4px;
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .pool-battle-alt-table-item {
+            display: grid;
+            grid-template-columns: minmax(0, 1.2fr) auto auto auto;
+            gap: 12px;
+            align-items: center;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            background: rgba(255, 255, 255, 0.025);
+        }
+
+        .pool-battle-alt-data-row td {
+            background: rgba(255, 255, 255, 0.02);
+            border-top: 1px solid rgba(255, 255, 255, 0.04);
+            padding-top: 10px;
+            padding-bottom: 10px;
+        }
+
+        .pool-battle-alt-indent {
+            padding-left: 34px;
+        }
+
+        .pool-battle-alt-data-row .pool-battle-alt-range {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .pool-battle-alt-data-row .apy-cell {
+            background: none;
+            -webkit-text-fill-color: currentColor;
+            color: var(--accent-bright);
+        }
+
+        .controls-bar .collapse-all-btn.hidden {
+            display: none;
+        }
+
+        .controls-bar .collapse-all-btn:disabled {
+            opacity: 0.45;
+            cursor: default;
+            transform: none;
+        }
+
         /* Favorites panel (session / device via localStorage) */
         .favorites-fab {
             position: fixed;
@@ -1377,6 +1707,237 @@
                 max-height: min(85dvh, 640px);
                 width: 100%;
             }
+
+            .category-back {
+                margin-bottom: 8px;
+                font-size: 12px;
+            }
+
+            .category-header {
+                margin-bottom: 10px;
+            }
+
+            .category-page-desc {
+                display: none;
+            }
+
+            .category-page .controls-bar {
+                position: sticky;
+                top: 0;
+                z-index: 40;
+                margin: 0 -12px 10px;
+                padding: 8px 12px;
+                background: rgba(10, 14, 39, 0.94);
+                backdrop-filter: blur(10px);
+                border-bottom: 1px solid rgba(42, 47, 69, 0.85);
+                flex-wrap: nowrap;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+                gap: 6px;
+            }
+
+            .category-page .controls-bar::-webkit-scrollbar {
+                display: none;
+            }
+
+            .category-page .controls-bar .filter-btn {
+                flex: 0 0 auto;
+                padding: 7px 10px;
+                font-size: 11px;
+                white-space: nowrap;
+            }
+
+            .tools-grid {
+                gap: 8px;
+                margin-bottom: 16px;
+            }
+
+            .tool-card {
+                padding: 12px;
+                border-radius: 10px;
+            }
+
+            .tool-card:hover {
+                transform: none;
+            }
+
+            .tool-header {
+                margin-bottom: 6px;
+                gap: 8px;
+            }
+
+            .tool-pair {
+                margin-top: 4px;
+                font-size: 11px;
+            }
+
+            .tool-pair-prefix {
+                font-size: 9px;
+            }
+
+            .tool-apy {
+                font-size: 18px;
+                line-height: 1;
+            }
+
+            .tool-desc {
+                display: none;
+            }
+
+            .tool-meta {
+                margin-bottom: 8px;
+                font-size: 10px;
+            }
+
+            .tool-footer {
+                flex-direction: row;
+                gap: 6px;
+            }
+
+            .tool-footer .tool-link {
+                width: auto;
+                min-width: 0;
+                padding: 8px 10px;
+                font-size: 11px;
+            }
+
+            .pool-battle-card-head {
+                margin-bottom: 6px;
+            }
+
+            .pool-battle-chevron {
+                width: 24px;
+                height: 24px;
+                font-size: 10px;
+            }
+
+            .pool-battle-range-row {
+                margin-bottom: 6px;
+                gap: 6px;
+            }
+
+            .pool-battle-range-chip,
+            .pool-battle-chain-chip {
+                padding: 3px 7px;
+                font-size: 9px;
+            }
+
+            .pool-battle-instrument-name {
+                font-size: 14px;
+            }
+
+            .pool-battle-variant-count {
+                font-size: 10px;
+            }
+
+            .pool-battle-alt-item {
+                padding: 8px 10px;
+                gap: 6px 8px;
+            }
+
+            .pool-battle-alt-range {
+                font-size: 11px;
+            }
+
+            .pool-battle-alt-apy {
+                font-size: 12px;
+            }
+
+            .pool-battle-alt-period {
+                font-size: 10px;
+            }
+
+            .pool-battle-alt-link {
+                font-size: 10px;
+            }
+
+            .table-view {
+                margin-bottom: 16px;
+                border-radius: 10px;
+            }
+
+            table {
+                table-layout: fixed;
+                font-size: 10px;
+            }
+
+            th, td {
+                padding: 7px 6px;
+                vertical-align: top;
+            }
+
+            #toolsTable th:nth-child(2),
+            #toolsTable td:nth-child(2),
+            #toolsTable th:nth-child(4),
+            #toolsTable td:nth-child(4) {
+                display: none;
+            }
+
+            #toolsTable th:nth-child(1),
+            #toolsTable td:nth-child(1) {
+                width: 58%;
+            }
+
+            #toolsTable th:nth-child(3),
+            #toolsTable td:nth-child(3) {
+                width: 18%;
+                text-align: right;
+                white-space: nowrap;
+            }
+
+            #toolsTable th:nth-child(5),
+            #toolsTable td:nth-child(5) {
+                width: 12%;
+                text-align: center;
+                padding-left: 4px;
+                padding-right: 4px;
+            }
+
+            #toolsTable .apy-cell {
+                font-size: 12px;
+            }
+
+            #toolsTable .pool-battle-table-main {
+                gap: 6px;
+            }
+
+            #toolsTable .pool-battle-table-main .pool-battle-chevron {
+                width: 20px;
+                height: 20px;
+            }
+
+            #toolsTable .pool-battle-alt-indent {
+                padding-left: 18px;
+            }
+
+            #toolsTable .tool-link {
+                padding: 6px 7px;
+                font-size: 0;
+                line-height: 1;
+                min-width: 30px;
+            }
+
+            #toolsTable .tool-link::after {
+                content: '↗';
+                font-size: 13px;
+                font-weight: 700;
+            }
+
+            .chart-section {
+                margin-bottom: 16px;
+                padding: 10px;
+            }
+
+            .chart-title {
+                font-size: 14px;
+                margin-bottom: 8px;
+            }
+
+            .chart-container {
+                min-height: 0;
+                max-height: 220px;
+            }
         }
 
         @media (max-width: 380px) {
@@ -1526,10 +2087,11 @@
                 </div>
 
                 <div class="controls-bar">
-                    <button class="filter-btn active" onclick="setView('grid')" data-i18n="gridView">🔲 Сетка</button>
-                    <button class="filter-btn" onclick="setView('table')" data-i18n="tableView">📊 Таблица</button>
-                    <button class="filter-btn" onclick="setSortBy('apy-desc')" data-i18n="topApy">По APY</button>
-                    <button class="filter-btn" onclick="setSortBy('name')" data-i18n="sortByName">A–Я</button>
+                    <button class="filter-btn active" data-view-btn="grid" onclick="setView('grid', this)" data-i18n="gridView">🔲 Сетка</button>
+                    <button class="filter-btn" data-view-btn="table" onclick="setView('table', this)" data-i18n="tableView">📊 Таблица</button>
+                    <button class="filter-btn" data-sort-btn="apy-desc" onclick="setSortBy('apy-desc', this)" data-i18n="topApy">По APY</button>
+                    <button class="filter-btn" data-sort-btn="name" onclick="setSortBy('name', this)" data-i18n="sortByName">A–Я</button>
+                    <button type="button" class="filter-btn collapse-all-btn hidden" id="collapseAllPoolGroupsBtn" onclick="collapseAllPoolGroups()" data-i18n="collapseAllRanges">Свернуть все</button>
                 </div>
 
                 <div id="gridView">
@@ -1688,7 +2250,13 @@
                 tooltipDesc: 'Описание',
                 emptyDataDashboard: 'Данные из таблицы ещё не загружены. Нажмите «Обновить» или подождите — позиции и доходности появятся после ответа сервера.',
                 emptyDataCategory: 'В этом направлении пока нет позиций из таблицы.',
-                noValue: '—'
+                noValue: '—',
+                priceRangeLabel: 'Диапазон',
+                narrowestRange: 'Узкий',
+                otherRanges: 'Другие диапазоны',
+                rangeVariants: 'вариантов',
+                collapseAllRanges: 'Свернуть все',
+                tooltipRange: 'Диапазон цен'
             },
             en: {
                 logo: 'DeFi Labs',
@@ -1754,7 +2322,13 @@
                 tooltipDesc: 'Description',
                 emptyDataDashboard: 'Spreadsheet data is not loaded yet. Click Refresh or wait — positions and yields appear once the server responds.',
                 emptyDataCategory: 'No positions from the spreadsheet in this category yet.',
-                noValue: '—'
+                noValue: '—',
+                priceRangeLabel: 'Range',
+                narrowestRange: 'Narrow',
+                otherRanges: 'Other ranges',
+                rangeVariants: 'variants',
+                collapseAllRanges: 'Collapse all',
+                tooltipRange: 'Price range'
             }
         };
 
@@ -1834,16 +2408,369 @@
             }
             o.pair = (rawPair != null && String(rawPair).trim() !== '') ? String(rawPair).trim() : '';
             o.platform = (o.platform != null && String(o.platform).trim() !== '') ? String(o.platform).trim() : '';
-            o.fee = (o.fee != null && String(o.fee).trim() !== '') ? String(o.fee).trim() : '';
+            o.fee = (o.fee != null && String(o.fee).trim() !== '') ? normalizeFeeValue(o.fee) : '';
             o.chain = (o.chain != null && String(o.chain).trim() !== '') ? String(o.chain).trim() : '';
+            o.type = (o.type != null && String(o.type).trim() !== '') ? String(o.type).trim() : '';
+            o.priceMin = (o.priceMin != null && String(o.priceMin).trim() !== '') ? String(o.priceMin).trim() : '';
+            o.priceMax = (o.priceMax != null && String(o.priceMax).trim() !== '') ? String(o.priceMax).trim() : '';
             o.link = (o.link != null && String(o.link).trim() !== '') ? String(o.link).trim() : '#';
             if (!o.descEn) o.descEn = o.desc || '';
-            return o;
+            return enrichPoolBattleFields(o);
+        }
+
+        function normalizeFeeValue(value) {
+            return String(value || '').replace(',', '.').replace(/%/g, '').trim();
+        }
+
+        function parsePoolMetaFromDesc(desc) {
+            var text = String(desc || '').trim();
+            if (!text) return { chain: '', fee: '' };
+            var withFee = text.match(/^([A-Za-z0-9]+)\s+([\d.,]+)\s*%$/);
+            if (withFee) {
+                return {
+                    chain: withFee[1],
+                    fee: normalizeFeeValue(withFee[2])
+                };
+            }
+            if (/^[A-Za-z0-9]+$/.test(text)) return { chain: text, fee: '' };
+            return { chain: '', fee: '' };
+        }
+
+        function enrichPoolBattleFields(tool) {
+            if (!tool.platform && tool.name) tool.platform = String(tool.name).trim();
+            var meta = parsePoolMetaFromDesc(tool.desc);
+            if (!tool.chain && meta.chain) tool.chain = meta.chain;
+            if (!tool.fee && meta.fee !== '') tool.fee = meta.fee;
+            return tool;
         }
 
         function normalizeToolsList(arr) {
             if (!arr || !Array.isArray(arr)) return [];
             return arr.map(normalizeTool);
+        }
+
+        var expandedPoolGroups = new Set();
+        var POOL_BATTLE_CATEGORY_IDS = ['ethereum', 'bitcoin'];
+
+        function categoryUsesPoolBattleGrouping(categoryId) {
+            return POOL_BATTLE_CATEGORY_IDS.indexOf(categoryId) !== -1;
+        }
+
+        function poolBattleIdentityPart(value) {
+            return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+        }
+
+        function poolBattleIdentityKey(tool) {
+            var platform = poolBattleIdentityPart(tool.platform);
+            var chain = poolBattleIdentityPart(tool.chain);
+            var fee = poolBattleIdentityPart(tool.fee);
+            var pair = poolBattleIdentityPart(tool.pair);
+            if (!platform || !chain || !fee || !pair) return '';
+            return [platform, chain, fee, pair].join('\u0001');
+        }
+
+        function parsePriceBoundary(value) {
+            if (value == null || value === '') return NaN;
+            var s = String(value)
+                .replace(/[$€₽£]/g, '')
+                .replace(/\u00a0/g, ' ')
+                .trim();
+            if (!s) return NaN;
+            s = s.replace(/\s/g, '');
+            var hasComma = s.indexOf(',') !== -1;
+            var hasDot = s.indexOf('.') !== -1;
+            if (hasComma && hasDot) {
+                if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+                    s = s.replace(/\./g, '').replace(',', '.');
+                } else {
+                    s = s.replace(/,/g, '');
+                }
+            } else if (hasComma) {
+                var parts = s.split(',');
+                if (parts.length === 2 && parts[1].length <= 2) {
+                    s = parts[0] + '.' + parts[1];
+                } else {
+                    s = s.replace(/,/g, '');
+                }
+            }
+            var n = parseFloat(s);
+            return Number.isFinite(n) ? n : NaN;
+        }
+
+        function hasValidPriceRange(tool) {
+            var minN = parsePriceBoundary(tool.priceMin);
+            var maxN = parsePriceBoundary(tool.priceMax);
+            return Number.isFinite(minN) && Number.isFinite(maxN) && minN > 0 && maxN > 0;
+        }
+
+        function getOrderedPriceRangeNumbers(tool) {
+            var minN = parsePriceBoundary(tool.priceMin);
+            var maxN = parsePriceBoundary(tool.priceMax);
+            if (!Number.isFinite(minN) || !Number.isFinite(maxN)) return null;
+            if (minN > maxN) {
+                var swap = minN;
+                minN = maxN;
+                maxN = swap;
+            }
+            return { min: minN, max: maxN };
+        }
+
+        function priceRangeWidth(tool) {
+            var range = getOrderedPriceRangeNumbers(tool);
+            if (!range) return Number.POSITIVE_INFINITY;
+            return range.max - range.min;
+        }
+
+        function formatPriceToken(value) {
+            var n = typeof value === 'number' ? value : parsePriceBoundary(value);
+            if (!Number.isFinite(n)) return '';
+            if (n >= 1000) return Math.round(n).toLocaleString('en-US');
+            if (n >= 100) return (Math.round(n * 10) / 10).toFixed(1);
+            return String(Math.round(n * 100) / 100);
+        }
+
+        function formatPriceRangeLabel(tool) {
+            var range = getOrderedPriceRangeNumbers(tool);
+            if (!range) return '';
+            return '$' + formatPriceToken(range.min) + '–$' + formatPriceToken(range.max);
+        }
+
+        function formatPriceRangeDisplay(tool) {
+            var label = formatPriceRangeLabel(tool);
+            if (!label) return '';
+            return t('priceRangeLabel') + ' ' + label;
+        }
+
+        function formatFeeLabel(fee) {
+            var f = String(fee || '').trim();
+            if (!f) return '';
+            return f.indexOf('%') !== -1 ? f : f + '%';
+        }
+
+        function formatPoolMetaLabel(tool) {
+            var parts = [];
+            if ((tool.chain || '').trim()) parts.push(String(tool.chain).trim());
+            if ((tool.fee || '').trim()) parts.push(formatFeeLabel(tool.fee));
+            return parts.join(' · ');
+        }
+
+        function formatApyDisplay(tool) {
+            var n = parseApyNumber(tool.apy);
+            if (!Number.isFinite(n)) return t('noValue');
+            return formatOneDecimal(n) + '%';
+        }
+
+        function parseApyNumber(value) {
+            if (value == null || value === '') return NaN;
+            var s = String(value).replace(/\s/g, '').replace(',', '.');
+            return parseFloat(s);
+        }
+
+        function formatChainLabel(tool) {
+            var chain = String(tool.chain || '').trim();
+            if (chain) return chain;
+            return parsePoolMetaFromDesc(tool.desc).chain || '';
+        }
+
+        function renderPoolBattleChainChip(tool) {
+            var label = formatChainLabel(tool);
+            if (!label) return '';
+            return '<span class="pool-battle-chain-chip">' + escapeHtml(label) + '</span>';
+        }
+
+        function renderPoolBattleInstrumentHead(tool) {
+            return (
+                '<div class="pool-battle-title-row">' +
+                    '<span class="pool-battle-instrument-name">' + escapeHtml(tool.name) + '</span>' +
+                    renderPoolBattleChainChip(tool) +
+                '</div>'
+            );
+        }
+
+        function formatPoolBattleAltRange(tool) {
+            return hasValidPriceRange(tool) ? formatPriceRangeLabel(tool) : '';
+        }
+
+        function formatPoolBattleRangeOrMeta(tool) {
+            if (hasValidPriceRange(tool)) return formatPriceRangeLabel(tool);
+            return formatPoolMetaLabel(tool);
+        }
+
+        function compareByNarrowestRangeThenApy(a, b) {
+            var wa = priceRangeWidth(a);
+            var wb = priceRangeWidth(b);
+            var aHasRange = Number.isFinite(wa);
+            var bHasRange = Number.isFinite(wb);
+            if (aHasRange && bHasRange && wa !== wb) return wa - wb;
+            if (aHasRange && !bHasRange) return -1;
+            if (!aHasRange && bHasRange) return 1;
+            return parseApyNumber(b.apy) - parseApyNumber(a.apy);
+        }
+
+        function buildPoolBattleGroups(tools, categoryId) {
+            if (!categoryUsesPoolBattleGrouping(categoryId)) {
+                return tools.map(function(tool) {
+                    return {
+                        groupKey: 'solo:' + toolKey(tool),
+                        primary: tool,
+                        alternates: [],
+                        rangeLabel: formatPoolBattleRangeOrMeta(tool),
+                        hasVariants: false
+                    };
+                });
+            }
+
+            var groupsMap = Object.create(null);
+            tools.forEach(function(tool) {
+                var key = poolBattleIdentityKey(tool);
+                if (!key) key = 'solo:' + toolKey(tool);
+                if (!groupsMap[key]) groupsMap[key] = [];
+                groupsMap[key].push(tool);
+            });
+
+            return Object.keys(groupsMap).map(function(key) {
+                var members = groupsMap[key].slice().sort(compareByNarrowestRangeThenApy);
+                return {
+                    groupKey: key,
+                    primary: members[0],
+                    alternates: members.slice(1),
+                    rangeLabel: formatPoolBattleRangeOrMeta(members[0]),
+                    hasVariants: members.length > 1
+                };
+            });
+        }
+
+        function toolMatchesQuery(tool, query) {
+            var q = String(query || '').toLowerCase();
+            if (!q) return true;
+            return (
+                (tool.name && tool.name.toLowerCase().includes(q)) ||
+                (tool.desc && tool.desc.toLowerCase().includes(q)) ||
+                (tool.pair && String(tool.pair).toLowerCase().includes(q)) ||
+                (tool.platform && String(tool.platform).toLowerCase().includes(q)) ||
+                (tool.fee && String(tool.fee).toLowerCase().includes(q)) ||
+                (tool.chain && String(tool.chain).toLowerCase().includes(q)) ||
+                (tool.type && String(tool.type).toLowerCase().includes(q)) ||
+                (tool.priceMin && String(tool.priceMin).toLowerCase().includes(q)) ||
+                (tool.priceMax && String(tool.priceMax).toLowerCase().includes(q)) ||
+                (tool.descEn && tool.descEn.toLowerCase().includes(q))
+            );
+        }
+
+        function filterPoolBattleGroups(groups, query) {
+            if (!query) return groups;
+            return groups.filter(function(group) {
+                return [group.primary].concat(group.alternates).some(function(tool) {
+                    return toolMatchesQuery(tool, query);
+                });
+            });
+        }
+
+        function sortToolGroups(groups) {
+            var copy = groups.slice();
+            if (currentSort === 'apy-desc') {
+                return copy.sort(function(a, b) { return parseFloat(b.primary.apy) - parseFloat(a.primary.apy); });
+            }
+            if (currentSort === 'name') {
+                return copy.sort(function(a, b) { return a.primary.name.localeCompare(b.primary.name); });
+            }
+            return copy;
+        }
+
+        function getCategoryToolsForDisplay(categoryId) {
+            var tools = getVisibleTools().filter(function(tool) { return tool.categoryId === categoryId; });
+            return buildPoolBattleGroups(tools, categoryId).map(function(group) { return group.primary; });
+        }
+
+        function getCategoryToolsCount(categoryId) {
+            return getVisibleTools().filter(function(tool) { return tool.categoryId === categoryId; }).length;
+        }
+
+        function getDashboardDisplayTools() {
+            var result = [];
+            VISIBLE_CATEGORY_IDS.forEach(function(categoryId) {
+                var tools = getVisibleTools().filter(function(tool) { return tool.categoryId === categoryId; });
+                if (categoryUsesPoolBattleGrouping(categoryId)) {
+                    buildPoolBattleGroups(tools, categoryId).forEach(function(group) { result.push(group.primary); });
+                } else {
+                    result = result.concat(tools);
+                }
+            });
+            return result;
+        }
+
+        function getCategoryRenderGroups(rawTools, categoryId, query) {
+            return sortToolGroups(filterPoolBattleGroups(buildPoolBattleGroups(rawTools, categoryId), query));
+        }
+
+        function updateCollapseAllControls(groups, categoryId) {
+            var btn = document.getElementById('collapseAllPoolGroupsBtn');
+            if (!btn) return;
+            var show = categoryUsesPoolBattleGrouping(categoryId) && groups.some(function(group) { return group.hasVariants; });
+            btn.classList.toggle('hidden', !show);
+            btn.disabled = expandedPoolGroups.size === 0;
+        }
+
+        function togglePoolGroup(groupKey) {
+            if (!groupKey) return;
+            if (expandedPoolGroups.has(groupKey)) expandedPoolGroups.delete(groupKey);
+            else expandedPoolGroups.add(groupKey);
+            rerenderCurrentCategoryTools();
+        }
+
+        function collapseAllPoolGroups() {
+            if (!expandedPoolGroups.size) return;
+            expandedPoolGroups.clear();
+            rerenderCurrentCategoryTools();
+        }
+
+        function rerenderCurrentCategoryTools() {
+            if (!currentCategory) return;
+            var rawTools = getVisibleTools().filter(function(tool) { return tool.categoryId === currentCategory; });
+            var query = (document.getElementById('searchBox').value || '').trim();
+            renderCategoryPositionViews(rawTools, currentCategory, query);
+        }
+
+        function renderCategoryPositionViews(rawTools, categoryId, query) {
+            var groups = getCategoryRenderGroups(rawTools, categoryId, query);
+            renderTools(groups, categoryId);
+            renderToolsTable(groups, categoryId);
+            renderChart(groups.map(function(group) { return group.primary; }));
+            updateCollapseAllControls(groups, categoryId);
+        }
+
+        function renderPoolBattleAltItems(alternates) {
+            if (!alternates.length) return '';
+            return alternates.map(function(tool) {
+                var range = formatPoolBattleAltRange(tool);
+                return (
+                    '<div class="pool-battle-alt-item">' +
+                    '<div class="pool-battle-alt-range">' + escapeHtml(range || t('noValue')) + '</div>' +
+                    '<div class="pool-battle-alt-apy">' + escapeHtml(formatApyDisplay(tool)) + '</div>' +
+                    '<div class="pool-battle-alt-period">' + escapeHtml(formatPeriodDisplay(tool)) + '</div>' +
+                    '<a href="' + escapeHtml(tool.link) + '" target="_blank" rel="noopener noreferrer" class="pool-battle-alt-link">' + escapeHtml(t('visitPosition')) + '</a>' +
+                    '</div>'
+                );
+            }).join('');
+        }
+
+        function renderPoolBattleAltTableRows(group) {
+            return group.alternates.map(function(alt) {
+                return (
+                    '<tr class="pool-battle-alt-data-row" data-pool-group="' + escapeHtml(group.groupKey) + '">' +
+                    '<td><div class="pool-battle-alt-indent"><span class="pool-battle-alt-range">' + escapeHtml(formatPoolBattleAltRange(alt) || t('noValue')) + '</span></div></td>' +
+                    '<td>' + escapeHtml(alt.pair || group.primary.pair || '—') + '</td>' +
+                    '<td class="apy-cell">' + escapeHtml(formatApyDisplay(alt)) + '</td>' +
+                    '<td>' + escapeHtml(formatPeriodDisplay(alt)) + '</td>' +
+                    '<td><a href="' + escapeHtml(alt.link) + '" target="_blank" rel="noopener noreferrer" class="tool-link">' + escapeHtml(t('visitPosition')) + '</a></td>' +
+                    '</tr>'
+                );
+            }).join('');
+        }
+
+        function renderPoolBattleRangeChip(rangeLabel, isNarrowest) {
+            if (!rangeLabel) return '';
+            return '<span class="pool-battle-range-chip' + (isNarrowest ? ' is-narrowest' : '') + '">' + escapeHtml(rangeLabel) + '</span>';
         }
 
         function escapeHtml(s) {
@@ -1921,10 +2848,7 @@
             saveFavoritesList(list);
             updateFavoritesUI();
             if (currentCategory) {
-                var tools = getVisibleTools().filter(function(t) { return t.categoryId === currentCategory; });
-                renderTools(tools);
-                renderToolsTable(tools);
-                renderChart(tools);
+                rerenderCurrentCategoryTools();
             }
         }
 
@@ -1934,10 +2858,7 @@
             saveFavoritesList(list);
             updateFavoritesUI();
             if (currentCategory) {
-                var tools = getVisibleTools().filter(function(t) { return t.categoryId === currentCategory; });
-                renderTools(tools);
-                renderToolsTable(tools);
-                renderChart(tools);
+                rerenderCurrentCategoryTools();
             }
         }
 
@@ -2112,11 +3033,10 @@
             });
             if (translations[currentLang].titleTag) document.title = translations[currentLang].titleTag;
             if (typeof renderDashboard === 'function') renderDashboard();
-            if (currentCategory && typeof renderTools === 'function') {
-                const tools = getVisibleTools().filter(function(t){ return t.categoryId === currentCategory; });
-                renderTools(tools);
-                renderToolsTable(tools);
-                if (typeof renderChart === 'function') renderChart(tools);
+            if (currentCategory && typeof renderCategoryPositionViews === 'function') {
+                var tools = getVisibleTools().filter(function(t){ return t.categoryId === currentCategory; });
+                var query = (document.getElementById('searchBox').value || '').trim();
+                renderCategoryPositionViews(tools, currentCategory, query);
                 var cat = getCategories().find(function(c){ return c.id === currentCategory; });
                 if (cat) {
                     document.getElementById('categoryPageTitle').textContent = categoryName(cat.id);
@@ -2129,7 +3049,7 @@
 
         // ========== DATA STRUCTURE ==========
         // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
-        var DATA_API_URL = 'https://script.google.com/macros/s/AKfycbwap2a3QP0VNx-p9cv-MbDXLuWKq0eOqNyCT8ZjwDblbXPIN0uOkV_FFPCR2ujhSlSngw/exec?project=main';
+        var DATA_API_URL = 'https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec';
         var DATA_LOAD_TIMEOUT_MS = 45000;
 
         /** Только навигация (id / иконки / цвета). Никаких заполненных пулов или доходностей — всё из таблицы. */
@@ -2148,6 +3068,31 @@
         let allTools = [];
         let categories = [];
 
+        function isMobileViewport() {
+            return typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
+        }
+
+        function syncViewportMode() {
+            document.body.classList.toggle('viewport-mobile', isMobileViewport());
+        }
+
+        function applyPreferredViewForViewport() {
+            syncViewportMode();
+            if (!currentCategory) return;
+            var preferred = currentView;
+            if (isMobileViewport()) {
+                try {
+                    var saved = localStorage.getItem('defilabs-mobile-view');
+                    if (saved === 'grid' || saved === 'table') preferred = saved;
+                    else preferred = 'table';
+                } catch (e) {
+                    preferred = 'table';
+                }
+            }
+            var btn = document.querySelector('#categoryPage .filter-btn[data-view-btn="' + preferred + '"]');
+            setView(preferred, btn || null);
+        }
+
         // ========== INIT ==========
         window.addEventListener('DOMContentLoaded', function() {
             currentLang = localStorage.getItem('defilabs-lang') || 'ru';
@@ -2157,6 +3102,8 @@
             loadData({ maxRetries: 5, retryDelayMs: 2000 }).then(function() {
                 applyLang();
                 setupEventListeners();
+                syncViewportMode();
+                applyPreferredViewForViewport();
                 document.body.style.opacity = '1';
             }).catch(function() { document.body.style.opacity = '1'; });
             document.querySelectorAll('.lang-btn').forEach(function(btn) {
@@ -2202,12 +3149,9 @@
         function finishDataLoad() {
             renderDashboard();
             if (currentCategory) {
-                var tools = getVisibleTools().filter(function(t){ return t.categoryId === currentCategory; });
                 document.getElementById('categoryPageTitle').textContent = categoryName(currentCategory);
                 document.getElementById('categoryPageDesc').textContent = categoryDesc(currentCategory);
-                renderTools(tools);
-                renderToolsTable(tools);
-                renderChart(tools);
+                rerenderCurrentCategoryTools();
             }
         }
 
@@ -2287,11 +3231,25 @@
             if (grid) {
                 grid.addEventListener('click', function(e) {
                     var btn = e.target.closest('.tool-fav-btn');
-                    if (!btn) return;
-                    e.preventDefault();
-                    var key = btn.getAttribute('data-tool-key');
-                    var tool = getVisibleTools().find(function(t) { return toolKey(t) === key; });
-                    if (tool) toggleFavorite(tool);
+                    if (btn) {
+                        e.preventDefault();
+                        var key = btn.getAttribute('data-tool-key');
+                        var tool = getVisibleTools().find(function(t) { return toolKey(t) === key; });
+                        if (tool) toggleFavorite(tool);
+                        return;
+                    }
+                    var card = e.target.closest('.pool-battle-card--expandable');
+                    if (card && !e.target.closest('a, button')) {
+                        togglePoolGroup(card.getAttribute('data-pool-group'));
+                    }
+                });
+            }
+            var tableBody = document.getElementById('toolsTableBody');
+            if (tableBody) {
+                tableBody.addEventListener('click', function(e) {
+                    if (e.target.closest('a, button')) return;
+                    var row = e.target.closest('.pool-battle-table-row--expandable');
+                    if (row) togglePoolGroup(row.getAttribute('data-pool-group'));
                 });
             }
             var fab = document.getElementById('favoritesFab');
@@ -2309,12 +3267,13 @@
             });
             var chartResizeTimer;
             window.addEventListener('resize', function() {
-                if (!currentCategory) return;
+                syncViewportMode();
                 clearTimeout(chartResizeTimer);
                 chartResizeTimer = setTimeout(function() {
-                    var tools = getVisibleTools().filter(function(t) { return t.categoryId === currentCategory; });
+                    applyPreferredViewForViewport();
+                    if (!currentCategory) return;
                     if (document.getElementById('categoryPage').classList.contains('active')) {
-                        renderChart(tools);
+                        rerenderCurrentCategoryTools();
                     }
                 }, 280);
             });
@@ -2327,9 +3286,12 @@
             renderSidebar();
         }
 
-        function renderHeatmap() {
+        function renderHeatmap(query) {
             const container = document.getElementById('heatmapContainer');
-            const visible = getVisibleTools();
+            var visible = getDashboardDisplayTools();
+            if (query) {
+                visible = visible.filter(function(tool) { return toolMatchesQuery(tool, query); });
+            }
             if (!visible.length) {
                 container.innerHTML = '<div class="empty-data-hint">' + escapeHtml(t('emptyDataDashboard')) + '</div>';
                 return;
@@ -2351,6 +3313,8 @@
                 if ((tool.platform || '').trim()) metaParts.push((tool.platform || '').trim());
                 if ((tool.fee || '').trim()) metaParts.push((tool.fee || '').trim());
                 if ((tool.chain || '').trim()) metaParts.push((tool.chain || '').trim());
+                var rangeLabel = formatPriceRangeLabel(tool);
+                if (rangeLabel) metaParts.push(rangeLabel);
                 var metaHtml = metaParts.length
                     ? '<div class="heatmap-meta">' + escapeHtml(metaParts.join(' · ')) + '</div>'
                     : '';
@@ -2368,9 +3332,9 @@
         function renderCategoriesGrid() {
             const container = document.getElementById('categoriesGrid');
             container.innerHTML = getCategories().map(function(cat){
-                const toolCount = getVisibleTools().filter(function(t){ return t.categoryId === cat.id; }).length;
-                const avgApy = toolCount ? getVisibleTools()
-                    .filter(function(t){ return t.categoryId === cat.id; })
+                const displayTools = getCategoryToolsForDisplay(cat.id);
+                const toolCount = getCategoryToolsCount(cat.id);
+                const avgApy = toolCount ? displayTools
                     .reduce(function(sum, t){ return sum + parseFloat(t.apy); }, 0) / toolCount : NaN;
                 var avgLabel = toolCount ? formatOneDecimal(avgApy) + '%' : t('noValue');
 
@@ -2391,7 +3355,7 @@
         function renderSidebar() {
             const container = document.getElementById('categoriesSidebar');
             container.innerHTML = getCategories().map(function(cat){
-                const toolCount = getVisibleTools().filter(function(t){ return t.categoryId === cat.id; }).length;
+                const toolCount = getCategoryToolsCount(cat.id);
                 return `
                     <div class="sidebar-item" data-category-id="${cat.id}" onclick="showCategory('${cat.id}')">
                         <span class="sidebar-item-icon">${cat.icon}</span>
@@ -2427,7 +3391,7 @@
         function showCategory(categoryId) {
             if (VISIBLE_CATEGORY_IDS.indexOf(categoryId) === -1) { showDashboard(); return; }
             currentCategory = categoryId;
-            const category = getCategories().find(function(c){ return c.id === categoryId; });
+            expandedPoolGroups.clear();
             const tools = getVisibleTools().filter(function(t){ return t.categoryId === categoryId; });
 
             document.getElementById('dashboardPage').classList.remove('active');
@@ -2436,9 +3400,8 @@
             document.getElementById('categoryPageTitle').textContent = categoryName(categoryId);
             document.getElementById('categoryPageDesc').textContent = categoryDesc(categoryId);
 
-            renderTools(tools);
-            renderToolsTable(tools);
-            renderChart(tools);
+            renderCategoryPositionViews(tools, categoryId, '');
+            applyPreferredViewForViewport();
 
             document.querySelectorAll('.sidebar-item').forEach(item => {
                 item.classList.remove('active');
@@ -2456,29 +3419,50 @@
         function toolDesc(tool) {
             return currentLang === 'ru' ? tool.desc : (tool.descEn || tool.desc);
         }
-        function renderTools(tools) {
-            const sorted = sortTools(tools);
+        function renderTools(groups, categoryId) {
             const container = document.getElementById('toolsGrid');
-            if (!sorted.length) {
+            if (!groups.length) {
                 container.innerHTML = '<div class="empty-data-hint">' + escapeHtml(t('emptyDataCategory')) + '</div>';
                 return;
             }
-            container.innerHTML = sorted.map(function(tool) {
+            container.innerHTML = groups.map(function(group) {
+                var tool = group.primary;
                 var pairBlock =
                     '<div class="tool-pair">' +
                     '<span class="tool-pair-prefix">' + escapeHtml(t('pairLabel')) + '</span>' +
                     '<span class="tool-pair-value">' + escapeHtml(tool.pair || '—') + '</span>' +
                     '</div>';
                 var fav = isFavorite(tool);
+                var expanded = expandedPoolGroups.has(group.groupKey);
+                var expandable = group.hasVariants;
+                var rangeRow = group.rangeLabel
+                    ? '<div class="pool-battle-range-row">' +
+                        renderPoolBattleRangeChip(group.rangeLabel, true) +
+                        (expandable ? '<span class="pool-battle-variant-count">+' + group.alternates.length + ' ' + escapeHtml(t('rangeVariants')) + '</span>' : '') +
+                      '</div>'
+                    : '';
+                var chevron = expandable
+                    ? '<span class="pool-battle-chevron" aria-hidden="true">⌄</span>'
+                    : '';
+                var altPanel = expandable
+                    ? '<div class="pool-battle-alt-panel"><div class="pool-battle-alt-panel-inner"><div class="pool-battle-alt-list">' +
+                        renderPoolBattleAltItems(group.alternates) +
+                      '</div></div></div>'
+                    : '';
                 return (
-                    '<div class="tool-card" data-tool-key="' + escapeHtml(toolKey(tool)) + '">' +
+                    '<div class="pool-battle-card-wrap">' +
+                    '<div class="tool-card pool-battle-card' + (expandable ? ' pool-battle-card--expandable' : '') + (expanded ? ' is-expanded' : '') + '" data-tool-key="' + escapeHtml(toolKey(tool)) + '" data-pool-group="' + escapeHtml(group.groupKey) + '">' +
+                    '<div class="pool-battle-card-head">' +
                     '<div class="tool-header">' +
                     '<div class="tool-title-block">' +
-                    '<div class="tool-name">' + escapeHtml(tool.name) + '</div>' +
+                    renderPoolBattleInstrumentHead(tool) +
                     pairBlock +
                     '</div>' +
                     '<div class="tool-apy">' + formatOneDecimal(tool.apy) + '%</div>' +
                     '</div>' +
+                    chevron +
+                    '</div>' +
+                    rangeRow +
                     '<div class="tool-desc">' + escapeHtml(toolDesc(tool)) + '</div>' +
                     '<div class="tool-meta">📊 ' + t('period') + ': ' + escapeHtml(formatPeriodDisplay(tool)) + '</div>' +
                     '<div class="tool-footer">' +
@@ -2486,27 +3470,37 @@
                     '<button type="button" class="tool-link tool-secondary tool-fav-btn' + (fav ? ' fav-active' : '') + '" data-tool-key="' + escapeHtml(toolKey(tool)) + '">' +
                     (fav ? t('removeFromFavorites') : t('addToFavorites')) +
                     '</button>' +
+                    '</div>' +
+                    altPanel +
                     '</div></div>'
                 );
             }).join('');
         }
 
-        function renderToolsTable(tools) {
-            const sorted = sortTools(tools);
+        function renderToolsTable(groups, categoryId) {
             const tbody = document.getElementById('toolsTableBody');
-            if (!sorted.length) {
+            if (!groups.length) {
                 tbody.innerHTML = '<tr><td colspan="5" class="empty-table-msg">' + escapeHtml(t('emptyDataCategory')) + '</td></tr>';
                 return;
             }
-            tbody.innerHTML = sorted.map(function(tool) {
+            tbody.innerHTML = groups.map(function(group) {
+                var tool = group.primary;
+                var expanded = expandedPoolGroups.has(group.groupKey);
+                var expandable = group.hasVariants;
+                var rangeHtml = group.rangeLabel
+                    ? '<div class="pool-battle-table-range">' + renderPoolBattleRangeChip(group.rangeLabel, true) + '</div>'
+                    : '';
+                var chevron = expandable ? '<span class="pool-battle-chevron" aria-hidden="true">⌄</span>' : '';
+                var altRows = expandable && expanded ? renderPoolBattleAltTableRows(group) : '';
                 return (
-                    '<tr>' +
-                    '<td>' + escapeHtml(tool.name) + '</td>' +
+                    '<tr class="pool-battle-table-row' + (expandable ? ' pool-battle-table-row--expandable' : '') + (expanded ? ' is-expanded' : '') + '" data-pool-group="' + escapeHtml(group.groupKey) + '">' +
+                    '<td><div class="pool-battle-table-main">' + chevron + '<div class="pool-battle-table-name">' + renderPoolBattleInstrumentHead(tool) + rangeHtml + '</div></div></td>' +
                     '<td>' + escapeHtml(tool.pair || '—') + '</td>' +
-                    '<td class="apy-cell">' + formatOneDecimal(tool.apy) + '%</td>' +
+                    '<td class="apy-cell">' + escapeHtml(formatApyDisplay(tool)) + '</td>' +
                     '<td>' + escapeHtml(formatPeriodDisplay(tool)) + '</td>' +
                     '<td><a href="' + escapeHtml(tool.link) + '" target="_blank" rel="noopener noreferrer" class="tool-link">' + t('visitPosition') + '</a></td>' +
-                    '</tr>'
+                    '</tr>' +
+                    altRows
                 );
             }).join('');
         }
@@ -2526,23 +3520,26 @@
                 return;
             }
 
-            var isMobileChart = typeof window !== 'undefined' && window.innerWidth <= 768;
+            var isMobileChart = isMobileViewport();
+            var chartTools = isMobileChart ? sorted.slice(0, 8) : sorted;
             if (wrap) {
-                var rowH = isMobileChart ? 118 : 102;
-                var h = Math.max(isMobileChart ? 380 : 400, sorted.length * rowH + 160);
+                var rowH = isMobileChart ? 42 : 102;
+                var h = isMobileChart
+                    ? Math.min(220, Math.max(140, chartTools.length * rowH + 36))
+                    : Math.max(400, sorted.length * rowH + 160);
                 wrap.style.height = h + 'px';
             }
 
-            var chartSorted = sorted;
+            var chartSorted = chartTools;
 
             window.categoryChartInstance = new Chart(ctx, {
                 type: 'bar',
                 data: {
-                    labels: sorted.map(function(t) { return chartLabelForAxis(t); }),
+                    labels: chartSorted.map(function(t) { return chartLabelForAxis(t); }),
                     datasets: [{
                         label: '',
-                        data: sorted.map(function(t) { return parseFloat(t.apy); }),
-                        backgroundColor: sorted.map(function(t) {
+                        data: chartSorted.map(function(t) { return parseFloat(t.apy); }),
+                        backgroundColor: chartSorted.map(function(t) {
                             var cls = heatmapApyColorClass(parseFloat(t.apy));
                             if (cls === 'heatmap-low') return 'rgba(39, 174, 96, 0.68)';
                             if (cls === 'heatmap-medium') return 'rgba(242, 201, 76, 0.68)';
@@ -2633,6 +3630,8 @@
                                     lines.push(tool.pair ? String(tool.pair) : '—');
                                     if (tool.fee) lines.push(t('tooltipFee') + ': ' + tool.fee);
                                     if (tool.chain) lines.push(t('tooltipChain') + ': ' + tool.chain);
+                                    var rangeLabel = formatPriceRangeLabel(tool);
+                                    if (rangeLabel) lines.push(t('tooltipRange') + ': ' + rangeLabel);
                                     lines.push(t('period') + ': ' + formatPeriodDisplay(tool));
                                     var d = toolDesc(tool);
                                     if (d) {
@@ -2672,7 +3671,7 @@
             scheduleScrollToActiveView();
         }
 
-        function setView(view) {
+        function setView(view, targetBtn) {
             currentView = view;
             if (view === 'grid') {
                 document.getElementById('gridView').classList.remove('hidden');
@@ -2681,45 +3680,32 @@
                 document.getElementById('gridView').classList.add('hidden');
                 document.getElementById('tableView').classList.remove('hidden');
             }
-            document.querySelectorAll('.filter-btn').forEach((btn, i) => {
-                btn.classList.remove('active');
+            document.querySelectorAll('#categoryPage .filter-btn[data-view-btn]').forEach(function(btn) {
+                btn.classList.toggle('active', btn.getAttribute('data-view-btn') === view);
             });
-            event.target.classList.add('active');
+            if (isMobileViewport()) {
+                try { localStorage.setItem('defilabs-mobile-view', view); } catch (e) {}
+            }
         }
 
-        function setSortBy(sort) {
+        function setSortBy(sort, targetBtn) {
             currentSort = sort;
             if (currentCategory) {
-                const tools = getVisibleTools().filter(t => t.categoryId === currentCategory);
-                renderTools(tools);
-                renderToolsTable(tools);
-                renderChart(tools);
+                rerenderCurrentCategoryTools();
             }
-            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
+            document.querySelectorAll('#categoryPage .filter-btn[data-sort-btn]').forEach(function(btn) {
+                btn.classList.toggle('active', btn.getAttribute('data-sort-btn') === sort);
+            });
         }
 
         function handleSearch(e) {
-            const query = e.target.value.toLowerCase();
-            const filtered = getVisibleTools().filter(function(t) {
-                return (
-                    (t.name && t.name.toLowerCase().includes(query)) ||
-                    (t.desc && t.desc.toLowerCase().includes(query)) ||
-                    (t.pair && String(t.pair).toLowerCase().includes(query)) ||
-                    (t.platform && String(t.platform).toLowerCase().includes(query)) ||
-                    (t.fee && String(t.fee).toLowerCase().includes(query)) ||
-                    (t.chain && String(t.chain).toLowerCase().includes(query)) ||
-                    (t.descEn && t.descEn.toLowerCase().includes(query))
-                );
-            });
-            
+            const query = (e.target.value || '').trim().toLowerCase();
+
             if (currentCategory) {
-                var ft = filtered.filter(function(t) { return t.categoryId === currentCategory; });
-                renderTools(ft);
-                renderToolsTable(ft);
-                renderChart(ft);
+                var rawTools = getVisibleTools().filter(function(t) { return t.categoryId === currentCategory; });
+                renderCategoryPositionViews(rawTools, currentCategory, query);
             } else {
-                renderHeatmap();
+                renderHeatmap(query);
             }
         }
 
@@ -2727,12 +3713,9 @@
             document.body.style.opacity = '0.5';
             loadData({ maxRetries: 4, retryDelayMs: 1800 }).then(function() {
                 if (currentCategory) {
-                    var tools = getVisibleTools().filter(function(t){ return t.categoryId === currentCategory; });
                     document.getElementById('categoryPageTitle').textContent = categoryName(currentCategory);
                     document.getElementById('categoryPageDesc').textContent = categoryDesc(currentCategory);
-                    renderTools(tools);
-                    renderToolsTable(tools);
-                    renderChart(tools);
+                    rerenderCurrentCategoryTools();
                 }
                 document.body.style.opacity = '1';
             }).catch(function() { document.body.style.opacity = '1'; });
