@@ -3331,9 +3331,19 @@
             var navInput = document.getElementById('navAuthInput');
             var navErr = document.getElementById('navAuthErr');
             if (navSubmit && navInput) {
+                function normalizeNavPasswordInput(raw) {
+                    return String(raw || '')
+                        .replace(/\uFEFF/g, '')
+                        .replace(/[\u200B-\u200F\u2028\u2029]/g, '')
+                        .replace(/\r\n/g, '\n')
+                        .replace(/[\r\n]+/g, '')
+                        .replace(/[：﹕]/g, ':')
+                        .replace(/\s+/g, '')
+                        .trim();
+                }
                 function doNavLogin() {
                     if (navErr) navErr.textContent = '';
-                    var pwd = (navInput.value || '').trim();
+                    var pwd = normalizeNavPasswordInput(navInput.value || '');
                     if (!pwd) return;
                     navSubmit.disabled = true;
                     fetch('/api/nav-login', {
