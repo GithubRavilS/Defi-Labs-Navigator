@@ -2335,6 +2335,28 @@
             return NAV_BACKEND_ORIGIN ? 'include' : 'same-origin';
         }
 
+        /** Кросс-домен (Vercel → PA): cookie часто режется как third-party; JWT дублируем в sessionStorage + Bearer. */
+        var NAV_JWT_STORAGE_KEY = 'defilabs_nav_jwt';
+        function getNavJwtToken() {
+            try { return sessionStorage.getItem(NAV_JWT_STORAGE_KEY) || ''; } catch (e) { return ''; }
+        }
+        function setNavJwtToken(token) {
+            try {
+                if (token) sessionStorage.setItem(NAV_JWT_STORAGE_KEY, String(token));
+                else sessionStorage.removeItem(NAV_JWT_STORAGE_KEY);
+            } catch (e) {}
+        }
+        function navAuthHeaders() {
+            var t = getNavJwtToken();
+            if (!t) return {};
+            return { 'Authorization': 'Bearer ' + t };
+        }
+        function navFetchInit(opts) {
+            opts = opts || {};
+            var headers = Object.assign({}, opts.headers || {}, navAuthHeaders());
+            return Object.assign({}, opts, { headers: headers });
+        }
+
         const translations = {
             ru: {
                 logo: 'DeFi Labs',
@@ -3322,10 +3344,10 @@
 
         function ensureNavSession() {
             if (!navAuthRequired()) return Promise.resolve(true);
-            return fetch(navApiPath('/nav-api/session'), { credentials: navFetchCreds() })
+            return fetch(navApiPath('/nav-api/session'), navFetchInit({ credentials: navFetchCreds() }))
                 .then(function(r) {
                     return r.json().catch(function() { return {}; }).then(function(j) {
-                        return { ok: r.ok && j.ok === true };
+                        return { ok: r.ok && j.ok === true, status: r.status };
                     });
                 })
                 .then(function(x) {
@@ -3333,6 +3355,7 @@
                         showNavAuthGate(false);
                         return true;
                     }
+                    if (x.status === 401) setNavJwtToken('');
                     showNavAuthGate(true);
                     return false;
                 })
@@ -3365,18 +3388,19 @@
                     var pwd = normalizeNavPasswordInput(navInput.value || '');
                     if (!pwd) return;
                     navSubmit.disabled = true;
-                    fetch(navApiPath('/nav-api/login'), {
+                    fetch(navApiPath('/nav-api/login'), navFetchInit({
                         method: 'POST',
                         credentials: navFetchCreds(),
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ password: pwd })
-                    }).then(function(r) {
+                    })).then(function(r) {
                         return r.json().catch(function() { return {}; }).then(function(j) {
                             return { ok: r.ok && j.ok === true, j: j };
                         });
                     }).then(function(x) {
                         navSubmit.disabled = false;
                         if (x.ok) {
+                            if (x.j && x.j.token) setNavJwtToken(String(x.j.token));
                             showNavAuthGate(false);
                             navInput.value = '';
                             applyLoadedData(null);
@@ -3491,10 +3515,11 @@
                         applyLoadedData(null);
                         finish(false);
                     }, DATA_LOAD_TIMEOUT_MS);
-                    fetch(navApiPath('/nav-api/data'), { credentials: navFetchCreds() })
+                    fetch(navApiPath('/nav-api/data'), navFetchInit({ credentials: navFetchCreds() }))
                         .then(function(r) {
                             if (r.status === 401) {
                                 clearTimeout(timeout);
+                                setNavJwtToken('');
                                 showNavAuthGate(true);
                                 try { setDataBadge('warn'); } catch (e) {}
                                 applyLoadedData(null);
