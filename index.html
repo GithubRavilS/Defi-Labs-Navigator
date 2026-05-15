@@ -2400,6 +2400,12 @@
                 authSubmit: 'Войти',
                 authErrorGeneric: 'Не удалось войти. Проверьте пароль или получите новый в боте.',
                 authErrorNetwork: 'Нет связи с сервером. Проверьте подключение.',
+                authErrorConfig: 'Сайт не настроен (сервер). Админ: проверьте NAVIGATOR_JWT_SECRET на Vercel.',
+                authErrorWrongPassword: 'Пароль не подходит. Запросите новый в боте (старый отозван) и вставьте строку NAV:… целиком.',
+                authErrorFormat: 'Строка должна быть одной линией вида NAV:число:код — без пробелов в начале/конце.',
+                authErrorExpired: 'Доступ по подписке истёк. Продлите VIP и снова получите пароль.',
+                authErrorInactive: 'Профиль VIP неактивен.',
+                authErrorServer: 'Ошибка сервера при входе. Попробуйте позже или проверьте логи Vercel.',
                 tooltipRange: 'Диапазон цен'
             },
             en: {
@@ -2478,6 +2484,12 @@
                 authSubmit: 'Sign in',
                 authErrorGeneric: 'Sign-in failed. Check the password or get a new one from the bot.',
                 authErrorNetwork: 'Could not reach the server.',
+                authErrorConfig: 'Server misconfiguration. Admin: set NAVIGATOR_JWT_SECRET on Vercel.',
+                authErrorWrongPassword: 'Wrong password. Request a new one in the bot (old one is revoked) and paste the full NAV:… line.',
+                authErrorFormat: 'Use one line like NAV:id:secret — no leading/trailing spaces.',
+                authErrorExpired: 'Subscription expired. Renew VIP and get a new password.',
+                authErrorInactive: 'VIP profile inactive.',
+                authErrorServer: 'Server error. Try later or check Vercel logs.',
                 tooltipRange: 'Price range'
             }
         };
@@ -3346,7 +3358,15 @@
                                 applyPreferredViewForViewport();
                             });
                         } else {
-                            if (navErr) navErr.textContent = t('authErrorGeneric');
+                            var code = (x.j && x.j.error) ? String(x.j.error) : '';
+                            var msg = t('authErrorGeneric');
+                            if (code === 'config') msg = t('authErrorConfig');
+                            else if (code === 'wrong_password' || code === 'denied' || code === 'unknown') msg = t('authErrorWrongPassword');
+                            else if (code === 'bad_format') msg = t('authErrorFormat');
+                            else if (code === 'expired') msg = t('authErrorExpired');
+                            else if (code === 'inactive') msg = t('authErrorInactive');
+                            else if (code === 'server') msg = t('authErrorServer');
+                            if (navErr) navErr.textContent = msg;
                         }
                     }).catch(function() {
                         navSubmit.disabled = false;
