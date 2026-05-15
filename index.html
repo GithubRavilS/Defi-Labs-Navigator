@@ -2003,6 +2003,83 @@
             }
         }
 
+        /* VIP: вход по паролю из Telegram-бота */
+        .nav-auth-gate {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 20000;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background: rgba(6, 8, 20, 0.88);
+            backdrop-filter: blur(12px);
+        }
+        .nav-auth-gate.is-visible {
+            display: flex;
+        }
+        .nav-auth-gate-inner {
+            width: 100%;
+            max-width: 420px;
+            padding: 28px;
+            border-radius: 16px;
+            border: 1px solid rgba(79, 163, 255, 0.35);
+            background: linear-gradient(145deg, rgba(26, 31, 58, 0.98) 0%, rgba(10, 14, 39, 0.99) 100%);
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+        }
+        .nav-auth-gate-inner h2 {
+            font-size: 20px;
+            font-weight: 800;
+            margin-bottom: 10px;
+            letter-spacing: -0.02em;
+        }
+        .nav-auth-gate-inner p {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+            margin-bottom: 18px;
+        }
+        .nav-auth-input {
+            width: 100%;
+            padding: 14px 16px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-primary);
+            font-size: 13px;
+            font-family: ui-monospace, monospace;
+            margin-bottom: 12px;
+            box-sizing: border-box;
+        }
+        .nav-auth-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .nav-auth-err {
+            font-size: 12px;
+            color: #f5a5a0;
+            margin-bottom: 10px;
+            min-height: 18px;
+        }
+        .nav-auth-submit {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 10px;
+            background: var(--accent);
+            color: var(--white);
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .nav-auth-submit:hover {
+            background: var(--accent-bright);
+        }
+        .nav-auth-submit:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+
         .hidden {
             display: none;
         }
@@ -2070,6 +2147,15 @@
     </style>
 </head>
 <body>
+    <div id="navAuthGate" class="nav-auth-gate" role="dialog" aria-modal="true" aria-labelledby="navAuthTitle">
+        <div class="nav-auth-gate-inner">
+            <h2 id="navAuthTitle" data-i18n="authTitle">Доступ DeFi Labs VIP</h2>
+            <p data-i18n="authHint">Введите пароль из Telegram-бота (раздел DeFi Labs VIP → «Получить пароль»). Сессия сохраняется в браузере до смены пароля или окончания подписки.</p>
+            <div class="nav-auth-err" id="navAuthErr" aria-live="polite"></div>
+            <input type="password" class="nav-auth-input" id="navAuthInput" autocomplete="current-password" data-i18n-placeholder="authPlaceholder" placeholder="Вставьте пароль целиком" />
+            <button type="button" class="nav-auth-submit" id="navAuthSubmit" data-i18n="authSubmit">Войти</button>
+        </div>
+    </div>
     <!-- HEADER -->
     <header>
         <div class="header-logo">
@@ -2308,6 +2394,12 @@
                 otherRanges: 'Другие диапазоны',
                 rangeVariants: 'вариантов',
                 collapseAllRanges: 'Свернуть все',
+                authTitle: 'Доступ DeFi Labs VIP',
+                authHint: 'Введите пароль из Telegram-бота (раздел DeFi Labs VIP → «Получить пароль»). Сессия сохраняется в браузере до смены пароля или окончания подписки.',
+                authPlaceholder: 'Вставьте пароль целиком',
+                authSubmit: 'Войти',
+                authErrorGeneric: 'Не удалось войти. Проверьте пароль или получите новый в боте.',
+                authErrorNetwork: 'Нет связи с сервером. Проверьте подключение.',
                 tooltipRange: 'Диапазон цен'
             },
             en: {
@@ -2380,6 +2472,12 @@
                 otherRanges: 'Other ranges',
                 rangeVariants: 'variants',
                 collapseAllRanges: 'Collapse all',
+                authTitle: 'DeFi Labs VIP access',
+                authHint: 'Enter the password from the Telegram bot (DeFi Labs VIP → “Get password”). Your session stays until the password is rotated or your subscription ends.',
+                authPlaceholder: 'Paste full password',
+                authSubmit: 'Sign in',
+                authErrorGeneric: 'Sign-in failed. Check the password or get a new one from the bot.',
+                authErrorNetwork: 'Could not reach the server.',
                 tooltipRange: 'Price range'
             }
         };
@@ -3174,13 +3272,101 @@
             setView(preferred, btn || null);
         }
 
+        function navAuthRequired() {
+            try {
+                if (window.location.protocol === 'file:') return false;
+                var h = (window.location.hostname || '').toLowerCase();
+                if (h.indexOf('defilabsvipnavigator.vercel.app') !== -1) return true;
+                if (h === 'localhost' || h === '127.0.0.1') return true;
+                return false;
+            } catch (e) { return false; }
+        }
+
+        function showNavAuthGate(visible) {
+            var g = document.getElementById('navAuthGate');
+            if (!g) return;
+            if (visible) g.classList.add('is-visible');
+            else g.classList.remove('is-visible');
+        }
+
+        function ensureNavSession() {
+            if (!navAuthRequired()) return Promise.resolve(true);
+            return fetch('/api/nav-session', { credentials: 'same-origin' })
+                .then(function(r) {
+                    return r.json().catch(function() { return {}; }).then(function(j) {
+                        return { ok: r.ok && j.ok === true };
+                    });
+                })
+                .then(function(x) {
+                    if (x.ok) {
+                        showNavAuthGate(false);
+                        return true;
+                    }
+                    showNavAuthGate(true);
+                    return false;
+                })
+                .catch(function() {
+                    showNavAuthGate(true);
+                    return false;
+                });
+        }
+
         // ========== INIT ==========
         window.addEventListener('DOMContentLoaded', function() {
             currentLang = localStorage.getItem('defilabs-lang') || 'ru';
-            applyLoadedData(null);
-            finishDataLoad();
+            applyLang();
+            var navSubmit = document.getElementById('navAuthSubmit');
+            var navInput = document.getElementById('navAuthInput');
+            var navErr = document.getElementById('navAuthErr');
+            if (navSubmit && navInput) {
+                function doNavLogin() {
+                    if (navErr) navErr.textContent = '';
+                    var pwd = (navInput.value || '').trim();
+                    if (!pwd) return;
+                    navSubmit.disabled = true;
+                    fetch('/api/nav-login', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ password: pwd })
+                    }).then(function(r) {
+                        return r.json().catch(function() { return {}; }).then(function(j) {
+                            return { ok: r.ok && j.ok === true, j: j };
+                        });
+                    }).then(function(x) {
+                        navSubmit.disabled = false;
+                        if (x.ok) {
+                            showNavAuthGate(false);
+                            navInput.value = '';
+                            applyLoadedData(null);
+                            finishDataLoad();
+                            loadData({ maxRetries: 5, retryDelayMs: 2000 }).then(function() {
+                                applyLang();
+                                syncViewportMode();
+                                applyPreferredViewForViewport();
+                            });
+                        } else {
+                            if (navErr) navErr.textContent = t('authErrorGeneric');
+                        }
+                    }).catch(function() {
+                        navSubmit.disabled = false;
+                        if (navErr) navErr.textContent = t('authErrorNetwork');
+                    });
+                }
+                navSubmit.addEventListener('click', doNavLogin);
+                navInput.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter') doNavLogin();
+                });
+            }
             document.body.style.opacity = '0.5';
-            loadData({ maxRetries: 5, retryDelayMs: 2000 }).then(function() {
+            ensureNavSession().then(function(hasSession) {
+                applyLoadedData(null);
+                finishDataLoad();
+                if (!navAuthRequired() || hasSession) {
+                    return loadData({ maxRetries: 5, retryDelayMs: 2000 });
+                }
+                return Promise.resolve();
+            }).then(function() {
                 applyLang();
                 setupEventListeners();
                 syncViewportMode();
@@ -3237,6 +3423,57 @@
         }
 
         function loadDataOnce() {
+            if (navAuthRequired()) {
+                return new Promise(function(resolve) {
+                    var finished = false;
+                    var timeout;
+                    function finish(apiCallbackReceived) {
+                        if (finished) return;
+                        finished = true;
+                        clearTimeout(timeout);
+                        finishDataLoad();
+                        resolve({ apiCallbackReceived: !!apiCallbackReceived });
+                    }
+                    timeout = setTimeout(function() {
+                        console.warn('DeFi Navigator: таймаут загрузки данных.');
+                        try { setDataBadge('warn'); } catch (e) {}
+                        applyLoadedData(null);
+                        finish(false);
+                    }, DATA_LOAD_TIMEOUT_MS);
+                    fetch('/api/nav-data', { credentials: 'same-origin' })
+                        .then(function(r) {
+                            if (r.status === 401) {
+                                clearTimeout(timeout);
+                                showNavAuthGate(true);
+                                try { setDataBadge('warn'); } catch (e) {}
+                                applyLoadedData(null);
+                                finish(false);
+                                return null;
+                            }
+                            if (!r.ok) throw new Error('nav-data');
+                            return r.json();
+                        })
+                        .then(function(data) {
+                            if (!data) return;
+                            clearTimeout(timeout);
+                            applyLoadedData(data);
+                            if (data && data.error) console.warn('DeFi Navigator: ошибка таблицы', data.error);
+                            else console.log('DeFi Navigator: данные загружены из таблицы', { categories: categories.length, tools: allTools.length });
+                            try {
+                                if (data && data.error) setDataBadge('err');
+                                else setDataBadge('ok', new Date());
+                            } catch (e) {}
+                            finish(true);
+                        })
+                        .catch(function() {
+                            clearTimeout(timeout);
+                            console.warn('DeFi Navigator: запрос к API не удался.');
+                            try { setDataBadge('warn'); } catch (e) {}
+                            applyLoadedData(null);
+                            finish(false);
+                        });
+                });
+            }
             var g = getGoogleAppsScriptApiUrl();
             if (!g.useApi) {
                 try { setDataBadge('warn'); } catch (e) {}
@@ -3295,9 +3532,10 @@
             var maxRetries = typeof options.maxRetries === 'number' ? options.maxRetries : 4;
             var retryDelayMs = options.retryDelayMs != null ? options.retryDelayMs : 2000;
             var g = getGoogleAppsScriptApiUrl();
+            var needApi = navAuthRequired() || g.useApi;
             function attempt(i) {
                 return loadDataOnce().then(function(meta) {
-                    if (!g.useApi || meta.apiCallbackReceived || i >= maxRetries) return;
+                    if (!needApi || meta.apiCallbackReceived || i >= maxRetries) return;
                     return new Promise(function(resolve) {
                         setTimeout(function() { attempt(i + 1).then(resolve); }, retryDelayMs);
                     });
