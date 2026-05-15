@@ -1,0 +1,17 @@
+{
+  "name": "defi-labs-navigator",
+  "version": "1.0.0",
+  "description": "DeFi Labs Navigator - data from Google Sheets",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test:pair": "node scripts/test-pair-resolution.mjs"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "googleapis": "^140.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.11.0"
+  }
+}
