@@ -1,5 +1,0 @@
-{
-  "rewrites": [
-    { "source": "/", "destination": "/defi-lab-navigator.html" }
-  ]
-}
