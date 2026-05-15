@@ -2335,7 +2335,7 @@
             return NAV_BACKEND_ORIGIN ? 'include' : 'same-origin';
         }
 
-        /** Кросс-домен (Vercel → PA): cookie часто режется как third-party; JWT дублируем в sessionStorage + Bearer. */
+        /** Кросс-домен (Vercel → PA): cookie режется; JWT с логина храним и шлём в теле POST /nav-api/session и /nav-api/data (тот же preflight, что у логина). */
         var NAV_JWT_STORAGE_KEY = 'defilabs_nav_jwt';
         function getNavJwtToken() {
             try { return sessionStorage.getItem(NAV_JWT_STORAGE_KEY) || ''; } catch (e) { return ''; }
@@ -2345,16 +2345,6 @@
                 if (token) sessionStorage.setItem(NAV_JWT_STORAGE_KEY, String(token));
                 else sessionStorage.removeItem(NAV_JWT_STORAGE_KEY);
             } catch (e) {}
-        }
-        function navAuthHeaders() {
-            var t = getNavJwtToken();
-            if (!t) return {};
-            return { 'Authorization': 'Bearer ' + t };
-        }
-        function navFetchInit(opts) {
-            opts = opts || {};
-            var headers = Object.assign({}, opts.headers || {}, navAuthHeaders());
-            return Object.assign({}, opts, { headers: headers });
         }
 
         const translations = {
@@ -2444,6 +2434,8 @@
                     'Сайт не достучался до базы данных (часто так бывает, если MySQL только на PythonAnywhere — с Vercel до неё нельзя подключиться). Нужна БД с внешним доступом или перенос API на тот же хост, что и бот.',
                 authErrorDbConfig:
                     'Ошибка настроек БД на сервере (MYSQL_* на Vercel). Проверьте переменные окружения в проекте навигатора.',
+                authErrorBackendStale:
+                    'API на PythonAnywhere устарело: в ответе входа нет токена. Залейте новый src/navigator_pa_api.py, перезагрузите веб-приложение (Reload) и обновите страницу.',
                 tooltipRange: 'Диапазон цен'
             },
             en: {
@@ -2531,6 +2523,8 @@
                 authErrorDbConnect:
                     'Cannot reach database (common if MySQL is only on PythonAnywhere — Vercel cannot connect). Use a DB with external access or host the API alongside the bot.',
                 authErrorDbConfig: 'Database env misconfiguration on server (MYSQL_* on Vercel).',
+                authErrorBackendStale:
+                    'PythonAnywhere API is outdated (login response has no token). Deploy updated src/navigator_pa_api.py, Reload the web app, then hard-refresh this page.',
                 tooltipRange: 'Price range'
             }
         };
@@ -3344,7 +3338,19 @@
 
         function ensureNavSession() {
             if (!navAuthRequired()) return Promise.resolve(true);
-            return fetch(navApiPath('/nav-api/session'), navFetchInit({ credentials: navFetchCreds() }))
+            var req;
+            if (NAV_BACKEND_ORIGIN) {
+                var t = getNavJwtToken();
+                req = fetch(navApiPath('/nav-api/session'), {
+                    method: 'POST',
+                    credentials: navFetchCreds(),
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(t ? { token: t } : {})
+                });
+            } else {
+                req = fetch(navApiPath('/nav-api/session'), { credentials: navFetchCreds() });
+            }
+            return req
                 .then(function(r) {
                     return r.json().catch(function() { return {}; }).then(function(j) {
                         return { ok: r.ok && j.ok === true, status: r.status };
@@ -3387,20 +3393,28 @@
                     if (navErr) navErr.textContent = '';
                     var pwd = normalizeNavPasswordInput(navInput.value || '');
                     if (!pwd) return;
+                    setNavJwtToken('');
                     navSubmit.disabled = true;
-                    fetch(navApiPath('/nav-api/login'), navFetchInit({
+                    fetch(navApiPath('/nav-api/login'), {
                         method: 'POST',
                         credentials: navFetchCreds(),
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ password: pwd })
-                    })).then(function(r) {
+                    }).then(function(r) {
                         return r.json().catch(function() { return {}; }).then(function(j) {
                             return { ok: r.ok && j.ok === true, j: j };
                         });
                     }).then(function(x) {
                         navSubmit.disabled = false;
                         if (x.ok) {
-                            if (x.j && x.j.token) setNavJwtToken(String(x.j.token));
+                            if (x.j && x.j.token) {
+                                setNavJwtToken(String(x.j.token));
+                            } else if (NAV_BACKEND_ORIGIN) {
+                                navSubmit.disabled = false;
+                                if (navErr) navErr.textContent = t('authErrorBackendStale');
+                                showNavAuthGate(true);
+                                return;
+                            }
                             showNavAuthGate(false);
                             navInput.value = '';
                             applyLoadedData(null);
@@ -3515,7 +3529,19 @@
                         applyLoadedData(null);
                         finish(false);
                     }, DATA_LOAD_TIMEOUT_MS);
-                    fetch(navApiPath('/nav-api/data'), navFetchInit({ credentials: navFetchCreds() }))
+                    var dataReq;
+                    if (NAV_BACKEND_ORIGIN) {
+                        var t = getNavJwtToken();
+                        dataReq = fetch(navApiPath('/nav-api/data'), {
+                            method: 'POST',
+                            credentials: navFetchCreds(),
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(t ? { token: t } : {})
+                        });
+                    } else {
+                        dataReq = fetch(navApiPath('/nav-api/data'), { credentials: navFetchCreds() });
+                    }
+                    dataReq
                         .then(function(r) {
                             if (r.status === 401) {
                                 clearTimeout(timeout);
