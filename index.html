@@ -2313,6 +2313,8 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <!-- API входа/данных навигатора: PythonAnywhere (тот же процесс, что вебхук бота). Без слэша в конце. -->
+    <script>window.NAV_BACKEND_ORIGIN = 'https://cry-Maden008.pythonanywhere.com';</script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
     <script>
         try {
@@ -2322,6 +2324,16 @@
         } catch (e) { console.warn('ChartDataLabels register', e); }
         // ========== I18N ==========
         let currentLang = localStorage.getItem('defilabs-lang') || 'ru';
+
+        var NAV_BACKEND_ORIGIN = (typeof window.NAV_BACKEND_ORIGIN === 'string' && window.NAV_BACKEND_ORIGIN.trim())
+            ? window.NAV_BACKEND_ORIGIN.trim().replace(/\/$/, '')
+            : '';
+        function navApiPath(p) {
+            return NAV_BACKEND_ORIGIN ? (NAV_BACKEND_ORIGIN + p) : p;
+        }
+        function navFetchCreds() {
+            return NAV_BACKEND_ORIGIN ? 'include' : 'same-origin';
+        }
 
         const translations = {
             ru: {
@@ -2406,6 +2418,10 @@
                 authErrorExpired: 'Доступ по подписке истёк. Продлите VIP и снова получите пароль.',
                 authErrorInactive: 'Профиль VIP неактивен.',
                 authErrorServer: 'Ошибка сервера при входе. Попробуйте позже или проверьте логи Vercel.',
+                authErrorDbConnect:
+                    'Сайт не достучался до базы данных (часто так бывает, если MySQL только на PythonAnywhere — с Vercel до неё нельзя подключиться). Нужна БД с внешним доступом или перенос API на тот же хост, что и бот.',
+                authErrorDbConfig:
+                    'Ошибка настроек БД на сервере (MYSQL_* на Vercel). Проверьте переменные окружения в проекте навигатора.',
                 tooltipRange: 'Диапазон цен'
             },
             en: {
@@ -2490,6 +2506,9 @@
                 authErrorExpired: 'Subscription expired. Renew VIP and get a new password.',
                 authErrorInactive: 'VIP profile inactive.',
                 authErrorServer: 'Server error. Try later or check Vercel logs.',
+                authErrorDbConnect:
+                    'Cannot reach database (common if MySQL is only on PythonAnywhere — Vercel cannot connect). Use a DB with external access or host the API alongside the bot.',
+                authErrorDbConfig: 'Database env misconfiguration on server (MYSQL_* on Vercel).',
                 tooltipRange: 'Price range'
             }
         };
@@ -3303,7 +3322,7 @@
 
         function ensureNavSession() {
             if (!navAuthRequired()) return Promise.resolve(true);
-            return fetch('/api/nav-session', { credentials: 'same-origin' })
+            return fetch(navApiPath('/nav-api/session'), { credentials: navFetchCreds() })
                 .then(function(r) {
                     return r.json().catch(function() { return {}; }).then(function(j) {
                         return { ok: r.ok && j.ok === true };
@@ -3346,9 +3365,9 @@
                     var pwd = normalizeNavPasswordInput(navInput.value || '');
                     if (!pwd) return;
                     navSubmit.disabled = true;
-                    fetch('/api/nav-login', {
+                    fetch(navApiPath('/nav-api/login'), {
                         method: 'POST',
-                        credentials: 'same-origin',
+                        credentials: navFetchCreds(),
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ password: pwd })
                     }).then(function(r) {
@@ -3376,6 +3395,8 @@
                             else if (code === 'expired') msg = t('authErrorExpired');
                             else if (code === 'inactive') msg = t('authErrorInactive');
                             else if (code === 'server') msg = t('authErrorServer');
+                            else if (code === 'db_connect') msg = t('authErrorDbConnect');
+                            else if (code === 'db_config') msg = t('authErrorDbConfig');
                             if (navErr) navErr.textContent = msg;
                         }
                     }).catch(function() {
@@ -3470,7 +3491,7 @@
                         applyLoadedData(null);
                         finish(false);
                     }, DATA_LOAD_TIMEOUT_MS);
-                    fetch('/api/nav-data', { credentials: 'same-origin' })
+                    fetch(navApiPath('/nav-api/data'), { credentials: navFetchCreds() })
                         .then(function(r) {
                             if (r.status === 401) {
                                 clearTimeout(timeout);
