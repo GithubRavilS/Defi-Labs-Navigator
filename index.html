@@ -2335,15 +2335,44 @@
             return NAV_BACKEND_ORIGIN ? 'include' : 'same-origin';
         }
 
-        /** Кросс-домен (Vercel → PA): cookie режется; JWT с логина храним и шлём в теле POST /nav-api/session и /nav-api/data (тот же preflight, что у логина). */
-        var NAV_JWT_STORAGE_KEY = 'defilabs_nav_jwt';
+        /** JWT в localStorage — переживает перезагрузку браузера/ПК; сброс только при 401 (новый пароль в боте). */
+        var NAV_JWT_STORAGE_KEY = 'defilabs_vip_jwt';
+        var NAV_JWT_LEGACY_KEYS = ['defilabs_nav_jwt'];
         function getNavJwtToken() {
-            try { return sessionStorage.getItem(NAV_JWT_STORAGE_KEY) || ''; } catch (e) { return ''; }
+            try {
+                var t = localStorage.getItem(NAV_JWT_STORAGE_KEY) || '';
+                if (t) return t;
+                var ss = sessionStorage.getItem(NAV_JWT_STORAGE_KEY) || '';
+                if (ss) {
+                    localStorage.setItem(NAV_JWT_STORAGE_KEY, ss);
+                    sessionStorage.removeItem(NAV_JWT_STORAGE_KEY);
+                    return ss;
+                }
+                for (var i = 0; i < NAV_JWT_LEGACY_KEYS.length; i++) {
+                    var lk = NAV_JWT_LEGACY_KEYS[i];
+                    var leg = localStorage.getItem(lk) || sessionStorage.getItem(lk) || '';
+                    if (leg) {
+                        localStorage.setItem(NAV_JWT_STORAGE_KEY, leg);
+                        localStorage.removeItem(lk);
+                        sessionStorage.removeItem(lk);
+                        return leg;
+                    }
+                }
+                return '';
+            } catch (e) { return ''; }
         }
         function setNavJwtToken(token) {
             try {
-                if (token) sessionStorage.setItem(NAV_JWT_STORAGE_KEY, String(token));
-                else sessionStorage.removeItem(NAV_JWT_STORAGE_KEY);
+                if (token) {
+                    localStorage.setItem(NAV_JWT_STORAGE_KEY, String(token));
+                } else {
+                    localStorage.removeItem(NAV_JWT_STORAGE_KEY);
+                    NAV_JWT_LEGACY_KEYS.forEach(function (lk) {
+                        localStorage.removeItem(lk);
+                        sessionStorage.removeItem(lk);
+                    });
+                }
+                sessionStorage.removeItem(NAV_JWT_STORAGE_KEY);
             } catch (e) {}
         }
 
@@ -2419,7 +2448,7 @@
                 rangeVariants: 'вариантов',
                 collapseAllRanges: 'Свернуть все',
                 authTitle: 'Доступ DeFi Labs VIP',
-                authHint: 'Введите пароль из Telegram-бота (раздел DeFi Labs VIP → «Получить пароль»). Сессия сохраняется в браузере до смены пароля или окончания подписки.',
+                authHint: 'Введите пароль из Telegram-бота (раздел DeFi Labs VIP → «Получить пароль»). Запоминается в этом браузере до смены пароля в боте или окончания VIP.',
                 authPlaceholder: 'Вставьте пароль целиком',
                 authSubmit: 'Войти',
                 authErrorGeneric: 'Не удалось войти. Проверьте пароль или получите новый в боте.',
@@ -3366,6 +3395,10 @@
                     return false;
                 })
                 .catch(function() {
+                    if (getNavJwtToken()) {
+                        showNavAuthGate(false);
+                        return true;
+                    }
                     showNavAuthGate(true);
                     return false;
                 });
