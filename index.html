@@ -686,6 +686,82 @@
             z-index: 1;
         }
 
+        .tool-period-pill {
+            display: inline-flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 6px 8px;
+            padding: 7px 14px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: 0.02em;
+            background: linear-gradient(135deg, rgba(47, 128, 237, 0.22) 0%, rgba(39, 174, 96, 0.14) 100%);
+            border: 1px solid rgba(79, 163, 255, 0.42);
+            box-shadow:
+                0 2px 12px rgba(0, 0, 0, 0.22),
+                inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        }
+
+        .tool-period-pill .tool-period-glyph {
+            font-size: 1.05em;
+            line-height: 1;
+            filter: drop-shadow(0 0 6px rgba(79, 163, 255, 0.45));
+        }
+
+        .tool-period-pill .tool-period-lbl {
+            opacity: 0.88;
+            font-weight: 600;
+        }
+
+        .tool-period-pill .tool-period-val {
+            font-weight: 800;
+            font-variant-numeric: tabular-nums;
+            background: linear-gradient(120deg, #8ec5ff 0%, #6ee7b7 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .table-period-chip,
+        .heatmap-period-chip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            max-width: 100%;
+            padding: 4px 9px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: 800;
+            font-variant-numeric: tabular-nums;
+            line-height: 1.25;
+            text-align: center;
+            color: rgba(244, 248, 255, 0.96);
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+            background: linear-gradient(145deg, rgba(47, 128, 237, 0.55) 0%, rgba(39, 174, 96, 0.35) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+            white-space: normal;
+            word-break: break-word;
+        }
+
+        .heatmap-period {
+            text-align: center;
+            margin-bottom: 4px;
+            z-index: 1;
+            padding: 0 3px;
+        }
+
+        .heatmap-period-chip {
+            font-size: 9px;
+            padding: 3px 8px;
+        }
+
+        #toolsTable .period-cell {
+            vertical-align: middle;
+        }
+
         .tool-desc {
             font-size: 13px;
             color: var(--text-secondary);
@@ -1815,6 +1891,22 @@
                 font-size: 10px;
             }
 
+            .tool-period-pill {
+                font-size: 11px;
+                padding: 6px 11px;
+                gap: 5px 6px;
+            }
+
+            .table-period-chip {
+                font-size: 9px;
+                padding: 3px 7px;
+            }
+
+            .heatmap-period-chip {
+                font-size: 7px;
+                padding: 2px 6px;
+            }
+
             .tool-footer {
                 flex-direction: row;
                 gap: 6px;
@@ -1920,30 +2012,36 @@
             }
 
             #toolsTable th:nth-child(2),
-            #toolsTable td:nth-child(2),
-            #toolsTable th:nth-child(4),
-            #toolsTable td:nth-child(4) {
+            #toolsTable td:nth-child(2) {
                 display: none;
             }
 
             #toolsTable th:nth-child(1),
             #toolsTable td:nth-child(1) {
-                width: 58%;
+                width: 44%;
             }
 
             #toolsTable th:nth-child(3),
             #toolsTable td:nth-child(3) {
-                width: 18%;
+                width: 16%;
                 text-align: right;
                 white-space: nowrap;
             }
 
-            #toolsTable th:nth-child(5),
-            #toolsTable td:nth-child(5) {
-                width: 12%;
+            #toolsTable th:nth-child(4),
+            #toolsTable td:nth-child(4) {
+                width: 22%;
                 text-align: center;
                 padding-left: 4px;
                 padding-right: 4px;
+            }
+
+            #toolsTable th:nth-child(5),
+            #toolsTable td:nth-child(5) {
+                width: 14%;
+                text-align: center;
+                padding-left: 3px;
+                padding-right: 3px;
             }
 
             #toolsTable .apy-cell {
@@ -3002,7 +3100,7 @@
                     '<div class="pool-battle-alt-item">' +
                     '<div class="pool-battle-alt-range">' + escapeHtml(range || t('noValue')) + '</div>' +
                     '<div class="pool-battle-alt-apy">' + escapeHtml(formatApyDisplay(tool)) + '</div>' +
-                    '<div class="pool-battle-alt-period">' + escapeHtml(formatPeriodDisplay(tool)) + '</div>' +
+                    '<div class="pool-battle-alt-period"><span class="table-period-chip">' + escapeHtml(formatPeriodDisplay(tool)) + '</span></div>' +
                     '<a href="' + escapeHtml(tool.link) + '" target="_blank" rel="noopener noreferrer" class="pool-battle-alt-link">' + escapeHtml(t('visitPosition')) + '</a>' +
                     '</div>'
                 );
@@ -3016,7 +3114,7 @@
                     '<td><div class="pool-battle-alt-indent"><span class="pool-battle-alt-range">' + escapeHtml(formatPoolBattleAltRange(alt) || t('noValue')) + '</span></div></td>' +
                     '<td>' + escapeHtml(alt.pair || group.primary.pair || '—') + '</td>' +
                     '<td class="apy-cell">' + escapeHtml(formatApyDisplay(alt)) + '</td>' +
-                    '<td>' + escapeHtml(formatPeriodDisplay(alt)) + '</td>' +
+                    '<td class="period-cell"><span class="table-period-chip">' + escapeHtml(formatPeriodDisplay(alt)) + '</span></td>' +
                     '<td><a href="' + escapeHtml(alt.link) + '" target="_blank" rel="noopener noreferrer" class="tool-link">' + escapeHtml(t('visitPosition')) + '</a></td>' +
                     '</tr>'
                 );
@@ -3772,10 +3870,15 @@
                 var metaHtml = metaParts.length
                     ? '<div class="heatmap-meta">' + escapeHtml(metaParts.join(' · ')) + '</div>'
                     : '';
+                var periodHtml =
+                    '<div class="heatmap-period">' +
+                    '<span class="heatmap-period-chip">' + escapeHtml(formatPeriodDisplay(tool)) + '</span>' +
+                    '</div>';
                 return `
                     <a href="#" class="heatmap-block ${sizeClass}" onclick="showCategory('${tool.categoryId}'); return false;">
                         <div class="heatmap-name">${escapeHtml(tool.name)}</div>
                         ${pairHtml}
+                        ${periodHtml}
                         ${metaHtml}
                         <div class="heatmap-apy">${formatOneDecimal(tool.apy)}%</div>
                     </a>
@@ -3920,7 +4023,7 @@
                     (shouldShowToolCardDesc(tool, categoryId)
                         ? '<div class="tool-desc">' + escapeHtml(toolDesc(tool)) + '</div>'
                         : '') +
-                    '<div class="tool-meta">📊 ' + t('period') + ': ' + escapeHtml(formatPeriodDisplay(tool)) + '</div>' +
+                    '<div class="tool-meta"><span class="tool-period-pill"><span class="tool-period-glyph" aria-hidden="true">⏱</span><span class="tool-period-lbl">' + escapeHtml(t('period')) + '</span><span class="tool-period-val">' + escapeHtml(formatPeriodDisplay(tool)) + '</span></span></div>' +
                     '<div class="tool-footer">' +
                     '<a href="' + escapeHtml(tool.link) + '" target="_blank" rel="noopener noreferrer" class="tool-link">' + t('visitPosition') + '</a>' +
                     '<button type="button" class="tool-link tool-secondary tool-fav-btn' + (fav ? ' fav-active' : '') + '" data-tool-key="' + escapeHtml(toolKey(tool)) + '">' +
@@ -3953,7 +4056,7 @@
                     '<td><div class="pool-battle-table-main">' + chevron + '<div class="pool-battle-table-name">' + renderPoolBattleInstrumentHead(tool) + rangeHtml + '</div></div></td>' +
                     '<td>' + escapeHtml(tool.pair || '—') + '</td>' +
                     '<td class="apy-cell">' + escapeHtml(formatApyDisplay(tool)) + '</td>' +
-                    '<td>' + escapeHtml(formatPeriodDisplay(tool)) + '</td>' +
+                    '<td class="period-cell"><span class="table-period-chip">' + escapeHtml(formatPeriodDisplay(tool)) + '</span></td>' +
                     '<td><a href="' + escapeHtml(tool.link) + '" target="_blank" rel="noopener noreferrer" class="tool-link">' + t('visitPosition') + '</a></td>' +
                     '</tr>' +
                     altRows
