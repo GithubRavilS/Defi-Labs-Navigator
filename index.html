@@ -2,6 +2,7 @@
 <html lang="ru" id="htmlRoot">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>DeFi Labs Navigator — Обзор инвестиционных стратегий</title>
     <style>
@@ -2869,13 +2870,49 @@
             return out;
         }
 
+        var _rwaGvizFetchPromise = null;
+        window.__defilabsRwaCache = window.__defilabsRwaCache || null;
+
+        function appendRwaToolsToData(data, rwaTools) {
+            if (!data || !Array.isArray(data.tools) || !rwaTools || !rwaTools.length) return data;
+            if (data.tools.some(function(t) { return t.categoryId === 'rwa'; })) return data;
+            var maxId = 0;
+            data.tools.forEach(function(t) { if (t.id > maxId) maxId = t.id; });
+            rwaTools.forEach(function(t, idx) {
+                var copy = Object.assign({}, t);
+                copy.id = maxId + idx + 1;
+                data.tools.push(copy);
+            });
+            return data;
+        }
+
+        function applyRwaCacheToAllTools() {
+            var cache = window.__defilabsRwaCache;
+            if (!cache || !cache.length) return false;
+            if (allTools.some(function(t) { return t.categoryId === 'rwa'; })) return false;
+            var maxId = 0;
+            allTools.forEach(function(t) { if (t.id > maxId) maxId = t.id; });
+            cache.forEach(function(t, idx) {
+                var copy = Object.assign({}, t);
+                copy.id = maxId + idx + 1;
+                allTools.push(copy);
+            });
+            return true;
+        }
+
         /** RWA из Google Таблицы через gviz (script tag — fetch блокируется CORS). */
         function fetchRwaToolsFromPublicSheet() {
-            return new Promise(function(resolve) {
+            if (window.__defilabsRwaCache && window.__defilabsRwaCache.length) {
+                return Promise.resolve(window.__defilabsRwaCache.slice());
+            }
+            if (_rwaGvizFetchPromise) return _rwaGvizFetchPromise;
+
+            _rwaGvizFetchPromise = new Promise(function(resolve) {
                 var finished = false;
                 var seq = (window.__defilabsRwaGvizSeq = (window.__defilabsRwaGvizSeq || 0) + 1);
                 var scriptId = 'defilabsRwaGvizScript_' + seq;
-                var timeoutMs = 20000;
+                var timeoutMs = 25000;
+                var prevSetResponse = null;
 
                 function done(tools) {
                     if (finished) return;
@@ -2886,13 +2923,15 @@
                     if (prevSetResponse) {
                         window.google.visualization.Query.setResponse = prevSetResponse;
                     }
-                    resolve(tools || []);
+                    var list = tools || [];
+                    if (list.length) window.__defilabsRwaCache = list;
+                    resolve(list);
                 }
 
                 var g = window.google = window.google || {};
                 g.visualization = g.visualization || {};
                 g.visualization.Query = g.visualization.Query || {};
-                var prevSetResponse = g.visualization.Query.setResponse;
+                prevSetResponse = g.visualization.Query.setResponse;
 
                 g.visualization.Query.setResponse = function(payload) {
                     try {
@@ -2917,6 +2956,30 @@
                     done([]);
                 };
                 document.head.appendChild(script);
+            }).then(function(tools) {
+                _rwaGvizFetchPromise = null;
+                return tools;
+            }, function() {
+                _rwaGvizFetchPromise = null;
+                return [];
+            });
+
+            return _rwaGvizFetchPromise;
+        }
+
+        function prefetchRwaToolsCache() {
+            return fetchRwaToolsFromPublicSheet().catch(function() { return []; });
+        }
+
+        function ensureRwaToolsLoaded() {
+            return fetchRwaToolsFromPublicSheet().then(function(tools) {
+                if (!tools.length) return false;
+                if (applyRwaCacheToAllTools()) {
+                    finishDataLoad();
+                    console.log('DeFi Navigator: RWA применено:', tools.length);
+                    return true;
+                }
+                return false;
             });
         }
 
@@ -2926,14 +2989,13 @@
             }
             var rwaN = data.tools.filter(function(t) { return t.categoryId === 'rwa'; }).length;
             if (rwaN > 0) return Promise.resolve(data);
+            if (window.__defilabsRwaCache && window.__defilabsRwaCache.length) {
+                appendRwaToolsToData(data, window.__defilabsRwaCache);
+                return Promise.resolve(data);
+            }
             return fetchRwaToolsFromPublicSheet().then(function(rwaTools) {
                 if (!rwaTools.length) return data;
-                var maxId = 0;
-                data.tools.forEach(function(t) { if (t.id > maxId) maxId = t.id; });
-                rwaTools.forEach(function(t, idx) {
-                    t.id = maxId + idx + 1;
-                    data.tools.push(t);
-                });
+                appendRwaToolsToData(data, rwaTools);
                 console.log('DeFi Navigator: RWA подгружено из таблицы (gviz):', rwaTools.length);
                 return data;
             });
@@ -3676,6 +3738,7 @@
 
         // ========== INIT ==========
         window.addEventListener('DOMContentLoaded', function() {
+            prefetchRwaToolsCache();
             currentLang = localStorage.getItem('defilabs-lang') || 'ru';
             applyLang();
             var navSubmit = document.getElementById('navAuthSubmit');
@@ -3801,6 +3864,9 @@
                 allTools = normalizeToolsList(data.tools);
             } else {
                 allTools = [];
+            }
+            if (!allTools.some(function(t) { return t.categoryId === 'rwa'; })) {
+                applyRwaCacheToAllTools();
             }
             if (currentCategory && VISIBLE_CATEGORY_IDS.indexOf(currentCategory) === -1) currentCategory = null;
         }
@@ -4078,6 +4144,14 @@
 
             renderCategoryPositionViews(tools, categoryId, '');
             applyPreferredViewForViewport();
+            if (categoryId === 'rwa' && !tools.length) {
+                ensureRwaToolsLoaded().then(function(changed) {
+                    if (!changed) return;
+                    var refreshed = getVisibleTools().filter(function(t) { return t.categoryId === categoryId; });
+                    renderCategoryPositionViews(refreshed, categoryId, '');
+                    applyPreferredViewForViewport();
+                });
+            }
 
             document.querySelectorAll('.sidebar-item').forEach(item => {
                 item.classList.remove('active');
@@ -4388,7 +4462,9 @@
         }
 
         function refreshData() {
+            window.__defilabsRwaCache = null;
             document.body.style.opacity = '0.5';
+            prefetchRwaToolsCache();
             loadData({ maxRetries: 4, retryDelayMs: 1800 }).then(function() {
                 if (currentCategory) {
                     document.getElementById('categoryPageTitle').textContent = categoryName(currentCategory);
