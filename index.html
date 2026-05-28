@@ -2821,6 +2821,85 @@
             return arr.map(normalizeTool);
         }
 
+        function gvizCellValue(cell) {
+            if (!cell) return '';
+            if (cell.v != null && cell.v !== '') return cell.v;
+            if (cell.f != null && cell.f !== '') return cell.f;
+            return '';
+        }
+
+        function parseGvizDateValue(v) {
+            if (v == null || v === '') return '';
+            var s = String(v);
+            var m = s.match(/Date\((\d+),(\d+),(\d+)\)/);
+            if (!m) return s;
+            var y = parseInt(m[1], 10);
+            var mo = parseInt(m[2], 10) + 1;
+            var d = parseInt(m[3], 10);
+            return (d < 10 ? '0' : '') + d + '.' + (mo < 10 ? '0' : '') + mo + '.' + y;
+        }
+
+        /** RWA из Google Таблицы, если Apps Script ещё не отдаёт categoryId rwa. */
+        function fetchRwaToolsFromPublicSheet() {
+            return fetch(RWA_SHEET_GVIZ_URL, { cache: 'no-store' })
+                .then(function(r) { return r.text(); })
+                .then(function(text) {
+                    var m = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?\s*$/);
+                    if (!m) return [];
+                    var payload = JSON.parse(m[1]);
+                    var tableRows = (payload && payload.table && payload.table.rows) ? payload.table.rows : [];
+                    var out = [];
+                    var i;
+                    for (i = 0; i < tableRows.length; i++) {
+                        var cells = tableRows[i].c || [];
+                        var platform = String(gvizCellValue(cells[0]) || '').trim();
+                        if (!platform || /^платформа$/i.test(platform)) continue;
+                        var openDate = parseGvizDateValue(gvizCellValue(cells[3]));
+                        out.push({
+                            categoryId: 'rwa',
+                            name: platform,
+                            platform: platform,
+                            priceMin: String(gvizCellValue(cells[1]) || ''),
+                            priceMax: String(gvizCellValue(cells[2]) || ''),
+                            openDate: openDate,
+                            pair: String(gvizCellValue(cells[9]) || ''),
+                            chain: String(gvizCellValue(cells[10]) || 'solana'),
+                            fee: String(gvizCellValue(cells[11]) || ''),
+                            apy: String(gvizCellValue(cells[13]) || ''),
+                            link: String(gvizCellValue(cells[14]) || '#'),
+                            period: '',
+                            status: 'active',
+                            desc: 'solana',
+                            descEn: 'solana'
+                        });
+                    }
+                    return out;
+                })
+                .catch(function(err) {
+                    console.warn('RWA gviz fallback', err);
+                    return [];
+                });
+        }
+
+        function mergeRwaFromSheetIfMissing(data) {
+            if (!data || !Array.isArray(data.tools)) {
+                return Promise.resolve(data || { categories: [], tools: [] });
+            }
+            var rwaN = data.tools.filter(function(t) { return t.categoryId === 'rwa'; }).length;
+            if (rwaN > 0) return Promise.resolve(data);
+            return fetchRwaToolsFromPublicSheet().then(function(rwaTools) {
+                if (!rwaTools.length) return data;
+                var maxId = 0;
+                data.tools.forEach(function(t) { if (t.id > maxId) maxId = t.id; });
+                rwaTools.forEach(function(t, idx) {
+                    t.id = maxId + idx + 1;
+                    data.tools.push(t);
+                });
+                console.log('DeFi Navigator: RWA подгружено из таблицы (gviz):', rwaTools.length);
+                return data;
+            });
+        }
+
         var expandedPoolGroups = new Set();
         var POOL_BATTLE_CATEGORY_IDS = ['ethereum', 'bitcoin', 'rwa'];
 
@@ -3453,6 +3532,9 @@
         // ========== DATA STRUCTURE ==========
         // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
         var DATA_API_URL = 'https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec';
+        /** Публичный экспорт листа RWA (если GAS ещё не обновлён и rwa=0). */
+        var RWA_SHEET_GVIZ_URL = 'https://docs.google.com/spreadsheets/d/1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg/gviz/tq?tqx=out:json&sheet=' +
+            encodeURIComponent('БИТВА ПУЛОВ RWA');
         var DATA_LOAD_TIMEOUT_MS = 45000;
 
         /** Только навигация (id / иконки / цвета). Никаких заполненных пулов или доходностей — всё из таблицы. */
@@ -3719,18 +3801,24 @@
                 }
 
                 window[cbName] = function(data) {
-                    applyLoadedData(data);
-                    if (data && data.error) console.warn('DeFi Navigator: ошибка таблицы', data.error);
-                    else console.log('DeFi Navigator: данные из таблицы (GAS)', {
-                        categories: categories.length,
-                        tools: allTools.length,
-                        apiVersion: data && data.apiVersion
+                    mergeRwaFromSheetIfMissing(data).then(function(merged) {
+                        applyLoadedData(merged);
+                        if (merged && merged.error) console.warn('DeFi Navigator: ошибка таблицы', merged.error);
+                        else {
+                            var rwaN = allTools.filter(function(t) { return t.categoryId === 'rwa'; }).length;
+                            console.log('DeFi Navigator: данные из таблицы (GAS+gviz)', {
+                                categories: categories.length,
+                                tools: allTools.length,
+                                rwa: rwaN,
+                                apiVersion: merged && merged.apiVersion
+                            });
+                        }
+                        try {
+                            if (merged && merged.error) setDataBadge('err');
+                            else setDataBadge('ok', new Date());
+                        } catch (e) {}
+                        finish(true);
                     });
-                    try {
-                        if (data && data.error) setDataBadge('err');
-                        else setDataBadge('ok', new Date());
-                    } catch (e) {}
-                    finish(true);
                 };
 
                 var sep = g.apiUrl.indexOf('?') >= 0 ? '&' : '?';

@@ -1203,13 +1203,6 @@ function getData() {
     }
 
     var dataSh = sh;
-    if (catId === 'rwa' || isRwaPoolBattleSheet_(title)) {
-      if (ss.getId() !== RWA_POOL_BATTLE_SPREADSHEET_ID) {
-        var battleSh = findRwaSheet_(openRwaSourceSpreadsheet_());
-        if (!battleSh) continue;
-        dataSh = battleSh;
-      }
-    }
 
     var rows = dataSh.getDataRange().getValues();
     var displayRows = dataSh.getDataRange().getDisplayValues();
