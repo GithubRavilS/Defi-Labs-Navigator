@@ -5,15 +5,14 @@
  * КАК ПОДКЛЮЧИТЬ:
  * 1. Открой https://script.google.com
  * 2. Новый проект → удали весь код в редакторе и вставь сюда ВЕСЬ этот файл.
- * 3. Сохрани (Ctrl+S). SPREADSHEET_ID должен совпадать с вашей VIP-таблицей (см. ниже).
+ * 3. Сохрани (Ctrl+S). Замени SPREADSHEET_ID ниже на ID своей таблицы (если ещё не заменён).
  * 4. Меню «Развёртывание» → «Новое развёртывание» → тип «Веб-приложение».
  * 5. Описание: например «DeFi Navigator API». Выполнять от имени: «Я». Доступ: «Все».
  * 6. Нажми «Развернуть», скопируй URL (он вида …/exec).
  * 7. В HTML-файле сайта вставь этот URL в переменную DATA_API_URL (см. README).
  */
 
-/** VIP Navigator — таблица из ссылки docs.google.com/spreadsheets/d/1NjN5ELRjNVlFSVfJLCQsho32Kod5HRA4JWakZ7KVsJY */
-var SPREADSHEET_ID = '1NjN5ELRjNVlFSVfJLCQsho32Kod5HRA4JWakZ7KVsJY';
+var SPREADSHEET_ID = '1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg';
 
 function sheetNameToCategoryId(name) {
   if (!name || typeof name !== 'string') return '';
@@ -67,16 +66,6 @@ function rwaSheetHasDataRows_(sh) {
   var r;
   for (r = hr + 1; r < data.length; r++) {
     if (String(data[r][0] || '').trim()) return true;
-  }
-  var detailHdr = detectPoolBattleDetailTableHeaderRow_(data);
-  if (detailHdr >= 0) {
-    var headers = (data[detailHdr] || []).map(normalizeHeaderCell);
-    var cols = mapDetailTableColumns_(headers);
-    for (r = detailHdr + 1; r < data.length; r++) {
-      var rw = data[r] || [];
-      if (pickDetailCell_(rw, null, cols.platform)) return true;
-      if (pickDetailCell_(rw, null, cols.link) || pickDetailCell_(rw, null, 1)) return true;
-    }
   }
   return false;
 }
@@ -308,12 +297,12 @@ function fetchJupiterPositions_(wallet) {
 }
 
 function writeRwaPoolBattleSheet_(sh, rows) {
-  var stdHeaders = ['name', 'apy', 'period', 'status', 'link', 'description', 'pair'];
-  sh.getRange(1, 1, 1, stdHeaders.length).setValues([stdHeaders]);
-
-  var lastRow = Math.max(sh.getLastRow(), 2);
-  if (lastRow >= 2) {
-    sh.getRange(2, 1, lastRow, RWA_POOL_BATTLE_AUX_HEADERS.length).clearContent();
+  var headerIdx = getRwaToolHeaderRowIndex_(sh.getDataRange().getValues());
+  var headerRow1 = headerIdx + 1;
+  var dataStartRow = headerRow1 + 1;
+  var lastRow = Math.max(sh.getLastRow(), dataStartRow);
+  if (lastRow >= dataStartRow) {
+    sh.getRange(dataStartRow, 1, lastRow, RWA_POOL_BATTLE_AUX_HEADERS.length).clearContent();
   }
 
   if (!rows.length) return 0;
@@ -330,9 +319,9 @@ function writeRwaPoolBattleSheet_(sh, rows) {
       row.pair
     ];
   });
-  sh.getRange(2, 1, 1 + primary.length, 7).setValues(primary);
+  sh.getRange(dataStartRow, 1, dataStartRow + primary.length - 1, 7).setValues(primary);
 
-  var auxHeaderRow = Math.max(11, primary.length + 4);
+  var auxHeaderRow = dataStartRow + primary.length + 2;
   sh.getRange(auxHeaderRow, 1, auxHeaderRow, RWA_POOL_BATTLE_AUX_HEADERS.length)
     .setValues([RWA_POOL_BATTLE_AUX_HEADERS]);
 
@@ -596,7 +585,7 @@ function findPriceColumnIndex(headers, kind) {
 }
 
 function detectToolHeaderRow(rows) {
-  var maxScan = Math.min(15, rows.length);
+  var maxScan = Math.min(10, rows.length);
   for (var r = 0; r < maxScan; r++) {
     var line = rows[r] || [];
     var headers = [];
@@ -614,112 +603,7 @@ function detectToolHeaderRow(rows) {
     }
     if (hasName && hasApy) return r;
   }
-  return -1;
-}
-
-/** Лист «битва пуллов» только с блоком деталей (NFT_id, Платформа, Пара…) — как на VIP-листе RWA. */
-function detectPoolBattleDetailTableHeaderRow_(rows) {
-  var maxScan = Math.min(20, rows.length);
-  for (var r = 0; r < maxScan; r++) {
-    var headers = (rows[r] || []).map(normalizeHeaderCell);
-    var hasPlatform = false;
-    var hasDetail = false;
-    var hi;
-    for (hi = 0; hi < headers.length; hi++) {
-      var h = headers[hi];
-      if (/^(платформа|platform|dex|protocol|протокол)$/.test(h)) hasPlatform = true;
-      if (/мин.*диапаз|min.*range/.test(h)) hasDetail = true;
-      if (/^(пара|pair|валютка)$/.test(h)) hasDetail = true;
-      if (/^(nft_id|nft id|nft)$/.test(h)) hasDetail = true;
-    }
-    if (hasPlatform && hasDetail) return r;
-  }
-  return -1;
-}
-
-function mapDetailTableColumns_(headers) {
-  return {
-    platform: findHeaderColumn(headers, 0, [/^(платформа|platform|dex|protocol|протокол)$/], -1),
-    link: findHeaderColumn(headers, 0, [/ссылка|link|url/], -1),
-    min: findHeaderColumn(headers, 0, [/мин.*диапаз|min.*range|min_price|price_min/], -1),
-    max: findHeaderColumn(headers, 0, [/макс.*диапаз|max.*range|max_price|price_max/], -1),
-    pair: findHeaderColumn(headers, 0, [/^(пара|pair|валютка)$/], -1),
-    chain: findHeaderColumn(headers, 0, [/^(блокчейн|chain|blockchain|network|сеть)$/], -1),
-    fee: findHeaderColumn(headers, 0, [/^(fee_tier|fee tier|fee|комиссия|tier)$/], -1),
-    apy: findHeaderColumn(headers, 0, [/^(apy|apr|доходность)$/], -1),
-    date: findHeaderColumn(headers, 0, [/дата.*открытия|date.*open|opened/], -1),
-    nft: findHeaderColumn(headers, 0, [/^(nft_id|nft id|nft)$/], -1)
-  };
-}
-
-function pickDetailCell_(rowVals, dispVals, idx) {
-  if (idx < 0) return '';
-  if (dispVals && dispVals[idx] !== undefined && dispVals[idx] !== null && dispVals[idx] !== '') {
-    return String(dispVals[idx]).trim();
-  }
-  if (rowVals[idx] !== undefined && rowVals[idx] !== null && rowVals[idx] !== '') {
-    return String(rowVals[idx]).trim();
-  }
-  return '';
-}
-
-function periodFromOpenDate_(value) {
-  var s = String(value || '').trim();
-  if (!s) return '0 дн';
-  var m = s.match(/(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})/);
-  if (!m) return '0 дн';
-  var d = parseInt(m[1], 10);
-  var mo = parseInt(m[2], 10) - 1;
-  var y = parseInt(m[3], 10);
-  if (y < 100) y += 2000;
-  var opened = new Date(y, mo, d);
-  if (isNaN(opened.getTime())) return '0 дн';
-  var days = Math.max(0, Math.floor((Date.now() - opened.getTime()) / 86400000));
-  return days + ' дн';
-}
-
-function readToolsFromPoolBattleDetailTable_(rows, displayRows, headerRow, catId, startToolId) {
-  var headers = (rows[headerRow] || []).map(normalizeHeaderCell);
-  var cols = mapDetailTableColumns_(headers);
-  var tools = [];
-  var toolId = startToolId;
-  var r;
-  for (r = headerRow + 1; r < rows.length; r++) {
-    var rw = rows[r] || [];
-    var disp = displayRows ? (displayRows[r] || []) : rw;
-    var platform = pickDetailCell_(rw, disp, cols.platform);
-    var link = pickDetailCell_(rw, disp, cols.link);
-    if (!link) link = pickDetailCell_(rw, disp, 1);
-    if (!platform && !link) continue;
-    if (!platform) platform = pickDetailCell_(rw, disp, cols.pair) || 'RWA';
-    var pair = pickDetailCell_(rw, disp, cols.pair);
-    var chain = pickDetailCell_(rw, disp, cols.chain);
-    var fee = pickDetailCell_(rw, disp, cols.fee);
-    var apy = pickDetailCell_(rw, disp, cols.apy).replace(/%/g, '').replace(/\s/g, '').replace(',', '.') || '0';
-    var priceMin = pickDetailCell_(rw, disp, cols.min);
-    var priceMax = pickDetailCell_(rw, disp, cols.max);
-    var period = periodFromOpenDate_(pickDetailCell_(rw, disp, cols.date));
-    var enriched = enrichPoolBattleFields(platform, buildSolanaDesc_(chain, fee), platform, chain, fee);
-    tools.push({
-      id: toolId++,
-      categoryId: catId,
-      name: platform,
-      pair: pair,
-      platform: enriched.platform,
-      fee: enriched.fee,
-      chain: enriched.chain,
-      type: 'Liquidity Pool',
-      priceMin: priceMin,
-      priceMax: priceMax,
-      apy: apy,
-      period: period,
-      status: 'active',
-      link: link || '#',
-      desc: buildSolanaDesc_(chain, fee),
-      descEn: buildSolanaDesc_(chain, fee)
-    });
-  }
-  return { tools: tools, nextId: toolId };
+  return 0;
 }
 
 function getData() {
@@ -774,16 +658,6 @@ function getData() {
     var rows = sh.getDataRange().getValues();
     var displayRows = sh.getDataRange().getDisplayValues();
     var headerRow = detectToolHeaderRow(rows);
-    if (headerRow < 0) {
-      var detailHeaderRow = detectPoolBattleDetailTableHeaderRow_(rows);
-      if (detailHeaderRow >= 0) {
-        var detailRead = readToolsFromPoolBattleDetailTable_(rows, displayRows, detailHeaderRow, catId, toolId);
-        for (var dt = 0; dt < detailRead.tools.length; dt++) allTools.push(detailRead.tools[dt]);
-        toolId = detailRead.nextId;
-        continue;
-      }
-      headerRow = 0;
-    }
     var headers = (rows[headerRow] || []).map(function(h) {
       return normalizeHeaderCell(h);
     });
