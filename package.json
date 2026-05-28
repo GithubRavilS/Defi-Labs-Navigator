@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
+    "lint": "nano-staged --unstaged --quiet --bail",
+    "prepare": "husky",
     "test:pair": "node scripts/test-pair-resolution.mjs",
     "test:rwa": "node scripts/test-jupiter-rwa-map.mjs"
   },
@@ -14,5 +16,13 @@
     "googleapis": "^140.0.0",
     "jsonwebtoken": "^9.0.2",
     "mysql2": "^3.11.0"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "nano-staged": "^1.0.2",
+    "oxfmt": "^0.52.0",
+    "oxlint": "^1.67.0",
+    "stylelint": "^17.12.0",
+    "stylelint-config-standard": "^39.0.0"
   }
 }
