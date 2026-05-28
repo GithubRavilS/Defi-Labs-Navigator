@@ -41,15 +41,38 @@ function parseSolanaWalletFromCell_(value) {
   return m ? m[1] : '';
 }
 
+/** Истинное имя листа в таблице (регистр не важен; «пулов» и «пуллов» — оба варианта). */
+var RWA_SHEET_TITLE_CANONICAL = 'БИТВА ПУЛОВ RWA';
+
+function normalizeRwaSheetTitle_(title) {
+  return String(title || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/ё/g, 'е');
+}
+
+function isRwaPoolBattleSheet_(title) {
+  var n = normalizeRwaSheetTitle_(title);
+  if (n === normalizeRwaSheetTitle_(RWA_SHEET_TITLE_CANONICAL)) return true;
+  if (/битва/.test(n) && /пулл?ов/.test(n) && /\brwa\b/.test(n)) return true;
+  if (/bitv/.test(n) && /pool/.test(n) && /\brwa\b/.test(n)) return true;
+  if (/\brwa\b/.test(n) && /real\s*world/.test(n)) return true;
+  return false;
+}
+
 function findRwaSheet_(ss) {
   var sheets = ss.getSheets();
+  var fallback = null;
   for (var i = 0; i < sheets.length; i++) {
-    var title = sheets[i].getName();
-    if (/\brwa\b/i.test(title) || /real\s*world/i.test(title)) return sheets[i];
-    if (/битва/i.test(title) && /пул/i.test(title) && /rwa/i.test(title)) return sheets[i];
-    if (/bitv/i.test(title) && /pool/i.test(title) && /rwa/i.test(title)) return sheets[i];
+    var sh = sheets[i];
+    var title = sh.getName();
+    if (normalizeRwaSheetTitle_(title) === normalizeRwaSheetTitle_(RWA_SHEET_TITLE_CANONICAL)) {
+      return sh;
+    }
+    if (isRwaPoolBattleSheet_(title) && !fallback) fallback = sh;
   }
-  return null;
+  return fallback;
 }
 
 /** Формат «Битва пуллов» (как ethereum/bitcoin): шапка A–G, блок деталей с кол. H. */
