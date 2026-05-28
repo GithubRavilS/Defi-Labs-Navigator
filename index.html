@@ -2839,46 +2839,85 @@
             return (d < 10 ? '0' : '') + d + '.' + (mo < 10 ? '0' : '') + mo + '.' + y;
         }
 
-        /** RWA из Google Таблицы, если Apps Script ещё не отдаёт categoryId rwa. */
+        function parseRwaGvizPayload(payload) {
+            var tableRows = (payload && payload.table && payload.table.rows) ? payload.table.rows : [];
+            var out = [];
+            var i;
+            for (i = 0; i < tableRows.length; i++) {
+                var cells = tableRows[i].c || [];
+                var platform = String(gvizCellValue(cells[0]) || '').trim();
+                if (!platform || /^платформа$/i.test(platform)) continue;
+                var openDate = parseGvizDateValue(gvizCellValue(cells[3]));
+                out.push(normalizeTool({
+                    categoryId: 'rwa',
+                    name: platform,
+                    platform: platform,
+                    priceMin: String(gvizCellValue(cells[1]) || ''),
+                    priceMax: String(gvizCellValue(cells[2]) || ''),
+                    openDate: openDate,
+                    pair: String(gvizCellValue(cells[9]) || ''),
+                    chain: String(gvizCellValue(cells[10]) || 'solana'),
+                    fee: String(gvizCellValue(cells[11]) || ''),
+                    apy: String(gvizCellValue(cells[13]) || ''),
+                    link: String(gvizCellValue(cells[14]) || '#'),
+                    period: '',
+                    status: 'active',
+                    desc: 'solana',
+                    descEn: 'solana'
+                }));
+            }
+            return out;
+        }
+
+        /** RWA из Google Таблицы через gviz (script tag — fetch блокируется CORS). */
         function fetchRwaToolsFromPublicSheet() {
-            return fetch(RWA_SHEET_GVIZ_URL, { cache: 'no-store' })
-                .then(function(r) { return r.text(); })
-                .then(function(text) {
-                    var m = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?\s*$/);
-                    if (!m) return [];
-                    var payload = JSON.parse(m[1]);
-                    var tableRows = (payload && payload.table && payload.table.rows) ? payload.table.rows : [];
-                    var out = [];
-                    var i;
-                    for (i = 0; i < tableRows.length; i++) {
-                        var cells = tableRows[i].c || [];
-                        var platform = String(gvizCellValue(cells[0]) || '').trim();
-                        if (!platform || /^платформа$/i.test(platform)) continue;
-                        var openDate = parseGvizDateValue(gvizCellValue(cells[3]));
-                        out.push({
-                            categoryId: 'rwa',
-                            name: platform,
-                            platform: platform,
-                            priceMin: String(gvizCellValue(cells[1]) || ''),
-                            priceMax: String(gvizCellValue(cells[2]) || ''),
-                            openDate: openDate,
-                            pair: String(gvizCellValue(cells[9]) || ''),
-                            chain: String(gvizCellValue(cells[10]) || 'solana'),
-                            fee: String(gvizCellValue(cells[11]) || ''),
-                            apy: String(gvizCellValue(cells[13]) || ''),
-                            link: String(gvizCellValue(cells[14]) || '#'),
-                            period: '',
-                            status: 'active',
-                            desc: 'solana',
-                            descEn: 'solana'
-                        });
+            return new Promise(function(resolve) {
+                var finished = false;
+                var seq = (window.__defilabsRwaGvizSeq = (window.__defilabsRwaGvizSeq || 0) + 1);
+                var scriptId = 'defilabsRwaGvizScript_' + seq;
+                var timeoutMs = 20000;
+
+                function done(tools) {
+                    if (finished) return;
+                    finished = true;
+                    clearTimeout(timer);
+                    var el = document.getElementById(scriptId);
+                    if (el && el.parentNode) el.parentNode.removeChild(el);
+                    if (prevSetResponse) {
+                        window.google.visualization.Query.setResponse = prevSetResponse;
                     }
-                    return out;
-                })
-                .catch(function(err) {
-                    console.warn('RWA gviz fallback', err);
-                    return [];
-                });
+                    resolve(tools || []);
+                }
+
+                var g = window.google = window.google || {};
+                g.visualization = g.visualization || {};
+                g.visualization.Query = g.visualization.Query || {};
+                var prevSetResponse = g.visualization.Query.setResponse;
+
+                g.visualization.Query.setResponse = function(payload) {
+                    try {
+                        done(parseRwaGvizPayload(payload));
+                    } catch (err) {
+                        console.warn('RWA gviz fallback parse', err);
+                        done([]);
+                    }
+                };
+
+                var timer = setTimeout(function() {
+                    console.warn('RWA gviz fallback: timeout');
+                    done([]);
+                }, timeoutMs);
+
+                var script = document.createElement('script');
+                script.id = scriptId;
+                script.charset = 'UTF-8';
+                script.src = RWA_SHEET_GVIZ_URL + '&_=' + seq;
+                script.onerror = function() {
+                    console.warn('RWA gviz fallback: script load failed');
+                    done([]);
+                };
+                document.head.appendChild(script);
+            });
         }
 
         function mergeRwaFromSheetIfMissing(data) {
