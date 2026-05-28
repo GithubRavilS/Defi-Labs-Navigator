@@ -41,8 +41,7 @@
 
 ## Шаг 4. GitHub / Vercel
 
-Агент пушит в репозиторий **Obabrava**, когда доступен `git push`.  
-Если пуш с машины не прошёл — на GitHub смержи ветку **`feature/rwa`** в `main` (или залей файлы вручную один раз). Vercel подтянет деплой сам.
+Репозиторий: **https://github.com/GithubRavilS/Defi-Labs-Navigator** — пуш в `main`, Vercel подтянет деплой сам.
 
 ---
 
