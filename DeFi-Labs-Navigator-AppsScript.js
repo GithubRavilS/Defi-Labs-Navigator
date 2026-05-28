@@ -41,6 +41,41 @@ function parseSolanaWalletFromCell_(value) {
   return m ? m[1] : '';
 }
 
+/** Кошелёк: B6, B2 (подпись «Кошелёк»), любая ячейка B1:B25, сохранённый в свойствах. */
+function getRwaWalletFromSheet_(sh) {
+  var cells = ['B6', 'B2', 'B3', 'B4', 'B5', 'B7', 'B8'];
+  var i;
+  for (i = 0; i < cells.length; i++) {
+    var w = parseSolanaWalletFromCell_(sh.getRange(cells[i]).getDisplayValue());
+    if (!w) w = parseSolanaWalletFromCell_(sh.getRange(cells[i]).getValue());
+    if (w) return w;
+  }
+  var block = sh.getRange('B1:B25').getDisplayValues();
+  for (i = 0; i < block.length; i++) {
+    var w2 = parseSolanaWalletFromCell_(block[i][0]);
+    if (w2) return w2;
+  }
+  var saved = String(PropertiesService.getScriptProperties().getProperty('RWA_WALLET') || '').trim();
+  if (saved && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(saved)) return saved;
+  return '';
+}
+
+function rwaSheetHasDataRows_(sh) {
+  var data = sh.getDataRange().getValues();
+  var hr = getRwaToolHeaderRowIndex_(data);
+  var r;
+  for (r = hr + 1; r < data.length; r++) {
+    if (String(data[r][0] || '').trim()) return true;
+  }
+  return false;
+}
+
+function writeRwaSyncStatus_(sh, message) {
+  try {
+    sh.getRange('D2').setValue(String(message || '').slice(0, 240));
+  } catch (e) {}
+}
+
 /** Истинное имя листа в таблице (регистр не важен; «пулов» и «пуллов» — оба варианта). */
 var RWA_SHEET_TITLE_CANONICAL = 'БИТВА ПУЛОВ RWA';
 
@@ -128,10 +163,21 @@ function isNavigatorLiquidityElement_(el) {
 
   if (type === 'borrowlend') return false;
   if (label === 'Lending') return false;
+  if (pid.indexOf('kamino') !== -1 && (type === 'borrowlend' || label === 'Lending')) return false;
   if (type === 'liquidity') return true;
   if (label === 'LiquidityPool') return true;
-  if (pid.indexOf('kamino') !== -1 && type !== 'liquidity') return false;
+  if (type === 'multiple' && label === 'LiquidityPool') return true;
+  if (pid.indexOf('raydium') !== -1 || pid.indexOf('orca') !== -1 || pid.indexOf('meteora') !== -1) {
+    if (label === 'LiquidityPool' || type === 'liquidity') return true;
+  }
   return false;
+}
+
+function extractFeePercent_(text) {
+  var s = String(text || '');
+  var m = s.match(/(\d+(?:[.,]\d+)?)\s*%/);
+  if (!m) return '';
+  return String(m[1]).replace(',', '.');
 }
 
 function apyPercentFromElement_(el, liq) {
@@ -176,19 +222,19 @@ function mapLiquidityToRow_(el, liq, tokenInfo, wallet) {
   var link = (liq && liq.link) ? String(liq.link).trim() : '';
   if (!link && el.data && el.data.link) link = String(el.data.link).trim();
   if (!link && wallet) link = 'https://jup.ag/portfolio/' + wallet;
-  var desc = 'Liquidity pool · ' + platform;
-  if (el.platformId) desc += ' · ' + el.platformId;
+  var fee = extractFeePercent_(poolName) || extractFeePercent_(el.name) || '';
+  var chain = 'solana';
   return {
-    name: name,
+    name: platform,
     apy: apyPercentFromElement_(el, liq),
-    period: 'live',
+    period: '0 дн',
     status: 'active',
     link: link || '#',
-    desc: desc,
+    desc: buildSolanaDesc_(chain, fee),
     pair: pair,
     platform: platform,
-    fee: '',
-    chain: 'Solana',
+    fee: fee,
+    chain: chain,
     type: 'Liquidity Pool'
   };
 }
@@ -237,12 +283,17 @@ function fetchJupiterPositions_(wallet) {
   var code = res.getResponseCode();
   var text = res.getContentText();
   if (code === 401 && !apiKey) {
-    throw new Error('Jupiter API 401: при сбое подождите и повторите. Опционально бесплатный ключ: portal.jup.ag → Free ($0) → JUPITER_API_KEY в Script properties.');
+    throw new Error('Jupiter API 401: добавьте бесплатный ключ (план Free $0) в Script properties → JUPITER_API_KEY с portal.jup.ag');
   }
   if (code < 200 || code >= 300) {
     throw new Error('Jupiter API HTTP ' + code + ': ' + text.slice(0, 280));
   }
-  return JSON.parse(text);
+  var payload = JSON.parse(text);
+  var n = (payload.elements && payload.elements.length) ? payload.elements.length : 0;
+  if (!n && !apiKey) {
+    throw new Error('Jupiter вернул 0 позиций. Добавьте JUPITER_API_KEY (бесплатно на portal.jup.ag) и проверьте кошелёк в B6.');
+  }
+  return payload;
 }
 
 function writeRwaPoolBattleSheet_(sh, rows) {
@@ -302,11 +353,11 @@ function writeRwaPoolBattleSheet_(sh, rows) {
 function syncRwaJupiterPositions() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sh = findRwaSheet_(ss);
-  if (!sh) throw new Error('Лист RWA не найден (название должно содержать "RWA")');
+  if (!sh) throw new Error('Лист «БИТВА ПУЛОВ RWA» не найден');
 
-  var wallet = parseSolanaWalletFromCell_(sh.getRange(RWA_WALLET_CELL_A1).getValue());
+  var wallet = getRwaWalletFromSheet_(sh);
   if (!wallet) {
-    throw new Error('В ' + RWA_WALLET_CELL_A1 + ' укажите ссылку https://jup.ag/portfolio/АДРЕС или Solana-адрес кошелька');
+    throw new Error('Укажите кошелёк в B6 (или B2): ссылка jup.ag/portfolio/… или Solana-адрес');
   }
 
   var payload = fetchJupiterPositions_(wallet);
@@ -316,16 +367,26 @@ function syncRwaJupiterPositions() {
   PropertiesService.getScriptProperties().setProperty('RWA_LAST_SYNC_MS', String(Date.now()));
   PropertiesService.getScriptProperties().setProperty('RWA_LAST_SYNC_COUNT', String(rows.length));
   PropertiesService.getScriptProperties().setProperty('RWA_WALLET', wallet);
+  var ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy HH:mm');
+  writeRwaSyncStatus_(sh, rows.length ? ('OK · ' + rows.length + ' поз. · ' + ts) : ('0 поз. · проверьте кошелёк/API · ' + ts));
   return { wallet: wallet, count: rows.length, syncedAt: new Date().toISOString() };
 }
 
 function syncRwaJupiterPositionsIfDue_() {
-  var last = Number(PropertiesService.getScriptProperties().getProperty('RWA_LAST_SYNC_MS') || '0');
-  if (Date.now() - last < RWA_SYNC_MIN_INTERVAL_MS) return;
   try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sh = findRwaSheet_(ss);
+    if (!sh || !getRwaWalletFromSheet_(sh)) return;
+    var last = Number(PropertiesService.getScriptProperties().getProperty('RWA_LAST_SYNC_MS') || '0');
+    var forceEmpty = !rwaSheetHasDataRows_(sh);
+    if (!forceEmpty && Date.now() - last < RWA_SYNC_MIN_INTERVAL_MS) return;
     syncRwaJupiterPositions();
   } catch (err) {
-    Logger.log('RWA Jupiter sync: ' + err);
+    Logger.log('RWA sync: ' + err);
+    try {
+      var sh2 = findRwaSheet_(SpreadsheetApp.openById(SPREADSHEET_ID));
+      if (sh2) writeRwaSyncStatus_(sh2, 'Ошибка: ' + String(err.message || err).slice(0, 200));
+    } catch (e2) {}
   }
 }
 
