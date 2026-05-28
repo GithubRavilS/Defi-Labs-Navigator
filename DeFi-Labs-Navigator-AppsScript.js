@@ -5,14 +5,17 @@
  * КАК ПОДКЛЮЧИТЬ:
  * 1. Открой https://script.google.com
  * 2. Новый проект → удали весь код в редакторе и вставь сюда ВЕСЬ этот файл.
- * 3. Сохрани (Ctrl+S). Замени SPREADSHEET_ID ниже на ID своей таблицы (если ещё не заменён).
+ * 3. Сохрани (Ctrl+S). SPREADSHEET_ID — сайт; RWA_POOL_BATTLE_SPREADSHEET_ID — битва пуллов (B6).
  * 4. Меню «Развёртывание» → «Новое развёртывание» → тип «Веб-приложение».
  * 5. Описание: например «DeFi Navigator API». Выполнять от имени: «Я». Доступ: «Все».
  * 6. Нажми «Развернуть», скопируй URL (он вида …/exec).
  * 7. В HTML-файле сайта вставь этот URL в переменную DATA_API_URL (см. README).
  */
 
+/** Базовая таблица — отсюда сайт читает JSON (getData). */
 var SPREADSHEET_ID = '1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg';
+/** Вторая таблица (битва пуллов / Bitcoin) — сюда Jupiter пишет RWA, кошелёк в B6. */
+var RWA_POOL_BATTLE_SPREADSHEET_ID = '1NjN5ELRjNVlFSVfJLCQsho32Kod5HRA4JWakZ7KVsJY';
 
 function sheetNameToCategoryId(name) {
   if (!name || typeof name !== 'string') return '';
@@ -41,23 +44,22 @@ function parseSolanaWalletFromCell_(value) {
   return m ? m[1] : '';
 }
 
-/** Кошелёк: B6, B2 (подпись «Кошелёк»), любая ячейка B1:B25, сохранённый в свойствах. */
+/** Кошелёк только из B6 (вторая таблица, лист RWA). */
 function getRwaWalletFromSheet_(sh) {
-  var cells = ['B6', 'B2', 'B3', 'B4', 'B5', 'B7', 'B8'];
-  var i;
-  for (i = 0; i < cells.length; i++) {
-    var w = parseSolanaWalletFromCell_(sh.getRange(cells[i]).getDisplayValue());
-    if (!w) w = parseSolanaWalletFromCell_(sh.getRange(cells[i]).getValue());
-    if (w) return w;
-  }
-  var block = sh.getRange('B1:B25').getDisplayValues();
-  for (i = 0; i < block.length; i++) {
-    var w2 = parseSolanaWalletFromCell_(block[i][0]);
-    if (w2) return w2;
-  }
+  var w = parseSolanaWalletFromCell_(sh.getRange(RWA_WALLET_CELL_A1).getDisplayValue());
+  if (!w) w = parseSolanaWalletFromCell_(sh.getRange(RWA_WALLET_CELL_A1).getValue());
+  if (w) return w;
   var saved = String(PropertiesService.getScriptProperties().getProperty('RWA_WALLET') || '').trim();
   if (saved && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(saved)) return saved;
   return '';
+}
+
+function openRwaSourceSpreadsheet_() {
+  return SpreadsheetApp.openById(RWA_POOL_BATTLE_SPREADSHEET_ID);
+}
+
+function openSiteSpreadsheet_() {
+  return SpreadsheetApp.openById(SPREADSHEET_ID);
 }
 
 function rwaSheetHasDataRows_(sh) {
@@ -116,9 +118,10 @@ var RWA_POOL_BATTLE_CONFIG_LAST_ROW = 6;
 var RWA_POOL_BATTLE_AUX_HEADERS = [
   '', '', '', '', '', '', '',
   'Платформа', 'Мин диапазона', 'Макс диапазон', 'Дата открытия норм',
-  'Заработано стейблов', 'Заработано BTC', 'Заработано CAKE', 'Заработано AERO',
-  'Итого комс доход', 'валютка', 'Блокчейн', 'fee_tier', 'APR', 'APY', 'ссылка'
+  'Заработано стейблов', 'Заработано актива', 'Символ актива', 'Заработано AERO',
+  'Итого комс доход', 'валютка', 'Блокчейн', 'fee_tier', 'APR', 'APY', 'ссылка', 'Инвестировано'
 ];
+var RWA_DAILY_LOG_SHEET = 'RWA_DAILY_LOG';
 
 function getRwaToolHeaderRowIndex_(data) {
   var scanFrom = Math.max(0, RWA_POOL_BATTLE_HEADER_ROW_1BASED - 2);
@@ -213,10 +216,97 @@ function pairFromLiquidityAssets_(liq, tokenInfo) {
   return syms.length ? syms.join(' / ') : '';
 }
 
+function isStableSymbol_(sym) {
+  return /^(USDC|USDT|USD1|PYUSD|USDS|DAI|CASH|USDC\.e|UXD)$/i.test(String(sym || '').trim());
+}
+
+function tokenValueUsd_(asset) {
+  if (!asset) return 0;
+  if (asset.value != null && !isNaN(Number(asset.value))) return Number(asset.value);
+  if (asset.type === 'token' && asset.data) {
+    var amt = Number(asset.data.amount) || 0;
+    var pr = Number(asset.data.price) || 0;
+    return amt * pr;
+  }
+  return 0;
+}
+
+function splitRewardAssets_(liq, tokenInfo) {
+  var stableUsd = 0;
+  var assetAmt = 0;
+  var assetSym = '';
+  var assetUsd = 0;
+  var rewards = (liq && liq.rewardAssets) ? liq.rewardAssets : [];
+  var i;
+  for (i = 0; i < rewards.length; i++) {
+    var sym = tokenSymbolFromAsset_(rewards[i], tokenInfo);
+    var val = tokenValueUsd_(rewards[i]);
+    var amt = (rewards[i] && rewards[i].data && rewards[i].data.amount != null)
+      ? Number(rewards[i].data.amount) : 0;
+    if (isStableSymbol_(sym)) {
+      stableUsd += val;
+    } else if (sym) {
+      if (!assetSym) assetSym = sym;
+      assetAmt += amt;
+      assetUsd += val;
+    }
+  }
+  return {
+    stableUsd: stableUsd,
+    assetAmount: assetAmt,
+    assetSymbol: assetSym,
+    assetUsd: assetUsd,
+    totalUsd: stableUsd + assetUsd
+  };
+}
+
+function parseRangeFromPoolName_(text) {
+  var s = String(text || '');
+  var m = s.match(/(\d[\d\s.,]*)\s*[-–—]\s*(\d[\d\s.,]*)/);
+  if (!m) return { min: '', max: '' };
+  return {
+    min: String(m[1]).replace(/\s/g, '').replace(',', '.'),
+    max: String(m[2]).replace(/\s/g, '').replace(',', '.')
+  };
+}
+
+function formatSheetNumber_(n, decimals) {
+  if (n == null || isNaN(Number(n))) return '';
+  var d = decimals == null ? 6 : decimals;
+  return String(Math.round(Number(n) * Math.pow(10, d)) / Math.pow(10, d));
+}
+
+function periodFromTimestampMs_(ms) {
+  if (!ms || isNaN(Number(ms))) return '0 дн';
+  var days = Math.max(0, Math.floor((Date.now() - Number(ms)) / 86400000));
+  return days + ' дн';
+}
+
+function periodFromOpenDateString_(dateStr) {
+  var s = String(dateStr || '').trim();
+  var m = s.match(/(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})/);
+  if (!m) return '0 дн';
+  var y = parseInt(m[3], 10);
+  if (y < 100) y += 2000;
+  var opened = new Date(y, parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+  if (isNaN(opened.getTime())) return '0 дн';
+  return Math.max(0, Math.floor((Date.now() - opened.getTime()) / 86400000)) + ' дн';
+}
+
+function openDateFromElement_(el, liq) {
+  var ms = null;
+  if (el && el.updatedAt) ms = Number(el.updatedAt);
+  if (!ms && el && el.data && el.data.createdAt) ms = Number(el.data.createdAt);
+  if (!ms && liq && liq.createdAt) ms = Number(liq.createdAt);
+  if (!ms || isNaN(ms)) {
+    return Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy');
+  }
+  return Utilities.formatDate(new Date(ms), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy');
+}
+
 function mapLiquidityToRow_(el, liq, tokenInfo, wallet) {
   var platform = formatPlatformDisplay_(el.platformId, el.name);
   var poolName = (liq && liq.name) ? String(liq.name).trim() : '';
-  var name = poolName || String(el.name || '').trim() || platform;
   var pair = pairFromLiquidityAssets_(liq, tokenInfo);
   if (!pair && poolName && poolName.indexOf('/') !== -1) pair = poolName;
   var link = (liq && liq.link) ? String(liq.link).trim() : '';
@@ -224,10 +314,18 @@ function mapLiquidityToRow_(el, liq, tokenInfo, wallet) {
   if (!link && wallet) link = 'https://jup.ag/portfolio/' + wallet;
   var fee = extractFeePercent_(poolName) || extractFeePercent_(el.name) || '';
   var chain = 'solana';
+  var range = parseRangeFromPoolName_(poolName);
+  var rewards = splitRewardAssets_(liq, tokenInfo);
+  var invested = (liq && liq.value != null) ? Number(liq.value) : ((liq && liq.assetsValue != null) ? Number(liq.assetsValue) : 0);
+  if (isNaN(invested)) invested = 0;
+  var openDate = openDateFromElement_(el, liq);
+  var period = periodFromOpenDateString_(openDate);
+  if (period === '0 дн' && el && el.updatedAt) period = periodFromTimestampMs_(el.updatedAt);
+  var apy = apyPercentFromElement_(el, liq);
   return {
     name: platform,
-    apy: apyPercentFromElement_(el, liq),
-    period: '0 дн',
+    apy: apy,
+    period: period,
     status: 'active',
     link: link || '#',
     desc: buildSolanaDesc_(chain, fee),
@@ -235,7 +333,15 @@ function mapLiquidityToRow_(el, liq, tokenInfo, wallet) {
     platform: platform,
     fee: fee,
     chain: chain,
-    type: 'Liquidity Pool'
+    type: 'Liquidity Pool',
+    priceMin: range.min,
+    priceMax: range.max,
+    openDate: openDate,
+    earnedStables: rewards.stableUsd,
+    earnedAsset: rewards.assetAmount,
+    earnedAssetSymbol: rewards.assetSymbol,
+    totalFeeIncome: rewards.totalUsd,
+    investedUsd: invested
   };
 }
 
@@ -297,12 +403,14 @@ function fetchJupiterPositions_(wallet) {
 }
 
 function writeRwaPoolBattleSheet_(sh, rows) {
-  var headerIdx = getRwaToolHeaderRowIndex_(sh.getDataRange().getValues());
-  var headerRow1 = headerIdx + 1;
-  var dataStartRow = headerRow1 + 1;
-  var lastRow = Math.max(sh.getLastRow(), dataStartRow);
-  if (lastRow >= dataStartRow) {
-    sh.getRange(dataStartRow, 1, lastRow, RWA_POOL_BATTLE_AUX_HEADERS.length).clearContent();
+  var headerRow = RWA_POOL_BATTLE_HEADER_ROW_1BASED;
+  var dataStart = headerRow + 1;
+  var stdHeaders = ['name', 'apy', 'period', 'status', 'link', 'description', 'pair'];
+  sh.getRange(headerRow, 1, headerRow, stdHeaders.length).setValues([stdHeaders]);
+
+  var lastRow = Math.max(sh.getLastRow(), dataStart);
+  if (lastRow >= dataStart) {
+    sh.getRange(dataStart, 1, lastRow, RWA_POOL_BATTLE_AUX_HEADERS.length).clearContent();
   }
 
   if (!rows.length) return 0;
@@ -319,26 +427,33 @@ function writeRwaPoolBattleSheet_(sh, rows) {
       row.pair
     ];
   });
-  sh.getRange(dataStartRow, 1, dataStartRow + primary.length - 1, 7).setValues(primary);
+  sh.getRange(dataStart, 1, dataStart + primary.length - 1, 7).setValues(primary);
 
-  var auxHeaderRow = dataStartRow + primary.length + 2;
+  var auxHeaderRow = Math.max(dataStart + primary.length + 2, 11);
   sh.getRange(auxHeaderRow, 1, auxHeaderRow, RWA_POOL_BATTLE_AUX_HEADERS.length)
     .setValues([RWA_POOL_BATTLE_AUX_HEADERS]);
 
   var auxDataStart = auxHeaderRow + 1;
-  var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy');
   var aux = rows.map(function(row) {
     var feeLabel = row.fee ? (String(row.fee).indexOf('%') !== -1 ? row.fee : row.fee + '%') : '';
     var line = new Array(RWA_POOL_BATTLE_AUX_HEADERS.length);
     for (var i = 0; i < line.length; i++) line[i] = '';
     line[7] = row.platform;
-    line[10] = today;
-    line[15] = row.pair;
-    line[16] = row.chain || 'solana';
-    line[17] = feeLabel;
-    line[18] = row.apy;
+    line[8] = row.priceMin || '';
+    line[9] = row.priceMax || '';
+    line[10] = row.openDate || '';
+    line[11] = formatSheetNumber_(row.earnedStables, 6);
+    line[12] = formatSheetNumber_(row.earnedAsset, 8);
+    line[13] = row.earnedAssetSymbol || '';
+    line[14] = '';
+    line[15] = formatSheetNumber_(row.totalFeeIncome, 4);
+    line[16] = row.pair;
+    line[17] = row.chain || 'solana';
+    line[18] = feeLabel;
     line[19] = row.apy;
-    line[20] = row.link;
+    line[20] = row.apy;
+    line[21] = row.link;
+    line[22] = formatSheetNumber_(row.investedUsd, 2);
     return line;
   });
   sh.getRange(auxDataStart, 1, auxDataStart + aux.length - 1, RWA_POOL_BATTLE_AUX_HEADERS.length)
@@ -346,45 +461,98 @@ function writeRwaPoolBattleSheet_(sh, rows) {
   return rows.length;
 }
 
+function ensureRwaDailyLogSheet_(ss) {
+  var sh = ss.getSheetByName(RWA_DAILY_LOG_SHEET);
+  if (sh) return sh;
+  sh = ss.insertSheet(RWA_DAILY_LOG_SHEET);
+  sh.getRange(1, 1, 1, 10).setValues([[
+    'Дата', 'Платформа', 'Пара', 'Ссылка', 'Заработано стейблов USD',
+    'Заработано актива', 'Символ', 'Итого комс USD', 'Инвестировано USD', 'APY'
+  ]]);
+  return sh;
+}
+
+function appendRwaDailyLog_(ss, rows) {
+  if (!rows || !rows.length) return;
+  var logSh = ensureRwaDailyLogSheet_(ss);
+  var day = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy');
+  var out = rows.map(function(row) {
+    return [
+      day,
+      row.platform,
+      row.pair,
+      row.link,
+      row.earnedStables,
+      row.earnedAsset,
+      row.earnedAssetSymbol,
+      row.totalFeeIncome,
+      row.investedUsd,
+      row.apy
+    ];
+  });
+  var start = logSh.getLastRow() + 1;
+  logSh.getRange(start, 1, start + out.length - 1, 10).setValues(out);
+}
+
+function copyRwaDataToSiteSpreadsheet_(sourceSh) {
+  var destSs = openSiteSpreadsheet_();
+  var destSh = findRwaSheet_(destSs);
+  if (!destSh) {
+    destSh = destSs.getSheetByName(RWA_SHEET_TITLE_CANONICAL);
+  }
+  if (!destSh) throw new Error('На сайтовой таблице нет листа «' + RWA_SHEET_TITLE_CANONICAL + '»');
+
+  var startRow = RWA_POOL_BATTLE_HEADER_ROW_1BASED;
+  var last = Math.max(sourceSh.getLastRow(), startRow + 5);
+  var cols = RWA_POOL_BATTLE_AUX_HEADERS.length;
+  var block = sourceSh.getRange(startRow, 1, last, cols).getValues();
+
+  destSh.getRange(1, 1, Math.max(destSh.getLastRow(), block.length + 5), cols).clearContent();
+  destSh.getRange(1, 1, block.length, cols).setValues(block);
+}
+
 /**
  * Синхронизация листа RWA: Jupiter Portfolio → строки инструментов (только liquidity pool).
  * Кошелёк / ссылка jup.ag/portfolio/… — ячейка B6 на листе RWA.
  */
 function syncRwaJupiterPositions() {
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var ss = openRwaSourceSpreadsheet_();
   var sh = findRwaSheet_(ss);
-  if (!sh) throw new Error('Лист «БИТВА ПУЛОВ RWA» не найден');
+  if (!sh) throw new Error('На таблице битвы пуллов нет листа «БИТВА ПУЛОВ RWA»');
 
   var wallet = getRwaWalletFromSheet_(sh);
   if (!wallet) {
-    throw new Error('Укажите кошелёк в B6 (или B2): ссылка jup.ag/portfolio/… или Solana-адрес');
+    throw new Error('Укажите кошелёк в B6: ссылка jup.ag/portfolio/… или Solana-адрес');
   }
 
   var payload = fetchJupiterPositions_(wallet);
   var rows = jupiterElementsToRows_(payload, wallet);
   writeRwaPoolBattleSheet_(sh, rows);
+  appendRwaDailyLog_(ss, rows);
+  copyRwaDataToSiteSpreadsheet_(sh);
 
   PropertiesService.getScriptProperties().setProperty('RWA_LAST_SYNC_MS', String(Date.now()));
   PropertiesService.getScriptProperties().setProperty('RWA_LAST_SYNC_COUNT', String(rows.length));
   PropertiesService.getScriptProperties().setProperty('RWA_WALLET', wallet);
   var ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy HH:mm');
-  writeRwaSyncStatus_(sh, rows.length ? ('OK · ' + rows.length + ' поз. · ' + ts) : ('0 поз. · проверьте кошелёк/API · ' + ts));
+  writeRwaSyncStatus_(sh, rows.length ? ('OK · ' + rows.length + ' поз. → сайт · ' + ts) : ('0 поз. · ключ API / кошелёк · ' + ts));
   return { wallet: wallet, count: rows.length, syncedAt: new Date().toISOString() };
 }
 
 function syncRwaJupiterPositionsIfDue_() {
   try {
-    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var ss = openRwaSourceSpreadsheet_();
     var sh = findRwaSheet_(ss);
     if (!sh || !getRwaWalletFromSheet_(sh)) return;
     var last = Number(PropertiesService.getScriptProperties().getProperty('RWA_LAST_SYNC_MS') || '0');
-    var forceEmpty = !rwaSheetHasDataRows_(sh);
+    var siteSh = findRwaSheet_(openSiteSpreadsheet_());
+    var forceEmpty = !siteSh || !rwaSheetHasDataRows_(siteSh);
     if (!forceEmpty && Date.now() - last < RWA_SYNC_MIN_INTERVAL_MS) return;
     syncRwaJupiterPositions();
   } catch (err) {
     Logger.log('RWA sync: ' + err);
     try {
-      var sh2 = findRwaSheet_(SpreadsheetApp.openById(SPREADSHEET_ID));
+      var sh2 = findRwaSheet_(openRwaSourceSpreadsheet_());
       if (sh2) writeRwaSyncStatus_(sh2, 'Ошибка: ' + String(err.message || err).slice(0, 200));
     } catch (e2) {}
   }
