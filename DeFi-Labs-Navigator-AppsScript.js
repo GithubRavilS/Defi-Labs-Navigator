@@ -44,10 +44,21 @@ function parseSolanaWalletFromCell_(value) {
   return m ? m[1] : '';
 }
 
-/** Кошелёк только из B6 (вторая таблица, лист RWA). */
+/** Кошелёк только из B6 (вторая таблица, лист «БИТВА ПУЛОВ RWA»). */
 function getRwaWalletFromSheet_(sh) {
-  var w = parseSolanaWalletFromCell_(sh.getRange(RWA_WALLET_CELL_A1).getDisplayValue());
-  if (!w) w = parseSolanaWalletFromCell_(sh.getRange(RWA_WALLET_CELL_A1).getValue());
+  var rng = sh.getRange(RWA_WALLET_CELL_A1);
+  var w = parseSolanaWalletFromCell_(rng.getDisplayValue());
+  if (!w) w = parseSolanaWalletFromCell_(rng.getValue());
+  if (!w) {
+    try {
+      w = parseSolanaWalletFromCell_(rng.getFormula());
+    } catch (e1) {}
+  }
+  if (!w) {
+    try {
+      w = parseSolanaWalletFromCell_(rng.getRichTextValue().getLinkUrl());
+    } catch (e2) {}
+  }
   if (w) return w;
   var saved = String(PropertiesService.getScriptProperties().getProperty('RWA_WALLET') || '').trim();
   if (saved && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(saved)) return saved;
@@ -170,8 +181,9 @@ function isNavigatorLiquidityElement_(el) {
   if (type === 'liquidity') return true;
   if (label === 'LiquidityPool') return true;
   if (type === 'multiple' && label === 'LiquidityPool') return true;
+  if (el.data && el.data.liquidities && el.data.liquidities.length) return true;
   if (pid.indexOf('raydium') !== -1 || pid.indexOf('orca') !== -1 || pid.indexOf('meteora') !== -1) {
-    if (label === 'LiquidityPool' || type === 'liquidity') return true;
+    return true;
   }
   return false;
 }
@@ -375,12 +387,12 @@ function jupiterElementsToRows_(payload, wallet) {
   return rows;
 }
 
-function fetchJupiterPositions_(wallet) {
+function fetchJupiterPositions_(wallet, fastMode) {
   var apiKey = getJupiterApiKey_();
   var url = JUPITER_PORTFOLIO_API_BASE + '/positions/' + encodeURIComponent(wallet);
   var headers = { Accept: 'application/json' };
   if (apiKey) headers['x-api-key'] = apiKey;
-  Utilities.sleep(2200);
+  if (!fastMode) Utilities.sleep(2200);
   var res = UrlFetchApp.fetch(url, {
     method: 'get',
     muteHttpExceptions: true,
@@ -388,8 +400,8 @@ function fetchJupiterPositions_(wallet) {
   });
   var code = res.getResponseCode();
   var text = res.getContentText();
-  if (code === 401 && !apiKey) {
-    throw new Error('Jupiter API 401: добавьте бесплатный ключ (план Free $0) в Script properties → JUPITER_API_KEY с portal.jup.ag');
+  if (code === 401) {
+    throw new Error('Jupiter API 401: проверьте JUPITER_API_KEY в свойствах скрипта (portal.jup.ag, Free).');
   }
   if (code < 200 || code >= 300) {
     throw new Error('Jupiter API HTTP ' + code + ': ' + text.slice(0, 280));
@@ -397,7 +409,7 @@ function fetchJupiterPositions_(wallet) {
   var payload = JSON.parse(text);
   var n = (payload.elements && payload.elements.length) ? payload.elements.length : 0;
   if (!n && !apiKey) {
-    throw new Error('Jupiter вернул 0 позиций. Добавьте JUPITER_API_KEY (бесплатно на portal.jup.ag) и проверьте кошелёк в B6.');
+    throw new Error('Jupiter вернул 0 позиций без API-ключа. Добавьте JUPITER_API_KEY в свойства скрипта.');
   }
   return payload;
 }
@@ -525,30 +537,66 @@ function syncRwaJupiterPositions() {
     throw new Error('Укажите кошелёк в B6: ссылка jup.ag/portfolio/… или Solana-адрес');
   }
 
-  var payload = fetchJupiterPositions_(wallet);
+  var payload = fetchJupiterPositions_(wallet, false);
   var rows = jupiterElementsToRows_(payload, wallet);
   writeRwaPoolBattleSheet_(sh, rows);
-  appendRwaDailyLog_(ss, rows);
+  if (rows.length) appendRwaDailyLog_(ss, rows);
   copyRwaDataToSiteSpreadsheet_(sh);
 
   PropertiesService.getScriptProperties().setProperty('RWA_LAST_SYNC_MS', String(Date.now()));
   PropertiesService.getScriptProperties().setProperty('RWA_LAST_SYNC_COUNT', String(rows.length));
   PropertiesService.getScriptProperties().setProperty('RWA_WALLET', wallet);
   var ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy HH:mm');
-  writeRwaSyncStatus_(sh, rows.length ? ('OK · ' + rows.length + ' поз. → сайт · ' + ts) : ('0 поз. · ключ API / кошелёк · ' + ts));
+  var apiHint = getJupiterApiKey_() ? '' : ' · нужен JUPITER_API_KEY';
+  writeRwaSyncStatus_(sh, rows.length
+    ? ('OK · ' + rows.length + ' поз. → сайт · ' + ts)
+    : ('0 LP · проверь API/кошелёк B6' + apiHint + ' · ' + ts));
   return { wallet: wallet, count: rows.length, syncedAt: new Date().toISOString() };
+}
+
+/** Если на 2-м Excel уже есть строки, а на сайтовом листе пусто — только копия (быстро). */
+function copyRwaFromSourceToSiteIfNeeded_() {
+  try {
+    var sourceSh = findRwaSheet_(openRwaSourceSpreadsheet_());
+    if (!sourceSh || !rwaSheetHasDataRows_(sourceSh)) return false;
+    var siteSh = findRwaSheet_(openSiteSpreadsheet_());
+    if (siteSh && rwaSheetHasDataRows_(siteSh)) return false;
+    copyRwaDataToSiteSpreadsheet_(sourceSh);
+    return true;
+  } catch (err) {
+    Logger.log('RWA copy: ' + err);
+    return false;
+  }
 }
 
 function syncRwaJupiterPositionsIfDue_() {
   try {
+    copyRwaFromSourceToSiteIfNeeded_();
     var ss = openRwaSourceSpreadsheet_();
     var sh = findRwaSheet_(ss);
-    if (!sh || !getRwaWalletFromSheet_(sh)) return;
+    if (!sh) {
+      Logger.log('RWA: лист «' + RWA_SHEET_TITLE_CANONICAL + '» не найден во 2-й таблице');
+      return;
+    }
+    if (!getRwaWalletFromSheet_(sh)) {
+      writeRwaSyncStatus_(sh, 'Нет кошелька в B6 (jup.ag/portfolio/…)');
+      return;
+    }
     var last = Number(PropertiesService.getScriptProperties().getProperty('RWA_LAST_SYNC_MS') || '0');
     var siteSh = findRwaSheet_(openSiteSpreadsheet_());
     var forceEmpty = !siteSh || !rwaSheetHasDataRows_(siteSh);
     if (!forceEmpty && Date.now() - last < RWA_SYNC_MIN_INTERVAL_MS) return;
-    syncRwaJupiterPositions();
+    var wallet = getRwaWalletFromSheet_(sh);
+    var payload = fetchJupiterPositions_(wallet, true);
+    var rows = jupiterElementsToRows_(payload, wallet);
+    writeRwaPoolBattleSheet_(sh, rows);
+    if (rows.length) appendRwaDailyLog_(ss, rows);
+    copyRwaDataToSiteSpreadsheet_(sh);
+    PropertiesService.getScriptProperties().setProperty('RWA_LAST_SYNC_MS', String(Date.now()));
+    PropertiesService.getScriptProperties().setProperty('RWA_LAST_SYNC_COUNT', String(rows.length));
+    PropertiesService.getScriptProperties().setProperty('RWA_WALLET', wallet);
+    var ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy HH:mm');
+    writeRwaSyncStatus_(sh, rows.length ? ('OK · ' + rows.length + ' поз. → сайт · ' + ts) : ('0 LP после API · ' + ts));
   } catch (err) {
     Logger.log('RWA sync: ' + err);
     try {
@@ -577,10 +625,19 @@ function removeRwaHourlyTrigger() {
   }
 }
 
+function copyRwaToSiteOnly() {
+  var sh = findRwaSheet_(openRwaSourceSpreadsheet_());
+  if (!sh) throw new Error('Нет листа «' + RWA_SHEET_TITLE_CANONICAL + '» во 2-й таблице');
+  if (!rwaSheetHasDataRows_(sh)) throw new Error('Сначала синхронизируйте RWA (нет строк с 8-й строки)');
+  copyRwaDataToSiteSpreadsheet_(sh);
+  writeRwaSyncStatus_(sh, 'Скопировано на сайт · ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy HH:mm'));
+}
+
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('DeFi Navigator')
     .addItem('Синхронизировать RWA (Jupiter)', 'syncRwaJupiterPositions')
+    .addItem('Скопировать RWA на сайт', 'copyRwaToSiteOnly')
     .addItem('Авто-синх RWA каждый час', 'installRwaHourlyTrigger')
     .addItem('Отключить авто-синх RWA', 'removeRwaHourlyTrigger')
     .addToUi();
@@ -776,7 +833,7 @@ function detectToolHeaderRow(rows) {
 
 function getData() {
   syncRwaJupiterPositionsIfDue_();
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var ss = openSiteSpreadsheet_();
   var sheets = ss.getSheets();
   var categories = [];
   var allTools = [];

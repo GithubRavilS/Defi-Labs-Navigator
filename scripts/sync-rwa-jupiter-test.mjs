@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SPREADSHEET_ID = '1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg';
-const RWA_SHEET = 'Битва пуллов RWA';
+const RWA_SHEET = 'БИТВА ПУЛОВ RWA';
 
 function parseWallet(v) {
   const s = String(v || '').trim();

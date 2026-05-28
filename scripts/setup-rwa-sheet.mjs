@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SPREADSHEET_ID = '1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg';
-const RWA_SHEET_TITLE = 'Битва пуллов RWA';
+const RWA_SHEET_TITLE = 'БИТВА ПУЛОВ RWA';
 
 const auth = new google.auth.GoogleAuth({
   keyFile: path.join(__dirname, '..', 'pusher-490008-bf7c384ba372.json'),
@@ -45,7 +45,7 @@ if (!ids.includes('rwa')) {
       values: [
         [
           'rwa',
-          'RWA · Solana',
+          'RWA-активы',
           '🏛️',
           'Liquidity pool на Solana (Jupiter Portfolio)',
           '#C9A227',
