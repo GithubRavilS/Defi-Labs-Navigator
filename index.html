@@ -2744,6 +2744,10 @@
             o.type = (o.type != null && String(o.type).trim() !== '') ? String(o.type).trim() : '';
             o.priceMin = (o.priceMin != null && String(o.priceMin).trim() !== '') ? String(o.priceMin).trim() : '';
             o.priceMax = (o.priceMax != null && String(o.priceMax).trim() !== '') ? String(o.priceMax).trim() : '';
+            if (o.categoryId === 'rwa') {
+                o.priceMin = '-10%';
+                o.priceMax = '+10%';
+            }
             o.link = (o.link != null && String(o.link).trim() !== '') ? String(o.link).trim() : '#';
             if (!o.descEn) o.descEn = o.desc || '';
             return enrichPoolBattleFields(o);
@@ -2819,7 +2823,9 @@
 
         function normalizeToolsList(arr) {
             if (!arr || !Array.isArray(arr)) return [];
-            return arr.map(normalizeTool);
+            return arr.map(normalizeTool).filter(function(t) {
+                return !shouldSkipToolRow(t.categoryId, t.pair, t.name, t.platform);
+            });
         }
 
         function gvizCellValue(cell) {
@@ -2849,14 +2855,16 @@
                 var platform = String(gvizCellValue(cells[0]) || '').trim();
                 if (!platform || /^платформа$/i.test(platform)) continue;
                 var openDate = parseGvizDateValue(gvizCellValue(cells[3]));
+                var pairStr = String(gvizCellValue(cells[9]) || '');
+                if (pairContainsEthOrBtc(pairStr, platform, platform)) continue;
                 out.push(normalizeTool({
                     categoryId: 'rwa',
                     name: platform,
                     platform: platform,
-                    priceMin: String(gvizCellValue(cells[1]) || ''),
-                    priceMax: String(gvizCellValue(cells[2]) || ''),
+                    priceMin: '-10%',
+                    priceMax: '+10%',
                     openDate: openDate,
-                    pair: String(gvizCellValue(cells[9]) || ''),
+                    pair: pairStr,
                     chain: String(gvizCellValue(cells[10]) || 'solana'),
                     fee: String(gvizCellValue(cells[11]) || ''),
                     apy: String(gvizCellValue(cells[13]) || ''),
@@ -3049,7 +3057,34 @@
             return Number.isFinite(n) ? n : NaN;
         }
 
+        function pairContainsEthOrBtc(pair, name, platform) {
+            var blob = String(pair || '').toLowerCase().replace(/\s+/g, '') + '|' +
+                String(name || '').toLowerCase().replace(/\s+/g, '') + '|' +
+                String(platform || '').toLowerCase().replace(/\s+/g, '');
+            if (!blob || blob === '||') return false;
+            if (/\b(weth|ethereum)\b/.test(blob)) return true;
+            if (/\b(wbtc|cbbtc|bitcoin)\b/.test(blob)) return true;
+            if (/cbbtc|wbtc|\/eth\b|\beth\/|\bbtc\b/.test(blob)) return true;
+            return false;
+        }
+
+        function isExcludedBitcoinUsdcCbbtc(pair) {
+            var p = String(pair || '').toLowerCase().replace(/\s+/g, '');
+            return p.indexOf('cbbtc') !== -1 && p.indexOf('usdc') !== -1;
+        }
+
+        function shouldSkipToolRow(catId, pair, name, platform) {
+            if (catId === 'rwa' && pairContainsEthOrBtc(pair, name, platform)) return true;
+            if (catId === 'bitcoin' && isExcludedBitcoinUsdcCbbtc(pair)) return true;
+            return false;
+        }
+
+        function formatRwaPercentRangeLabel() {
+            return '−10% / +10%';
+        }
+
         function hasValidPriceRange(tool) {
+            if (tool && tool.categoryId === 'rwa') return true;
             var minN = parsePriceBoundary(tool.priceMin);
             var maxN = parsePriceBoundary(tool.priceMax);
             return Number.isFinite(minN) && Number.isFinite(maxN) && minN > 0 && maxN > 0;
@@ -3082,6 +3117,7 @@
         }
 
         function formatPriceRangeLabel(tool) {
+            if (tool && tool.categoryId === 'rwa') return formatRwaPercentRangeLabel();
             var range = getOrderedPriceRangeNumbers(tool);
             if (!range) return '';
             return '$' + formatPriceToken(range.min) + '–$' + formatPriceToken(range.max);

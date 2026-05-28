@@ -287,6 +287,37 @@ var POOL_BATTLE_UNIFIED_LABELS = [
   'Итого комс доход USD', 'Пара', 'Блокчейн', 'fee_tier', 'APR', 'APY', 'Ссылка', 'Инвестировано USD'
 ];
 var RWA_DAILY_LOG_SHEET = 'RWA_DAILY_LOG';
+/** RWA на сайте: фиксированный «диапазон» ±10% (в лист не пишем цены). */
+var RWA_RANGE_MIN_LABEL = '-10%';
+var RWA_RANGE_MAX_LABEL = '+10%';
+
+function normalizePairKey_(pair) {
+  return String(pair || '').toLowerCase().replace(/\s+/g, '').replace(/\u00a0/g, '').replace(/[·•]/g, '/');
+}
+
+/** RWA: отсекаем пулы с ETH/WETH/BTC/WBTC/cbBTC и т.п. */
+function pairContainsEthOrBtc_(pair, name, platform) {
+  var blob = normalizePairKey_(pair) + '|' + normalizePairKey_(name) + '|' + normalizePairKey_(platform);
+  if (!blob || blob === '||') return false;
+  if (/\b(weth|ethereum)\b/.test(blob)) return true;
+  if (/\b(eth)\b/.test(blob) && !/\bether/.test(blob)) return true;
+  if (/\b(wbtc|cbbtc|bitcoin)\b/.test(blob)) return true;
+  if (/\b(btc)\b/.test(blob)) return true;
+  if (/cbbtc|wbtc|\/eth\b|\beth\/|\bbtc\b/.test(blob)) return true;
+  return false;
+}
+
+/** Bitcoin: убрать USDC/cbBTC (Orca и др.). */
+function isExcludedBitcoinUsdcCbbtc_(pair) {
+  var p = normalizePairKey_(pair);
+  return p.indexOf('cbbtc') !== -1 && p.indexOf('usdc') !== -1;
+}
+
+function shouldSkipToolRow_(catId, pair, name, platform) {
+  if (catId === 'rwa' && pairContainsEthOrBtc_(pair, name, platform)) return true;
+  if (catId === 'bitcoin' && isExcludedBitcoinUsdcCbbtc_(pair)) return true;
+  return false;
+}
 
 function getRwaToolHeaderRowIndex_(data) {
   var unified = findUnifiedHeaderRowIndex_(data);
@@ -588,8 +619,6 @@ function mapLiquidityToRow_(el, liq, tokenInfo, wallet) {
   }
   var fee = extractFeePercent_(poolName) || extractFeePercent_(el.name) || '';
   var chain = 'solana';
-  var range = enrichRangeFromLiquidity_(liq);
-  if ((!range.min || !range.max) && poolName) range = parseRangeFromPoolName_(poolName);
   var rewards = splitRewardAssets_(liq, tokenInfo);
   var feeTotalUsd = extractFeeIncomeUsd_(liq, tokenInfo);
   var invested = (liq && liq.value != null) ? Number(liq.value) : ((liq && liq.assetsValue != null) ? Number(liq.assetsValue) : 0);
@@ -614,8 +643,8 @@ function mapLiquidityToRow_(el, liq, tokenInfo, wallet) {
     fee: fee,
     chain: chain,
     type: 'Liquidity Pool',
-    priceMin: range.min,
-    priceMax: range.max,
+    priceMin: '',
+    priceMax: '',
     openDate: openDate,
     earnedStables: rewards.stableUsd,
     earnedAsset: rewards.assetAmount,
@@ -643,6 +672,7 @@ function jupiterElementsToRows_(payload, wallet) {
     }
     for (var c = 0; c < chunk.length; c++) {
       var row = chunk[c];
+      if (pairContainsEthOrBtc_(row.pair, row.name, row.platform)) continue;
       var key = normalizeLinkKey(row.link) + '|' + String(row.name).toLowerCase();
       if (seen[key]) continue;
       seen[key] = true;
@@ -697,8 +727,8 @@ function rwaRowToUnifiedLine_(row) {
   var feeLabel = row.fee ? (String(row.fee).indexOf('%') !== -1 ? row.fee : row.fee + '%') : '';
   return [
     row.platform || row.name,
-    row.priceMin || '',
-    row.priceMax || '',
+    '',
+    '',
     row.openDate || '',
     formatPreciseAmount_(row.earnedStables, 8),
     formatPreciseAmount_(row.earnedAsset, 12),
@@ -1309,6 +1339,7 @@ function getData() {
       var pair = pairCol >= 0 ? (pickDisplay(r, pairCol, rw) || pick(rw, pairCol, '')) : '';
       var platform = platformCol >= 0 ? (pickDisplay(r, platformCol, rw) || pick(rw, platformCol)) : '';
       if (!platform) platform = name;
+      if (shouldSkipToolRow_(catId, pair, name, platform)) continue;
       var feeDisp = feeCol >= 0 && displayRows[r] ? displayRows[r][feeCol] : '';
       var feeRaw = feeCol >= 0 ? rw[feeCol] : '';
       var fee = (unified || feeCol >= 0)
@@ -1334,14 +1365,20 @@ function getData() {
           if (detail.pair) pair = detail.pair;
           if (detail.chain) chain = detail.chain;
           if (detail.fee) fee = detail.fee;
-          if (detail.priceMin) priceMin = detail.priceMin;
-          if (detail.priceMax) priceMax = detail.priceMax;
+          if (catId !== 'rwa') {
+            if (detail.priceMin) priceMin = detail.priceMin;
+            if (detail.priceMax) priceMax = detail.priceMax;
+          }
           if (detail.apy) {
             var detailApy = normalizeApyFromCell_(detail.apy).replace(/\s/g, '').replace(',', '.');
             var primaryApy = normalizeApyFromCell_(apy).replace(/\s/g, '').replace(',', '.');
             if (!primaryApy || primaryApy === '0' || primaryApy === '0.0') apy = detailApy;
           }
         }
+      }
+      if (catId === 'rwa') {
+        priceMin = RWA_RANGE_MIN_LABEL;
+        priceMax = RWA_RANGE_MAX_LABEL;
       }
 
       allTools.push({
