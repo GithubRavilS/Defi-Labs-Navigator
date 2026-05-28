@@ -1,0 +1,722 @@
+/**
+ * DeFi Labs Navigator — скрипт для Google Apps Script
+ * Читает данные из таблицы и отдаёт их в формате JSON (для сайта на GitHub Pages).
+ *
+ * КАК ПОДКЛЮЧИТЬ:
+ * 1. Открой https://script.google.com
+ * 2. Новый проект → удали весь код в редакторе и вставь сюда ВЕСЬ этот файл.
+ * 3. Сохрани (Ctrl+S). Замени SPREADSHEET_ID ниже на ID своей таблицы (если ещё не заменён).
+ * 4. Меню «Развёртывание» → «Новое развёртывание» → тип «Веб-приложение».
+ * 5. Описание: например «DeFi Navigator API». Выполнять от имени: «Я». Доступ: «Все».
+ * 6. Нажми «Развернуть», скопируй URL (он вида …/exec).
+ * 7. В HTML-файле сайта вставь этот URL в переменную DATA_API_URL (см. README).
+ */
+
+var SPREADSHEET_ID = '1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg';
+
+function sheetNameToCategoryId(name) {
+  if (!name || typeof name !== 'string') return '';
+  var raw = String(name).trim();
+  if (/\brwa\b/i.test(raw) || /real\s*world/i.test(raw)) return 'rwa';
+  return raw.toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '');
+}
+
+/** Лист RWA: ссылка на портфель Jupiter или адрес кошелька (по умолчанию B6). */
+var RWA_WALLET_CELL_A1 = 'B6';
+var RWA_SYNC_MIN_INTERVAL_MS = 50 * 60 * 1000;
+var JUPITER_PORTFOLIO_API_BASE = 'https://api.jup.ag/portfolio/v1';
+
+function getJupiterApiKey_() {
+  return String(PropertiesService.getScriptProperties().getProperty('JUPITER_API_KEY') || '').trim();
+}
+
+function parseSolanaWalletFromCell_(value) {
+  var s = String(value || '').trim();
+  if (!s) return '';
+  var m = s.match(/portfolio\/([1-9A-HJ-NP-Za-km-z]{32,44})/i);
+  if (m) return m[1];
+  m = s.match(/([1-9A-HJ-NP-Za-km-z]{32,44})/);
+  return m ? m[1] : '';
+}
+
+function findRwaSheet_(ss) {
+  var sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    var title = sheets[i].getName();
+    if (/\brwa\b/i.test(title) || /real\s*world/i.test(title)) return sheets[i];
+    if (/битва/i.test(title) && /пул/i.test(title) && /rwa/i.test(title)) return sheets[i];
+    if (/bitv/i.test(title) && /pool/i.test(title) && /rwa/i.test(title)) return sheets[i];
+  }
+  return null;
+}
+
+/** Формат «Битва пуллов» (как ethereum/bitcoin): шапка A–G, блок деталей с кол. H. */
+var RWA_POOL_BATTLE_HEADER_ROW_1BASED = 7;
+var RWA_POOL_BATTLE_CONFIG_LAST_ROW = 6;
+var RWA_POOL_BATTLE_AUX_HEADERS = [
+  '', '', '', '', '', '', '',
+  'Платформа', 'Мин диапазона', 'Макс диапазон', 'Дата открытия норм',
+  'Заработано стейблов', 'Заработано BTC', 'Заработано CAKE', 'Заработано AERO',
+  'Итого комс доход', 'валютка', 'Блокчейн', 'fee_tier', 'APR', 'APY', 'ссылка'
+];
+
+function getRwaToolHeaderRowIndex_(data) {
+  var scanFrom = Math.max(0, RWA_POOL_BATTLE_HEADER_ROW_1BASED - 2);
+  for (var r = scanFrom; r < Math.min(data.length, 12); r++) {
+    var line = data[r] || [];
+    var headers = [];
+    for (var c = 0; c < line.length; c++) headers.push(normalizeHeaderCell(line[c]));
+    var hasName = false;
+    var hasApy = false;
+    for (var hi = 0; hi < headers.length; hi++) {
+      if (/^(name|название|instrument|инструмент)$/.test(headers[hi])) hasName = true;
+      if (/^(apy|доходность|доход|yield|rate|apr)$/.test(headers[hi])) hasApy = true;
+    }
+    if (hasName && hasApy) return r;
+  }
+  return RWA_POOL_BATTLE_HEADER_ROW_1BASED - 1;
+}
+
+function buildSolanaDesc_(chain, fee) {
+  var c = String(chain || 'solana').trim() || 'solana';
+  var f = String(fee || '').trim();
+  return f ? (c + ' ' + f) : c;
+}
+
+function formatPlatformDisplay_(platformId, fallbackName) {
+  var pid = String(platformId || '').toLowerCase();
+  if (pid.indexOf('raydium') !== -1) return 'Raydium';
+  if (pid.indexOf('orca') !== -1) return 'Orca';
+  if (pid.indexOf('meteora') !== -1) return 'Meteora';
+  if (pid.indexOf('kamino') !== -1) return 'Kamino';
+  if (fallbackName) return String(fallbackName).trim();
+  if (!pid) return 'Solana';
+  return pid.charAt(0).toUpperCase() + pid.slice(1);
+}
+
+function isNavigatorLiquidityElement_(el) {
+  if (!el) return false;
+  if (String(el.networkId || '') !== 'solana') return false;
+  var type = String(el.type || '');
+  var label = String(el.label || '');
+  var pid = String(el.platformId || '').toLowerCase();
+
+  if (type === 'borrowlend') return false;
+  if (label === 'Lending') return false;
+  if (type === 'liquidity') return true;
+  if (label === 'LiquidityPool') return true;
+  if (pid.indexOf('kamino') !== -1 && type !== 'liquidity') return false;
+  return false;
+}
+
+function apyPercentFromElement_(el, liq) {
+  var frac = null;
+  if (el && el.netApy != null && !isNaN(Number(el.netApy))) frac = Number(el.netApy);
+  if (frac == null && liq && liq.yields && liq.yields.length) {
+    var y0 = liq.yields[0];
+    if (y0 && y0.apy != null && !isNaN(Number(y0.apy))) frac = Number(y0.apy);
+    else if (y0 && y0.apr != null && !isNaN(Number(y0.apr))) frac = Number(y0.apr);
+  }
+  if (frac == null) return '0';
+  var pct = frac <= 1 && frac >= -1 ? frac * 100 : frac;
+  return String(Math.round(pct * 10) / 10);
+}
+
+function tokenSymbolFromAsset_(asset, tokenInfo) {
+  if (!asset || asset.type !== 'token' || !asset.data) return '';
+  var addr = asset.data.address;
+  if (tokenInfo && tokenInfo.solana && addr && tokenInfo.solana[addr]) {
+    return String(tokenInfo.solana[addr].symbol || '').trim();
+  }
+  if (asset.data.symbol) return String(asset.data.symbol).trim();
+  return addr ? String(addr).slice(0, 6) : '';
+}
+
+function pairFromLiquidityAssets_(liq, tokenInfo) {
+  var assets = (liq && liq.assets) ? liq.assets : [];
+  var syms = [];
+  for (var i = 0; i < assets.length; i++) {
+    var sym = tokenSymbolFromAsset_(assets[i], tokenInfo);
+    if (sym) syms.push(sym);
+  }
+  return syms.length ? syms.join(' / ') : '';
+}
+
+function mapLiquidityToRow_(el, liq, tokenInfo, wallet) {
+  var platform = formatPlatformDisplay_(el.platformId, el.name);
+  var poolName = (liq && liq.name) ? String(liq.name).trim() : '';
+  var name = poolName || String(el.name || '').trim() || platform;
+  var pair = pairFromLiquidityAssets_(liq, tokenInfo);
+  if (!pair && poolName && poolName.indexOf('/') !== -1) pair = poolName;
+  var link = (liq && liq.link) ? String(liq.link).trim() : '';
+  if (!link && el.data && el.data.link) link = String(el.data.link).trim();
+  if (!link && wallet) link = 'https://jup.ag/portfolio/' + wallet;
+  var desc = 'Liquidity pool · ' + platform;
+  if (el.platformId) desc += ' · ' + el.platformId;
+  return {
+    name: name,
+    apy: apyPercentFromElement_(el, liq),
+    period: 'live',
+    status: 'active',
+    link: link || '#',
+    desc: desc,
+    pair: pair,
+    platform: platform,
+    fee: '',
+    chain: 'Solana',
+    type: 'Liquidity Pool'
+  };
+}
+
+function jupiterElementsToRows_(payload, wallet) {
+  var elements = (payload && payload.elements) ? payload.elements : [];
+  var tokenInfo = (payload && payload.tokenInfo) ? payload.tokenInfo : {};
+  var rows = [];
+  var seen = {};
+  for (var e = 0; e < elements.length; e++) {
+    var el = elements[e];
+    if (!isNavigatorLiquidityElement_(el)) continue;
+    var chunk = [];
+    if (el.type === 'liquidity' && el.data && el.data.liquidities && el.data.liquidities.length) {
+      for (var l = 0; l < el.data.liquidities.length; l++) {
+        chunk.push(mapLiquidityToRow_(el, el.data.liquidities[l], tokenInfo, wallet));
+      }
+    } else {
+      chunk.push(mapLiquidityToRow_(el, null, tokenInfo, wallet));
+    }
+    for (var c = 0; c < chunk.length; c++) {
+      var row = chunk[c];
+      var key = normalizeLinkKey(row.link) + '|' + String(row.name).toLowerCase();
+      if (seen[key]) continue;
+      seen[key] = true;
+      rows.push(row);
+    }
+  }
+  rows.sort(function(a, b) {
+    return parseFloat(b.apy) - parseFloat(a.apy);
+  });
+  return rows;
+}
+
+function fetchJupiterPositions_(wallet) {
+  var apiKey = getJupiterApiKey_();
+  var url = JUPITER_PORTFOLIO_API_BASE + '/positions/' + encodeURIComponent(wallet);
+  var headers = { Accept: 'application/json' };
+  if (apiKey) headers['x-api-key'] = apiKey;
+  Utilities.sleep(2200);
+  var res = UrlFetchApp.fetch(url, {
+    method: 'get',
+    muteHttpExceptions: true,
+    headers: headers
+  });
+  var code = res.getResponseCode();
+  var text = res.getContentText();
+  if (code === 401 && !apiKey) {
+    throw new Error('Jupiter API 401: при сбое подождите и повторите. Опционально бесплатный ключ: portal.jup.ag → Free ($0) → JUPITER_API_KEY в Script properties.');
+  }
+  if (code < 200 || code >= 300) {
+    throw new Error('Jupiter API HTTP ' + code + ': ' + text.slice(0, 280));
+  }
+  return JSON.parse(text);
+}
+
+function writeRwaPoolBattleSheet_(sh, rows) {
+  var headerIdx = getRwaToolHeaderRowIndex_(sh.getDataRange().getValues());
+  var headerRow1 = headerIdx + 1;
+  var dataStartRow = headerRow1 + 1;
+  var lastRow = Math.max(sh.getLastRow(), dataStartRow);
+  if (lastRow >= dataStartRow) {
+    sh.getRange(dataStartRow, 1, lastRow, RWA_POOL_BATTLE_AUX_HEADERS.length).clearContent();
+  }
+
+  if (!rows.length) return 0;
+
+  var primary = rows.map(function(row) {
+    var feeLabel = row.fee ? (String(row.fee).indexOf('%') !== -1 ? row.fee : row.fee + '%') : '';
+    return [
+      row.name,
+      row.apy,
+      row.period,
+      row.status,
+      row.link,
+      buildSolanaDesc_(row.chain, feeLabel),
+      row.pair
+    ];
+  });
+  sh.getRange(dataStartRow, 1, dataStartRow + primary.length - 1, 7).setValues(primary);
+
+  var auxHeaderRow = dataStartRow + primary.length + 2;
+  sh.getRange(auxHeaderRow, 1, auxHeaderRow, RWA_POOL_BATTLE_AUX_HEADERS.length)
+    .setValues([RWA_POOL_BATTLE_AUX_HEADERS]);
+
+  var auxDataStart = auxHeaderRow + 1;
+  var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy');
+  var aux = rows.map(function(row) {
+    var feeLabel = row.fee ? (String(row.fee).indexOf('%') !== -1 ? row.fee : row.fee + '%') : '';
+    var line = new Array(RWA_POOL_BATTLE_AUX_HEADERS.length);
+    for (var i = 0; i < line.length; i++) line[i] = '';
+    line[7] = row.platform;
+    line[10] = today;
+    line[15] = row.pair;
+    line[16] = row.chain || 'solana';
+    line[17] = feeLabel;
+    line[18] = row.apy;
+    line[19] = row.apy;
+    line[20] = row.link;
+    return line;
+  });
+  sh.getRange(auxDataStart, 1, auxDataStart + aux.length - 1, RWA_POOL_BATTLE_AUX_HEADERS.length)
+    .setValues(aux);
+  return rows.length;
+}
+
+/**
+ * Синхронизация листа RWA: Jupiter Portfolio → строки инструментов (только liquidity pool).
+ * Кошелёк / ссылка jup.ag/portfolio/… — ячейка B6 на листе RWA.
+ */
+function syncRwaJupiterPositions() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sh = findRwaSheet_(ss);
+  if (!sh) throw new Error('Лист RWA не найден (название должно содержать "RWA")');
+
+  var wallet = parseSolanaWalletFromCell_(sh.getRange(RWA_WALLET_CELL_A1).getValue());
+  if (!wallet) {
+    throw new Error('В ' + RWA_WALLET_CELL_A1 + ' укажите ссылку https://jup.ag/portfolio/АДРЕС или Solana-адрес кошелька');
+  }
+
+  var payload = fetchJupiterPositions_(wallet);
+  var rows = jupiterElementsToRows_(payload, wallet);
+  writeRwaPoolBattleSheet_(sh, rows);
+
+  PropertiesService.getScriptProperties().setProperty('RWA_LAST_SYNC_MS', String(Date.now()));
+  PropertiesService.getScriptProperties().setProperty('RWA_LAST_SYNC_COUNT', String(rows.length));
+  PropertiesService.getScriptProperties().setProperty('RWA_WALLET', wallet);
+  return { wallet: wallet, count: rows.length, syncedAt: new Date().toISOString() };
+}
+
+function syncRwaJupiterPositionsIfDue_() {
+  var last = Number(PropertiesService.getScriptProperties().getProperty('RWA_LAST_SYNC_MS') || '0');
+  if (Date.now() - last < RWA_SYNC_MIN_INTERVAL_MS) return;
+  try {
+    syncRwaJupiterPositions();
+  } catch (err) {
+    Logger.log('RWA Jupiter sync: ' + err);
+  }
+}
+
+function installRwaHourlyTrigger() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'syncRwaJupiterPositions') {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+  ScriptApp.newTrigger('syncRwaJupiterPositions').timeBased().everyHours(1).create();
+}
+
+function removeRwaHourlyTrigger() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'syncRwaJupiterPositions') {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+}
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('DeFi Navigator')
+    .addItem('Синхронизировать RWA (Jupiter)', 'syncRwaJupiterPositions')
+    .addItem('Авто-синх RWA каждый час', 'installRwaHourlyTrigger')
+    .addItem('Отключить авто-синх RWA', 'removeRwaHourlyTrigger')
+    .addToUi();
+}
+
+function findCol(row, names) {
+  var r = row || [];
+  for (var n = 0; n < names.length; n++) {
+    var name = names[n].toLowerCase();
+    for (var i = 0; i < r.length; i++) {
+      if (String(r[i] || '').toLowerCase().trim() === name) return i;
+    }
+  }
+  return -1;
+}
+
+function normalizeHeaderCell(h) {
+  return String(h || '')
+    .replace(/^\uFEFF/, '')
+    .replace(/\u200b/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+function normalizeFeeValue(value) {
+  return String(value || '').replace(',', '.').replace(/%/g, '').trim();
+}
+
+function parsePoolMetaFromDesc(desc) {
+  var text = String(desc || '').trim();
+  if (!text) return { chain: '', fee: '' };
+  var withFee = text.match(/^([A-Za-z0-9]+)\s+([\d.,]+)\s*%$/);
+  if (withFee) {
+    return {
+      chain: withFee[1],
+      fee: normalizeFeeValue(withFee[2])
+    };
+  }
+  if (/^[A-Za-z0-9]+$/.test(text)) return { chain: text, fee: '' };
+  return { chain: '', fee: '' };
+}
+
+function enrichPoolBattleFields(name, desc, platform, chain, fee) {
+  if (!platform && name) platform = String(name).trim();
+  var meta = parsePoolMetaFromDesc(desc);
+  if (!chain && meta.chain) chain = meta.chain;
+  if (!fee && meta.fee !== '') fee = meta.fee;
+  return {
+    platform: platform || '',
+    chain: chain || '',
+    fee: fee || ''
+  };
+}
+
+function normalizeLinkKey(link) {
+  return String(link || '').trim().toLowerCase();
+}
+
+function findHeaderColumn(headers, startIdx, patterns, fallbackIdx) {
+  var i;
+  for (i = startIdx; i < headers.length; i++) {
+    var h = headers[i];
+    if (!h) continue;
+    var p;
+    for (p = 0; p < patterns.length; p++) {
+      if (patterns[p].test(h)) return i;
+    }
+  }
+  return fallbackIdx >= 0 ? fallbackIdx : -1;
+}
+
+function buildAuxiliaryDetailIndex(rows, displayRows) {
+  var index = {};
+  var r;
+  for (r = 0; r < rows.length; r++) {
+    var rawHeaders = rows[r] || [];
+    var headers = [];
+    var hi;
+    for (hi = 0; hi < rawHeaders.length; hi++) headers.push(normalizeHeaderCell(rawHeaders[hi]));
+    var hasPlatform = false;
+    var hasMinRange = false;
+    for (hi = 7; hi < headers.length; hi++) {
+      if (/^(платформа|platform|dex|protocol|протокол)$/.test(headers[hi])) hasPlatform = true;
+      if (/мин.*диапаз|min.*range|min_price|price_min/.test(headers[hi])) hasMinRange = true;
+    }
+    if (!hasPlatform || !hasMinRange) continue;
+
+    var platformCol = findHeaderColumn(headers, 7, [/^(платформа|platform|dex|protocol|протокол)$/], 7);
+    var minPriceCol = findHeaderColumn(headers, 7, [/мин.*диапаз|min.*range|min_price|price_min/], 8);
+    var maxPriceCol = findHeaderColumn(headers, 7, [/макс.*диапаз|max.*range|max_price|price_max/], 9);
+    var pairCol = findHeaderColumn(headers, 7, [/^(пара|pair)$/], 15);
+    var chainCol = findHeaderColumn(headers, 7, [/^(блокчейн|chain|blockchain|network|сеть)$/], 16);
+    var feeCol = findHeaderColumn(headers, 7, [/^(fee_tier|fitier|fi tier|fee tier|fee|комиссия|tier|уровень)$/], 17);
+    var apyCol = findHeaderColumn(headers, 7, [/^(apy|доходность|доход)$/], 19);
+    var linkCol = findHeaderColumn(headers, 7, [/ссылка|link|url/], 20);
+
+  function pickAux(rowVals, dispVals, idx) {
+      if (idx < 0) return '';
+      if (dispVals && dispVals[idx] !== undefined && dispVals[idx] !== null && dispVals[idx] !== '') {
+        return String(dispVals[idx]).trim();
+      }
+      if (rowVals[idx] !== undefined && rowVals[idx] !== null && rowVals[idx] !== '') {
+        return String(rowVals[idx]).trim();
+      }
+      return '';
+    }
+
+    for (var rr = r + 1; rr < rows.length; rr++) {
+      var rw = rows[rr] || [];
+      var disp = displayRows ? (displayRows[rr] || []) : rw;
+      var platform = pickAux(rw, disp, platformCol);
+      if (!platform) continue;
+      var link = pickAux(rw, disp, linkCol);
+      if (!link) continue;
+      index[normalizeLinkKey(link)] = {
+        platform: platform,
+        priceMin: pickAux(rw, disp, minPriceCol),
+        priceMax: pickAux(rw, disp, maxPriceCol),
+        pair: pickAux(rw, disp, pairCol),
+        chain: pickAux(rw, disp, chainCol),
+        fee: pickAux(rw, disp, feeCol),
+        apy: pickAux(rw, disp, apyCol)
+      };
+    }
+    break;
+  }
+  return index;
+}
+
+function findPriceColumnIndex(headers, kind) {
+  var minPatterns = [
+    /^(min_price|price_min|min range|range_min|price_min_usd|min price|price lower|price_low|lower price|range low)$/,
+    /^(мин|минимум|мин диапазон|диапазон мин|нижняя граница)$/,
+    /min/,
+    /lower/,
+    /нижн/,
+    /мин/
+  ];
+  var maxPatterns = [
+    /^(max_price|price_max|max range|range_max|price_max_usd|max price|price upper|price_high|upper price|range high)$/,
+    /^(макс|максимум|макс диапазон|диапазон макс|верхняя граница)$/,
+    /max/,
+    /upper/,
+    /верхн/,
+    /макс/
+  ];
+  var patterns = kind === 'min' ? minPatterns : maxPatterns;
+  var i;
+  for (i = 0; i < headers.length; i++) {
+    var h = headers[i];
+    if (!h) continue;
+    var p;
+    for (p = 0; p < patterns.length; p++) {
+      if (patterns[p].test(h)) return i;
+    }
+  }
+  var letterFallback = kind === 'min' ? [4, 8] : [5];
+  var f;
+  for (f = 0; f < letterFallback.length; f++) {
+    var idx = letterFallback[f];
+    var headerAt = headers[idx];
+    if (!headerAt) continue;
+    for (p = 0; p < patterns.length; p++) {
+      if (patterns[p].test(headerAt)) return idx;
+    }
+  }
+  return -1;
+}
+
+function detectToolHeaderRow(rows) {
+  var maxScan = Math.min(10, rows.length);
+  for (var r = 0; r < maxScan; r++) {
+    var line = rows[r] || [];
+    var headers = [];
+    var c;
+    for (c = 0; c < line.length; c++) {
+      headers.push(normalizeHeaderCell(line[c]));
+    }
+    var hasName = false;
+    var hasApy = false;
+    var hi;
+    for (hi = 0; hi < headers.length; hi++) {
+      var h = headers[hi];
+      if (/^(name|название|instrument|инструмент)$/.test(h)) hasName = true;
+      if (/^(apy|доходность|доход|yield|rate|apr)$/.test(h)) hasApy = true;
+    }
+    if (hasName && hasApy) return r;
+  }
+  return 0;
+}
+
+function getData() {
+  syncRwaJupiterPositionsIfDue_();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheets = ss.getSheets();
+  var categories = [];
+  var allTools = [];
+  var toolId = 1;
+
+  if (sheets.length === 0) return { categories: categories, tools: allTools };
+
+  // Первый лист — категории
+  var first = sheets[0];
+  var firstData = first.getDataRange().getValues();
+  var catHeaders = firstData[0] || [];
+  var idI = findCol(catHeaders, ['id']) >= 0 ? findCol(catHeaders, ['id']) : 0;
+  var nameI = findCol(catHeaders, ['name']) >= 0 ? findCol(catHeaders, ['name']) : 1;
+  var iconI = findCol(catHeaders, ['icon']) >= 0 ? findCol(catHeaders, ['icon']) : 2;
+  var descI = findCol(catHeaders, ['description']) >= 0 ? findCol(catHeaders, ['description']) : 3;
+  var colorI = findCol(catHeaders, ['color']) >= 0 ? findCol(catHeaders, ['color']) : 4;
+
+  for (var i = 1; i < firstData.length; i++) {
+    var row = firstData[i];
+    var id = String(row[idI] || '').trim();
+    if (!id) continue;
+    categories.push({
+      id: id,
+      name: String(row[nameI] || '').trim() || id,
+      icon: String(row[iconI] || '').trim(),
+      description: String(row[descI] || '').trim(),
+      color: String(row[colorI] || '').trim()
+    });
+  }
+
+  var categoryIds = categories.map(function(c) { return c.id; });
+  var categoryIdSet = {};
+  for (var ci = 0; ci < categoryIds.length; ci++) categoryIdSet[categoryIds[ci]] = true;
+
+  // Листы со 2-го — инструменты по категориям
+  for (var s = 1; s < sheets.length; s++) {
+    var sh = sheets[s];
+    var title = sh.getName();
+    var fromSheetName = sheetNameToCategoryId(title);
+    var fromOrder = categoryIds[s - 1] || '';
+    // Ключевая логика: приоритет у имени листа (устраняет сдвиги при перестановке вкладок).
+    var catId = '';
+    if (fromSheetName && categoryIdSet[fromSheetName]) catId = fromSheetName;
+    else if (fromOrder) catId = fromOrder;
+    else if (fromSheetName) catId = fromSheetName;
+    else catId = String(s);
+    var rows = sh.getDataRange().getValues();
+    var displayRows = sh.getDataRange().getDisplayValues();
+    var headerRow = detectToolHeaderRow(rows);
+    var headers = (rows[headerRow] || []).map(function(h) {
+      return normalizeHeaderCell(h);
+    });
+
+    function colIndex(allowedNames) {
+      if (!allowedNames || allowedNames.length === 0) return -1;
+      for (var i = 0; i < headers.length; i++) {
+        if (allowedNames.indexOf(headers[i]) !== -1) return i;
+      }
+      return -1;
+    }
+    var nameCol = colIndex(['name', 'название', 'instrument', 'инструмент']);
+    if (nameCol < 0) nameCol = 0;
+    var apyCol = colIndex(['apy', 'доходность', 'доход', 'yield', 'rate', 'apr']);
+    if (apyCol < 0) apyCol = 1;
+    var periodCol = colIndex(['period', 'период', 'term']);
+    if (periodCol < 0) periodCol = 2;
+    var statusCol = colIndex(['status', 'статус']);
+    if (statusCol < 0) statusCol = 3;
+    var linkCol = colIndex(['link', 'url', 'ссылка']);
+    if (linkCol < 0) linkCol = 4;
+    var descCol = colIndex(['description', 'desc', 'описание']);
+    if (descCol < 0) {
+      var di;
+      for (di = 0; di < headers.length; di++) {
+        var dh = headers[di];
+        if (dh.indexOf('описание') !== -1) { descCol = di; break; }
+        if (dh === 'description' || dh.indexOf('description') === 0) { descCol = di; break; }
+      }
+    }
+    if (descCol < 0) descCol = -1;
+    var pairCol = -1;
+    var pci;
+    for (pci = 0; pci < headers.length; pci++) {
+      if (headers[pci] === 'pair' || headers[pci] === 'пара') { pairCol = pci; break; }
+    }
+    var platformCol = colIndex(['platform', 'платформа', 'dex', 'protocol', 'протокол']);
+    if (platformCol < 0) platformCol = -1;
+    var feeCol = colIndex(['fee', 'fee tier', 'fee_tier', 'fitier', 'fi tier', 'комиссия', 'tier', 'уровень']);
+    if (feeCol < 0) feeCol = -1;
+    var chainCol = colIndex(['chain', 'blockchain', 'network', 'сеть', 'блокчейн']);
+    if (chainCol < 0) chainCol = -1;
+    var typeCol = colIndex(['type', 'тип', 'position type', 'pool type', 'тип позиции']);
+    if (typeCol < 0) typeCol = -1;
+    var minPriceCol = findPriceColumnIndex(headers, 'min');
+    var maxPriceCol = findPriceColumnIndex(headers, 'max');
+    var detailIndex = buildAuxiliaryDetailIndex(rows, displayRows);
+
+    function pick(row, idx, def) {
+      def = def || '';
+      if (idx >= 0 && row[idx] !== undefined && row[idx] !== null && row[idx] !== '') return String(row[idx]).trim();
+      return def;
+    }
+
+    function pickDisplay(r, idx, rowVals) {
+      if (idx < 0) return '';
+      if (displayRows[r] && displayRows[r][idx] !== undefined && displayRows[r][idx] !== null && displayRows[r][idx] !== '') {
+        return String(displayRows[r][idx]).trim();
+      }
+      return pick(rowVals, idx, '');
+    }
+
+    for (var r = headerRow + 1; r < rows.length; r++) {
+      var rw = rows[r];
+      var name = pick(rw, nameCol);
+      if (!name) continue;
+      var apy = pick(rw, apyCol).replace(/%/g, '') || '0';
+      var period = (periodCol >= 0 && displayRows[r] && displayRows[r][periodCol] !== undefined && displayRows[r][periodCol] !== '')
+        ? String(displayRows[r][periodCol]).trim()
+        : (pick(rw, periodCol) || '7d');
+      var status = (pick(rw, statusCol) || 'active').toLowerCase();
+      if (status !== 'warning' && status !== 'внимание') status = 'active'; else status = 'warning';
+      var link = pick(rw, linkCol) || '#';
+      var desc = descCol >= 0 ? pick(rw, descCol) : '';
+      var pair = pairCol >= 0 ? (pickDisplay(r, pairCol, rw) || pick(rw, pairCol, '')) : '';
+      var platform = platformCol >= 0 ? pick(rw, platformCol) : '';
+      var fee = feeCol >= 0 ? pick(rw, feeCol) : '';
+      var chain = chainCol >= 0 ? pick(rw, chainCol) : '';
+      var type = typeCol >= 0 ? pick(rw, typeCol) : '';
+      var priceMin = minPriceCol >= 0 ? pick(rw, minPriceCol) : '';
+      var priceMax = maxPriceCol >= 0 ? pick(rw, maxPriceCol) : '';
+      var enriched = enrichPoolBattleFields(name, desc, platform, chain, fee);
+      platform = enriched.platform;
+      chain = enriched.chain;
+      fee = enriched.fee;
+      var detail = detailIndex[normalizeLinkKey(link)];
+      if (detail) {
+        if (detail.platform) platform = detail.platform;
+        if (detail.pair) pair = detail.pair;
+        if (detail.chain) chain = detail.chain;
+        if (detail.fee) fee = detail.fee;
+        if (detail.priceMin) priceMin = detail.priceMin;
+        if (detail.priceMax) priceMax = detail.priceMax;
+        if (detail.apy) {
+          var detailApy = String(detail.apy).replace(/%/g, '').replace(/\s/g, '').replace(',', '.');
+          var primaryApy = String(apy).replace(/%/g, '').replace(/\s/g, '').replace(',', '.');
+          if (!primaryApy || primaryApy === '0' || primaryApy === '0.0') apy = detailApy;
+        }
+      }
+
+      allTools.push({
+        id: toolId++,
+        categoryId: catId,
+        name: name,
+        pair: pair,
+        platform: platform,
+        fee: fee,
+        chain: chain,
+        type: type,
+        priceMin: priceMin,
+        priceMax: priceMax,
+        apy: apy,
+        period: period,
+        status: status,
+        link: link,
+        desc: desc,
+        descEn: desc
+      });
+    }
+  }
+
+  return { categories: categories, tools: allTools };
+}
+
+function doGet(e) {
+  var callback = e && e.parameter && e.parameter.callback;
+  var data;
+  try {
+    data = getData();
+  } catch (err) {
+    data = { categories: [], tools: [], error: String(err.message || err) };
+  }
+  var out;
+
+  if (callback) {
+    var jsonStr = JSON.stringify(data);
+    var safeCallback = String(callback).replace(/[^a-zA-Z0-9_.]/g, '');
+    out = ContentService.createTextOutput(safeCallback + '(' + jsonStr + ')')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  } else {
+    out = ContentService.createTextOutput(JSON.stringify(data))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  return out;
+}

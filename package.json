@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test:pair": "node scripts/test-pair-resolution.mjs"
+    "test:pair": "node scripts/test-pair-resolution.mjs",
+    "test:rwa": "node scripts/test-jupiter-rwa-map.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
