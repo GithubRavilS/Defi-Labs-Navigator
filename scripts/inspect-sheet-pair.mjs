@@ -9,7 +9,7 @@ import { google } from 'googleapis';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
-const SPREADSHEET_ID = '1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg';
+const SPREADSHEET_ID = '1NjN5ELRjNVlFSVfJLCQsho32Kod5HRA4JWakZ7KVsJY';
 const CRED = path.join(ROOT, 'pusher-490008-bf7c384ba372.json');
 
 function norm(h) {
