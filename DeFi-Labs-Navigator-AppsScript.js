@@ -418,11 +418,11 @@ function writeRwaPoolBattleSheet_(sh, rows) {
   var headerRow = RWA_POOL_BATTLE_HEADER_ROW_1BASED;
   var dataStart = headerRow + 1;
   var stdHeaders = ['name', 'apy', 'period', 'status', 'link', 'description', 'pair'];
-  sh.getRange(headerRow, 1, headerRow, stdHeaders.length).setValues([stdHeaders]);
+  sh.getRange(headerRow, 1, 1, stdHeaders.length).setValues([stdHeaders]);
 
   var lastRow = Math.max(sh.getLastRow(), dataStart);
   if (lastRow >= dataStart) {
-    sh.getRange(dataStart, 1, lastRow, RWA_POOL_BATTLE_AUX_HEADERS.length).clearContent();
+    sh.getRange(dataStart, 1, lastRow - dataStart + 1, RWA_POOL_BATTLE_AUX_HEADERS.length).clearContent();
   }
 
   if (!rows.length) return 0;
@@ -439,10 +439,10 @@ function writeRwaPoolBattleSheet_(sh, rows) {
       row.pair
     ];
   });
-  sh.getRange(dataStart, 1, dataStart + primary.length - 1, 7).setValues(primary);
+  sh.getRange(dataStart, 1, primary.length, 7).setValues(primary);
 
   var auxHeaderRow = Math.max(dataStart + primary.length + 2, 11);
-  sh.getRange(auxHeaderRow, 1, auxHeaderRow, RWA_POOL_BATTLE_AUX_HEADERS.length)
+  sh.getRange(auxHeaderRow, 1, 1, RWA_POOL_BATTLE_AUX_HEADERS.length)
     .setValues([RWA_POOL_BATTLE_AUX_HEADERS]);
 
   var auxDataStart = auxHeaderRow + 1;
@@ -468,7 +468,7 @@ function writeRwaPoolBattleSheet_(sh, rows) {
     line[22] = formatSheetNumber_(row.investedUsd, 2);
     return line;
   });
-  sh.getRange(auxDataStart, 1, auxDataStart + aux.length - 1, RWA_POOL_BATTLE_AUX_HEADERS.length)
+  sh.getRange(auxDataStart, 1, aux.length, RWA_POOL_BATTLE_AUX_HEADERS.length)
     .setValues(aux);
   return rows.length;
 }
@@ -503,7 +503,7 @@ function appendRwaDailyLog_(ss, rows) {
     ];
   });
   var start = logSh.getLastRow() + 1;
-  logSh.getRange(start, 1, start + out.length - 1, 10).setValues(out);
+  logSh.getRange(start, 1, out.length, 10).setValues(out);
 }
 
 function copyRwaDataToSiteSpreadsheet_(sourceSh) {
@@ -517,9 +517,11 @@ function copyRwaDataToSiteSpreadsheet_(sourceSh) {
   var startRow = RWA_POOL_BATTLE_HEADER_ROW_1BASED;
   var last = Math.max(sourceSh.getLastRow(), startRow + 5);
   var cols = RWA_POOL_BATTLE_AUX_HEADERS.length;
-  var block = sourceSh.getRange(startRow, 1, last, cols).getValues();
+  var numRows = last - startRow + 1;
+  var block = sourceSh.getRange(startRow, 1, numRows, cols).getValues();
 
-  destSh.getRange(1, 1, Math.max(destSh.getLastRow(), block.length + 5), cols).clearContent();
+  var clearRows = Math.max(destSh.getLastRow(), block.length + 5);
+  destSh.getRange(1, 1, clearRows, cols).clearContent();
   destSh.getRange(1, 1, block.length, cols).setValues(block);
 }
 
