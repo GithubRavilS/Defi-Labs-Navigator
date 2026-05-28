@@ -1,7 +1,13 @@
+/**
+ * Резервный прокси на Google Apps Script (если когда-то понадобится).
+ * Сайт на Vercel данные берёт напрямую через JSONP → DATA_API_URL в index.html.
+ */
 const { verifyNavToken, assertNavSession, getCookie, fetchJsonpAsJson } = require('../lib/nav-auth');
-const { getNavigatorDataFromSheets } = require('../lib/sheet-get-data');
 
 const COOKIE = 'defilabs_nav';
+const GAS_URL =
+  process.env.NAVIGATOR_SHEETS_JSONP_URL ||
+  'https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec';
 
 function readAuthToken(req) {
   let raw = getCookie(req, COOKIE);
@@ -17,20 +23,6 @@ function readAuthToken(req) {
   }
   if (body && body.token) return String(body.token).trim();
   return '';
-}
-
-async function loadNavigatorData() {
-  try {
-    const direct = await getNavigatorDataFromSheets();
-    if (direct && direct.tools && direct.tools.length) return direct;
-  } catch (e) {
-    console.warn('nav-data sheets-direct', e.message || e);
-  }
-
-  const sheetUrl =
-    process.env.NAVIGATOR_SHEETS_JSONP_URL ||
-    'https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec';
-  return fetchJsonpAsJson(sheetUrl);
 }
 
 module.exports = async (req, res) => {
@@ -74,7 +66,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const data = await loadNavigatorData();
+    const data = await fetchJsonpAsJson(GAS_URL);
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.status(200).send(JSON.stringify(data));

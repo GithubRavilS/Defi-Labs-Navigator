@@ -1364,6 +1364,7 @@ function getData() {
         priceMax: priceMax,
         apy: apy,
         period: period,
+        openDate: (openDateCol >= 0) ? (pickDisplay(r, openDateCol, rw) || pick(rw, openDateCol)) : '',
         status: status,
         link: link,
         desc: desc,

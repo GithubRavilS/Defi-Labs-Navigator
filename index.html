@@ -2429,10 +2429,6 @@
         function navApiPath(p) {
             return NAV_BACKEND_ORIGIN ? (NAV_BACKEND_ORIGIN + p) : p;
         }
-        /** Данные — с Vercel /api/nav-data (Google Sheets напрямую). Вход — PythonAnywhere. */
-        function navDataApiPath() {
-            return '/api/nav-data';
-        }
         function navFetchCreds() {
             return NAV_BACKEND_ORIGIN ? 'include' : 'same-origin';
         }
@@ -2742,7 +2738,7 @@
             o.platform = (o.platform != null && String(o.platform).trim() !== '') ? String(o.platform).trim() : '';
             o.apy = normalizeApyValue(o.apy);
             o.fee = (o.fee != null && String(o.fee).trim() !== '') ? normalizeFeeValue(o.fee) : '';
-            o.period = normalizePeriodValue(o.period);
+            o.period = normalizePeriodValue(o.period, o.openDate);
             o.chain = (o.chain != null && String(o.chain).trim() !== '') ? String(o.chain).trim() : '';
             o.type = (o.type != null && String(o.type).trim() !== '') ? String(o.type).trim() : '';
             o.priceMin = (o.priceMin != null && String(o.priceMin).trim() !== '') ? String(o.priceMin).trim() : '';
@@ -2773,15 +2769,28 @@
             return s;
         }
 
-        /** Период «2505 дн» — артефакт старого API (макс. цена вместо даты). */
-        function normalizePeriodValue(period) {
+        function periodFromOpenDateString(dateStr) {
+            var s = String(dateStr || '').trim();
+            var m = s.match(/(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})/);
+            if (!m) return '';
+            var y = parseInt(m[3], 10);
+            if (y < 100) y += 2000;
+            var opened = new Date(y, parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+            if (isNaN(opened.getTime())) return '';
+            return Math.max(0, Math.floor((Date.now() - opened.getTime()) / 86400000)) + ' дн';
+        }
+
+        /** Период: убираем мусор «2505 дн»; если пусто — считаем из openDate. */
+        function normalizePeriodValue(period, openDate) {
             var p = (period != null) ? String(period).trim() : '';
-            if (!p) return p;
-            var m = p.match(/^(\d+(?:[.,]\d+)?)\s*(?:дн|d|days?)\b/i);
-            if (m) {
-                var days = parseFloat(m[1].replace(',', '.'));
-                if (!Number.isNaN(days) && days > 500) return '';
+            if (p) {
+                var m = p.match(/^(\d+(?:[.,]\d+)?)\s*(?:дн|d|days?)\b/i);
+                if (m) {
+                    var days = parseFloat(m[1].replace(',', '.'));
+                    if (!Number.isNaN(days) && days > 500) p = '';
+                }
             }
+            if (!p && openDate) p = periodFromOpenDateString(openDate);
             return p;
         }
 
@@ -3684,67 +3693,8 @@
             }
         }
 
+        /** Данные из Google Таблицы через Apps Script (DATA_API_URL). Vercel env не нужен. */
         function loadDataOnce() {
-            if (navAuthRequired()) {
-                return new Promise(function(resolve) {
-                    var finished = false;
-                    var timeout;
-                    function finish(apiCallbackReceived) {
-                        if (finished) return;
-                        finished = true;
-                        clearTimeout(timeout);
-                        finishDataLoad();
-                        resolve({ apiCallbackReceived: !!apiCallbackReceived });
-                    }
-                    timeout = setTimeout(function() {
-                        console.warn('DeFi Navigator: таймаут загрузки данных.');
-                        try { setDataBadge('warn'); } catch (e) {}
-                        applyLoadedData(null);
-                        finish(false);
-                    }, DATA_LOAD_TIMEOUT_MS);
-                    var dataReq;
-                    var t = getNavJwtToken();
-                    dataReq = fetch(navDataApiPath(), {
-                        method: 'POST',
-                        credentials: 'same-origin',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(t ? { token: t } : {})
-                    });
-                    dataReq
-                        .then(function(r) {
-                            if (r.status === 401) {
-                                clearTimeout(timeout);
-                                setNavJwtToken('');
-                                showNavAuthGate(true);
-                                try { setDataBadge('warn'); } catch (e) {}
-                                applyLoadedData(null);
-                                finish(false);
-                                return null;
-                            }
-                            if (!r.ok) throw new Error('nav-data');
-                            return r.json();
-                        })
-                        .then(function(data) {
-                            if (!data) return;
-                            clearTimeout(timeout);
-                            applyLoadedData(data);
-                            if (data && data.error) console.warn('DeFi Navigator: ошибка таблицы', data.error);
-                            else console.log('DeFi Navigator: данные загружены из таблицы', { categories: categories.length, tools: allTools.length });
-                            try {
-                                if (data && data.error) setDataBadge('err');
-                                else setDataBadge('ok', new Date());
-                            } catch (e) {}
-                            finish(true);
-                        })
-                        .catch(function() {
-                            clearTimeout(timeout);
-                            console.warn('DeFi Navigator: запрос к API не удался.');
-                            try { setDataBadge('warn'); } catch (e) {}
-                            applyLoadedData(null);
-                            finish(false);
-                        });
-                });
-            }
             var g = getGoogleAppsScriptApiUrl();
             if (!g.useApi) {
                 try { setDataBadge('warn'); } catch (e) {}
@@ -3771,7 +3721,11 @@
                 window[cbName] = function(data) {
                     applyLoadedData(data);
                     if (data && data.error) console.warn('DeFi Navigator: ошибка таблицы', data.error);
-                    else console.log('DeFi Navigator: данные загружены из таблицы', { categories: categories.length, tools: allTools.length });
+                    else console.log('DeFi Navigator: данные из таблицы (GAS)', {
+                        categories: categories.length,
+                        tools: allTools.length,
+                        apiVersion: data && data.apiVersion
+                    });
                     try {
                         if (data && data.error) setDataBadge('err');
                         else setDataBadge('ok', new Date());
@@ -3782,7 +3736,7 @@
                 var sep = g.apiUrl.indexOf('?') >= 0 ? '&' : '?';
                 var script = document.createElement('script');
                 script.onerror = function() {
-                    console.warn('DeFi Navigator: запрос к API не удался.');
+                    console.warn('DeFi Navigator: запрос к Google Apps Script не удался.');
                     try { setDataBadge('warn'); } catch (e) {}
                     applyLoadedData(null);
                     finish(false);
