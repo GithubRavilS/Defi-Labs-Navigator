@@ -5,17 +5,20 @@
  * КАК ПОДКЛЮЧИТЬ:
  * 1. Открой https://script.google.com
  * 2. Новый проект → удали весь код в редакторе и вставь сюда ВЕСЬ этот файл.
- * 3. Сохрани (Ctrl+S). SPREADSHEET_ID — сайт; RWA_POOL_BATTLE_SPREADSHEET_ID — битва пуллов (B6).
+ * 3. Сохрани (Ctrl+S). SPREADSHEET_ID — сайт; ETH/BTC/RWA — одна таблица с A1 (без блоков H30).
  * 4. Меню «Развёртывание» → «Новое развёртывание» → тип «Веб-приложение».
  * 5. Описание: например «DeFi Navigator API». Выполнять от имени: «Я». Доступ: «Все».
  * 6. Нажми «Развернуть», скопируй URL (он вида …/exec).
  * 7. В HTML-файле сайта вставь этот URL в переменную DATA_API_URL (см. README).
  */
 
-/** Базовая таблица — отсюда сайт читает JSON (getData). */
+/** Таблица «Defi LABS Navigator» — сайт (getData) и RWA (лист «БИТВА ПУЛОВ RWA», кошелёк Z2). */
 var SPREADSHEET_ID = '1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg';
-/** Вторая таблица (битва пуллов / Bitcoin) — сюда Jupiter пишет RWA, кошелёк в B6. */
-var RWA_POOL_BATTLE_SPREADSHEET_ID = '1NjN5ELRjNVlFSVfJLCQsho32Kod5HRA4JWakZ7KVsJY';
+/**
+ * RWA пишется в ЭТУ ЖЕ таблицу (файл в браузере: «Defi LABS Navigator»).
+ * Старый ID 1NjN5… — другой файл; если синхронизация «ничего не меняла» — была эта путаница.
+ */
+var RWA_POOL_BATTLE_SPREADSHEET_ID = '1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg';
 
 function sheetNameToCategoryId(name) {
   if (!name || typeof name !== 'string') return '';
@@ -26,8 +29,8 @@ function sheetNameToCategoryId(name) {
     .replace(/[^a-z0-9-]/g, '');
 }
 
-/** Лист RWA: ссылка на портфель Jupiter или адрес кошелька (по умолчанию B6). */
-var RWA_WALLET_CELL_A1 = 'B6';
+/** Лист RWA: ссылка jup.ag/portfolio/… или адрес (Z2; B6 — старый формат). */
+var RWA_WALLET_CELLS = ['Z2', 'B6', 'B2'];
 var RWA_SYNC_MIN_INTERVAL_MS = 50 * 60 * 1000;
 var JUPITER_PORTFOLIO_API_BASE = 'https://api.jup.ag/portfolio/v1';
 
@@ -44,29 +47,183 @@ function parseSolanaWalletFromCell_(value) {
   return m ? m[1] : '';
 }
 
-/** Кошелёк только из B6 (вторая таблица, лист «БИТВА ПУЛОВ RWA»). */
+/** Кошелёк с листа RWA (Z2 или legacy B6 / поиск по листу). */
 function getRwaWalletFromSheet_(sh) {
-  var rng = sh.getRange(RWA_WALLET_CELL_A1);
-  var w = parseSolanaWalletFromCell_(rng.getDisplayValue());
-  if (!w) w = parseSolanaWalletFromCell_(rng.getValue());
-  if (!w) {
-    try {
-      w = parseSolanaWalletFromCell_(rng.getFormula());
-    } catch (e1) {}
+  var i;
+  for (i = 0; i < RWA_WALLET_CELLS.length; i++) {
+    var rng = sh.getRange(RWA_WALLET_CELLS[i]);
+    var w = parseSolanaWalletFromCell_(rng.getDisplayValue());
+    if (!w) w = parseSolanaWalletFromCell_(rng.getValue());
+    if (!w) {
+      try { w = parseSolanaWalletFromCell_(rng.getFormula()); } catch (e1) {}
+    }
+    if (!w) {
+      try { w = parseSolanaWalletFromCell_(rng.getRichTextValue().getLinkUrl()); } catch (e2) {}
+    }
+    if (w) return w;
   }
-  if (!w) {
-    try {
-      w = parseSolanaWalletFromCell_(rng.getRichTextValue().getLinkUrl());
-    } catch (e2) {}
+  var data = sh.getDataRange().getDisplayValues();
+  var r;
+  for (r = 0; r < Math.min(data.length, 40); r++) {
+    var row = data[r] || [];
+    var c;
+    for (c = 0; c < row.length; c++) {
+      var w2 = parseSolanaWalletFromCell_(row[c]);
+      if (w2) return w2;
+    }
   }
-  if (w) return w;
   var saved = String(PropertiesService.getScriptProperties().getProperty('RWA_WALLET') || '').trim();
   if (saved && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(saved)) return saved;
   return '';
 }
 
+/** Кошелёк только из листа «DeFi Labs Navigator» (битва пуллов), ячейка B6. */
+function getRwaWalletForSync_(sourceSh) {
+  return getRwaWalletFromSheet_(sourceSh);
+}
+
+function jupiterPortfolioSummary_(payload) {
+  var n = (payload && payload.elements && payload.elements.length) ? payload.elements.length : 0;
+  var reports = (payload && payload.fetcherReports) ? payload.fetcherReports : [];
+  var parts = [];
+  var i;
+  for (i = 0; i < reports.length; i++) {
+    var r = reports[i] || {};
+    parts.push(String(r.id || '?') + ':' + String(r.status || '?'));
+  }
+  return {
+    elements: n,
+    fetcherReports: parts.length ? parts.join(', ') : '(пусто — индексация Jupiter не отдала данные)'
+  };
+}
+
+function fetchJupiterPositionsOnce_(wallet, querySuffix, apiKey) {
+  var url = JUPITER_PORTFOLIO_API_BASE + '/positions/' + encodeURIComponent(wallet) + (querySuffix || '');
+  var headers = { Accept: 'application/json' };
+  if (apiKey) headers['x-api-key'] = apiKey;
+  var res = UrlFetchApp.fetch(url, {
+    method: 'get',
+    muteHttpExceptions: true,
+    headers: headers
+  });
+  return {
+    code: res.getResponseCode(),
+    text: res.getContentText(),
+    url: url
+  };
+}
+
+function countRwaDataRowsOnSheet_(sh) {
+  var data = sh.getDataRange().getValues();
+  var hr = getRwaToolHeaderRowIndex_(data);
+  var n = 0;
+  var r;
+  for (r = hr + 1; r < data.length; r++) {
+    if (String(data[r][0] || '').trim()) n++;
+  }
+  return n;
+}
+
 function openRwaSourceSpreadsheet_() {
   return SpreadsheetApp.openById(RWA_POOL_BATTLE_SPREADSHEET_ID);
+}
+
+/** Показать в Z3, в какой файл реально пишет скрипт (проверка после деплоя). */
+function verifyRwaSpreadsheetTarget() {
+  var ss = openRwaSourceSpreadsheet_();
+  var sh = findRwaSheet_(ss);
+  if (!sh) throw new Error('Нет листа «' + RWA_SHEET_TITLE_CANONICAL + '»');
+  var id = ss.getId();
+  var msg = 'OK · «' + ss.getName() + '» · ID ' + id;
+  writeRwaSyncStatus_(sh, msg.slice(0, 240));
+  return { spreadsheetTitle: ss.getName(), spreadsheetId: id, sheet: sh.getName() };
+}
+
+function isUnifiedPoolBattleHeaderRow_(headers) {
+  if (!headers || !headers.length) return false;
+  var hasPlatform = false;
+  var hasMin = false;
+  var i;
+  for (i = 0; i < headers.length; i++) {
+    var h = headers[i];
+    if (/^(платформа|platform|dex|protocol|протокол)$/.test(h)) hasPlatform = true;
+    if (/мин.*диапаз|min.*range|min_price|price_min/.test(h)) hasMin = true;
+  }
+  return hasPlatform && hasMin;
+}
+
+function rowToNormalizedHeaders_(row) {
+  var headers = [];
+  var c;
+  for (c = 0; c < (row || []).length; c++) headers.push(normalizeHeaderCell(row[c]));
+  return headers;
+}
+
+function findUnifiedHeaderRowIndex_(data) {
+  var r;
+  for (r = 0; r < Math.min(data.length, 40); r++) {
+    if (isUnifiedPoolBattleHeaderRow_(rowToNormalizedHeaders_(data[r]))) return r;
+  }
+  return -1;
+}
+
+/** Перенос блока H30 (или уже A1) → единая таблица с A1. */
+function relayoutRwaSheetToA1() {
+  var ss = openRwaSourceSpreadsheet_();
+  var sh = findRwaSheet_(ss);
+  if (!sh) throw new Error('Нет листа «' + RWA_SHEET_TITLE_CANONICAL + '»');
+
+  var data = sh.getDataRange().getValues();
+  var unifiedAt = findUnifiedHeaderRowIndex_(data);
+  if (unifiedAt === 0) {
+    writeRwaSyncStatus_(sh, 'RWA: таблица уже с A1');
+    return { moved: 0, headerRow: 1 };
+  }
+
+  var headerRow1 = 0;
+  var auxCol = 8;
+  var auxCols = POOL_BATTLE_UNIFIED_LABELS.length;
+  var r;
+  for (r = 0; r < data.length; r++) {
+    var row = data[r] || [];
+    var h0 = normalizeHeaderCell(row[0]);
+    var h7 = row.length > 7 ? normalizeHeaderCell(row[7]) : '';
+    if (/^(платформа|platform)$/.test(h0) || /^(платформа|platform)$/.test(h7)) {
+      if (!headerRow1 || r + 1 < headerRow1) headerRow1 = r + 1;
+    }
+  }
+  if (!headerRow1) throw new Error('Не найден блок «Платформа» (A1 или H30)');
+
+  var startCol = normalizeHeaderCell((data[headerRow1 - 1] || [])[0]) === 'платформа' ? 1 : auxCol;
+  var last = sh.getLastRow();
+  var lines = [];
+  for (r = headerRow1; r <= last; r++) {
+    var row = data[r - 1] || [];
+    if (!String(row[startCol - 1] || '').trim()) {
+      if (lines.length) break;
+      continue;
+    }
+    lines.push(row.slice(startCol - 1, startCol - 1 + auxCols));
+  }
+  if (!lines.length) throw new Error('Нет строк данных под шапкой (строка ' + headerRow1 + ')');
+
+  var wallet = getRwaWalletFromSheet_(sh);
+  sh.getRange('A1:W120').clearContent();
+  sh.getRange(1, 1, 1, POOL_BATTLE_UNIFIED_LABELS.length).setValues([POOL_BATTLE_UNIFIED_LABELS]);
+  sh.getRange(2, 1, lines.length, POOL_BATTLE_UNIFIED_LABELS.length).setValues(lines);
+  if (wallet) {
+    sh.getRange('Z1').setValue('Кошелёк Jupiter');
+    sh.getRange('Z2').setValue('https://jup.ag/portfolio/' + wallet);
+  }
+
+  var ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy HH:mm');
+  writeRwaSyncStatus_(sh, 'A1: ' + lines.length + ' строк · ' + ts);
+  return { moved: lines.length, fromRow: headerRow1 };
+}
+
+/** @deprecated Используйте relayoutRwaSheetToA1 */
+function relayoutRwaBlockToH30() {
+  return relayoutRwaSheetToA1();
 }
 
 function openSiteSpreadsheet_() {
@@ -85,7 +242,7 @@ function rwaSheetHasDataRows_(sh) {
 
 function writeRwaSyncStatus_(sh, message) {
   try {
-    sh.getRange('D2').setValue(String(message || '').slice(0, 240));
+    sh.getRange('Z3').setValue(String(message || '').slice(0, 240));
   } catch (e) {}
 }
 
@@ -123,23 +280,19 @@ function findRwaSheet_(ss) {
   return fallback;
 }
 
-/** Формат «Битва пуллов» (как ethereum/bitcoin): шапка A–G, блок деталей с кол. H. */
-var RWA_POOL_BATTLE_HEADER_ROW_1BASED = 7;
-var RWA_POOL_BATTLE_CONFIG_LAST_ROW = 6;
-var RWA_POOL_BATTLE_AUX_HEADERS = [
-  '', '', '', '', '', '', '',
+/** Единая таблица «битва пуллов» с A1 (ETH, BTC, RWA). */
+var POOL_BATTLE_UNIFIED_LABELS = [
   'Платформа', 'Мин диапазона', 'Макс диапазон', 'Дата открытия норм',
-  'Заработано стейблов', 'Заработано актива', 'Символ актива', 'Заработано AERO',
-  'Итого комс доход', 'валютка', 'Блокчейн', 'fee_tier', 'APR', 'APY', 'ссылка', 'Инвестировано'
+  'Заработано стейблов USD', 'Заработано актива', 'Символ актива', 'Заработано AERO',
+  'Итого комс доход USD', 'Пара', 'Блокчейн', 'fee_tier', 'APR', 'APY', 'Ссылка', 'Инвестировано USD'
 ];
 var RWA_DAILY_LOG_SHEET = 'RWA_DAILY_LOG';
 
 function getRwaToolHeaderRowIndex_(data) {
-  var scanFrom = Math.max(0, RWA_POOL_BATTLE_HEADER_ROW_1BASED - 2);
-  for (var r = scanFrom; r < Math.min(data.length, 12); r++) {
-    var line = data[r] || [];
-    var headers = [];
-    for (var c = 0; c < line.length; c++) headers.push(normalizeHeaderCell(line[c]));
+  var unified = findUnifiedHeaderRowIndex_(data);
+  if (unified >= 0) return unified;
+  for (var r = 0; r < Math.min(data.length, 20); r++) {
+    var headers = rowToNormalizedHeaders_(data[r]);
     var hasName = false;
     var hasApy = false;
     for (var hi = 0; hi < headers.length; hi++) {
@@ -148,7 +301,7 @@ function getRwaToolHeaderRowIndex_(data) {
     }
     if (hasName && hasApy) return r;
   }
-  return RWA_POOL_BATTLE_HEADER_ROW_1BASED - 1;
+  return 0;
 }
 
 function buildSolanaDesc_(chain, fee) {
@@ -195,17 +348,51 @@ function extractFeePercent_(text) {
   return String(m[1]).replace(',', '.');
 }
 
-function apyPercentFromElement_(el, liq) {
+function aprPercentNumberFromElement_(el, liq) {
   var frac = null;
-  if (el && el.netApy != null && !isNaN(Number(el.netApy))) frac = Number(el.netApy);
-  if (frac == null && liq && liq.yields && liq.yields.length) {
+  if (liq && liq.yields && liq.yields.length) {
     var y0 = liq.yields[0];
-    if (y0 && y0.apy != null && !isNaN(Number(y0.apy))) frac = Number(y0.apy);
-    else if (y0 && y0.apr != null && !isNaN(Number(y0.apr))) frac = Number(y0.apr);
+    if (y0 && y0.apr != null && !isNaN(Number(y0.apr))) frac = Number(y0.apr);
+    else if (y0 && y0.apy != null && !isNaN(Number(y0.apy))) frac = Number(y0.apy);
   }
-  if (frac == null) return '0';
-  var pct = frac <= 1 && frac >= -1 ? frac * 100 : frac;
-  return String(Math.round(pct * 10) / 10);
+  if (frac == null && el && el.netApy != null && !isNaN(Number(el.netApy))) frac = Number(el.netApy);
+  if (frac == null) return 0;
+  return frac <= 1 && frac >= -1 ? frac * 100 : frac;
+}
+
+/** APY: реинвест раз в месяц (сложный процент), APR — простая годовая от Jupiter. */
+function apyPercentFromAprMonthly_(aprPct) {
+  if (!aprPct || isNaN(aprPct)) return 0;
+  var r = aprPct / 100 / 12;
+  return (Math.pow(1 + r, 12) - 1) * 100;
+}
+
+function apyPercentFromElement_(el, liq) {
+  var apr = aprPercentNumberFromElement_(el, liq);
+  var apy = apyPercentFromAprMonthly_(apr);
+  return String(Math.round(apy * 10) / 10) + '%';
+}
+
+function aprPercentFromElement_(el, liq) {
+  var apr = aprPercentNumberFromElement_(el, liq);
+  return String(Math.round(apr * 10) / 10) + '%';
+}
+
+/** Строка APY для ячеек таблицы — без авто-даты (20.07 → 20 июля). */
+function formatApyForSheet_(apy) {
+  var s = String(apy == null ? '' : apy).replace(/%/g, '').trim();
+  if (!s || s === '0') return '0%';
+  return s.indexOf('%') !== -1 ? s : s + '%';
+}
+
+/** APY из ячейки: Google Sheets иногда превращает 20.07 в дату 20.07.2026. */
+function normalizeApyFromCell_(val) {
+  if (val instanceof Date) {
+    var d = val.getDate();
+    var m = val.getMonth() + 1;
+    return String(d) + '.' + String(m);
+  }
+  return String(val == null ? '' : val).replace(/%/g, '').trim();
 }
 
 function tokenSymbolFromAsset_(asset, tokenInfo) {
@@ -282,27 +469,99 @@ function parseRangeFromPoolName_(text) {
   };
 }
 
+function enrichRangeFromLiquidity_(liq) {
+  var r = parseRangeFromPoolName_((liq && liq.name) || '');
+  if (r.min && r.max) return r;
+  if (!liq) return r;
+  var low = liq.priceMin != null ? liq.priceMin : (liq.priceLower != null ? liq.priceLower : liq.lowerPrice);
+  var high = liq.priceMax != null ? liq.priceMax : (liq.priceUpper != null ? liq.priceUpper : liq.upperPrice);
+  if (low != null && high != null && !isNaN(Number(low)) && !isNaN(Number(high))) {
+    return { min: String(low), max: String(high) };
+  }
+  if (liq.range && liq.range.min != null && liq.range.max != null) {
+    return { min: String(liq.range.min), max: String(liq.range.max) };
+  }
+  return r;
+}
+
+function extractFeeIncomeUsd_(liq, tokenInfo) {
+  var rew = splitRewardAssets_(liq, tokenInfo);
+  var total = rew.totalUsd;
+  if (!liq) return total;
+  var keys = ['feesUsd', 'feeValue', 'unclaimedFees', 'claimableFees', 'pendingFees', 'totalFees', 'accruedFees'];
+  var i;
+  for (i = 0; i < keys.length; i++) {
+    if (liq[keys[i]] != null && !isNaN(Number(liq[keys[i]]))) {
+      total = Math.max(total, Number(liq[keys[i]]));
+    }
+  }
+  if (liq.fees && liq.fees.total != null && !isNaN(Number(liq.fees.total))) {
+    total = Math.max(total, Number(liq.fees.total));
+  }
+  if (liq.fees && liq.fees.usd != null && !isNaN(Number(liq.fees.usd))) {
+    total = Math.max(total, Number(liq.fees.usd));
+  }
+  return total;
+}
+
 function formatSheetNumber_(n, decimals) {
   if (n == null || isNaN(Number(n))) return '';
   var d = decimals == null ? 6 : decimals;
   return String(Math.round(Number(n) * Math.pow(10, d)) / Math.pow(10, d));
 }
 
+/** USD/кол-во с мелкими значениями (не округлять до 0,01). */
+function formatPreciseAmount_(n, decimals) {
+  if (n == null || isNaN(Number(n))) return '';
+  var v = Number(n);
+  if (v === 0) return '0';
+  var d = decimals == null ? 8 : decimals;
+  if (Math.abs(v) < Math.pow(10, -d)) return v.toExponential(3);
+  return String(Math.round(v * Math.pow(10, d)) / Math.pow(10, d));
+}
+
+function openTimestampMsFromElement_(el, liq) {
+  var ms = null;
+  if (liq && liq.createdAt != null) ms = Number(liq.createdAt);
+  if ((!ms || isNaN(ms)) && liq && liq.openedAt != null) ms = Number(liq.openedAt);
+  if ((!ms || isNaN(ms)) && el && el.data && el.data.createdAt != null) ms = Number(el.data.createdAt);
+  if ((!ms || isNaN(ms)) && el && el.updatedAt != null) ms = Number(el.updatedAt);
+  return (!ms || isNaN(ms)) ? null : ms;
+}
+
 function periodFromTimestampMs_(ms) {
-  if (!ms || isNaN(Number(ms))) return '0 дн';
-  var days = Math.max(0, Math.floor((Date.now() - Number(ms)) / 86400000));
-  return days + ' дн';
+  if (!ms || isNaN(Number(ms))) return '0 ч';
+  var hours = Math.max(0, Math.floor((Date.now() - Number(ms)) / 3600000));
+  if (hours < 72) return hours + ' ч';
+  return Math.floor(hours / 24) + ' дн';
 }
 
 function periodFromOpenDateString_(dateStr) {
   var s = String(dateStr || '').trim();
   var m = s.match(/(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})/);
-  if (!m) return '0 дн';
+  if (!m) return '';
   var y = parseInt(m[3], 10);
   if (y < 100) y += 2000;
   var opened = new Date(y, parseInt(m[2], 10) - 1, parseInt(m[1], 10));
-  if (isNaN(opened.getTime())) return '0 дн';
+  if (isNaN(opened.getTime())) return '';
   return Math.max(0, Math.floor((Date.now() - opened.getTime()) / 86400000)) + ' дн';
+}
+
+/** Период из ячейки «Дата открытия»: display dd.mm.yyyy или serial Google Sheets. */
+function periodFromOpenDateCell_(rawVal, displayVal) {
+  var fromDisp = periodFromOpenDateString_(displayVal);
+  if (fromDisp) return fromDisp;
+  if (rawVal instanceof Date && !isNaN(rawVal.getTime())) {
+    return Math.max(0, Math.floor((Date.now() - rawVal.getTime()) / 86400000)) + ' дн';
+  }
+  if (typeof rawVal === 'number' && !isNaN(rawVal) && rawVal > 20000 && rawVal < 80000) {
+    var base = new Date(Date.UTC(1899, 11, 30));
+    var opened = new Date(base.getTime() + Math.round(rawVal) * 86400000);
+    if (!isNaN(opened.getTime())) {
+      return Math.max(0, Math.floor((Date.now() - opened.getTime()) / 86400000)) + ' дн';
+    }
+  }
+  return periodFromOpenDateString_(String(rawVal || ''));
 }
 
 function openDateFromElement_(el, liq) {
@@ -323,19 +582,28 @@ function mapLiquidityToRow_(el, liq, tokenInfo, wallet) {
   if (!pair && poolName && poolName.indexOf('/') !== -1) pair = poolName;
   var link = (liq && liq.link) ? String(liq.link).trim() : '';
   if (!link && el.data && el.data.link) link = String(el.data.link).trim();
-  if (!link && wallet) link = 'https://jup.ag/portfolio/' + wallet;
+  if (!link && wallet) {
+    var slug = (platform + '-' + (pair || poolName)).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    link = 'https://jup.ag/portfolio/' + wallet + '#' + slug;
+  }
   var fee = extractFeePercent_(poolName) || extractFeePercent_(el.name) || '';
   var chain = 'solana';
-  var range = parseRangeFromPoolName_(poolName);
+  var range = enrichRangeFromLiquidity_(liq);
+  if ((!range.min || !range.max) && poolName) range = parseRangeFromPoolName_(poolName);
   var rewards = splitRewardAssets_(liq, tokenInfo);
+  var feeTotalUsd = extractFeeIncomeUsd_(liq, tokenInfo);
   var invested = (liq && liq.value != null) ? Number(liq.value) : ((liq && liq.assetsValue != null) ? Number(liq.assetsValue) : 0);
   if (isNaN(invested)) invested = 0;
-  var openDate = openDateFromElement_(el, liq);
-  var period = periodFromOpenDateString_(openDate);
-  if (period === '0 дн' && el && el.updatedAt) period = periodFromTimestampMs_(el.updatedAt);
+  var openMs = openTimestampMsFromElement_(el, liq);
+  var openDate = openMs
+    ? Utilities.formatDate(new Date(openMs), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy')
+    : openDateFromElement_(el, liq);
+  var period = openMs ? periodFromTimestampMs_(openMs) : periodFromOpenDateString_(openDate);
+  var apr = aprPercentFromElement_(el, liq);
   var apy = apyPercentFromElement_(el, liq);
   return {
     name: platform,
+    apr: apr,
     apy: apy,
     period: period,
     status: 'active',
@@ -352,7 +620,7 @@ function mapLiquidityToRow_(el, liq, tokenInfo, wallet) {
     earnedStables: rewards.stableUsd,
     earnedAsset: rewards.assetAmount,
     earnedAssetSymbol: rewards.assetSymbol,
-    totalFeeIncome: rewards.totalUsd,
+    totalFeeIncome: feeTotalUsd,
     investedUsd: invested
   };
 }
@@ -389,87 +657,76 @@ function jupiterElementsToRows_(payload, wallet) {
 
 function fetchJupiterPositions_(wallet, fastMode) {
   var apiKey = getJupiterApiKey_();
-  var url = JUPITER_PORTFOLIO_API_BASE + '/positions/' + encodeURIComponent(wallet);
-  var headers = { Accept: 'application/json' };
-  if (apiKey) headers['x-api-key'] = apiKey;
-  if (!fastMode) Utilities.sleep(2200);
-  var res = UrlFetchApp.fetch(url, {
-    method: 'get',
-    muteHttpExceptions: true,
-    headers: headers
-  });
-  var code = res.getResponseCode();
-  var text = res.getContentText();
-  if (code === 401) {
-    throw new Error('Jupiter API 401: проверьте JUPITER_API_KEY в свойствах скрипта (portal.jup.ag, Free).');
+  var suffixes = ['', '?platforms=raydium,orca,meteora'];
+  var attempts = fastMode ? 1 : 2;
+  var bestPayload = null;
+  var bestN = -1;
+  var lastPayload = null;
+  var attempt;
+  var s;
+
+  for (attempt = 0; attempt < attempts; attempt++) {
+    if (attempt > 0) Utilities.sleep(3500);
+    for (s = 0; s < suffixes.length; s++) {
+      if (!fastMode && (attempt > 0 || s > 0)) Utilities.sleep(2200);
+      var res = fetchJupiterPositionsOnce_(wallet, suffixes[s], apiKey);
+      if (res.code === 401) {
+        throw new Error('Jupiter API 401: проверьте JUPITER_API_KEY (portal.jup.ag → Free, без пробелов).');
+      }
+      if (res.code < 200 || res.code >= 300) {
+        throw new Error('Jupiter API HTTP ' + res.code + ': ' + res.text.slice(0, 280));
+      }
+      var payload = JSON.parse(res.text);
+      lastPayload = payload;
+      var n = (payload.elements && payload.elements.length) ? payload.elements.length : 0;
+      if (n > bestN) {
+        bestN = n;
+        bestPayload = payload;
+      }
+      if (n > 0) return payload;
+    }
   }
-  if (code < 200 || code >= 300) {
-    throw new Error('Jupiter API HTTP ' + code + ': ' + text.slice(0, 280));
-  }
-  var payload = JSON.parse(text);
-  var n = (payload.elements && payload.elements.length) ? payload.elements.length : 0;
-  if (!n && !apiKey) {
+
+  if (!apiKey) {
     throw new Error('Jupiter вернул 0 позиций без API-ключа. Добавьте JUPITER_API_KEY в свойства скрипта.');
   }
-  return payload;
+  return lastPayload || bestPayload || { elements: [], fetcherReports: [], tokenInfo: {} };
+}
+
+function rwaRowToUnifiedLine_(row) {
+  var feeLabel = row.fee ? (String(row.fee).indexOf('%') !== -1 ? row.fee : row.fee + '%') : '';
+  return [
+    row.platform || row.name,
+    row.priceMin || '',
+    row.priceMax || '',
+    row.openDate || '',
+    formatPreciseAmount_(row.earnedStables, 8),
+    formatPreciseAmount_(row.earnedAsset, 12),
+    row.earnedAssetSymbol || '',
+    '',
+    formatPreciseAmount_(row.totalFeeIncome, 8),
+    row.pair,
+    row.chain || 'solana',
+    feeLabel,
+    formatApyForSheet_(row.apr || row.apy),
+    formatApyForSheet_(row.apy),
+    row.link,
+    formatPreciseAmount_(row.investedUsd, 4)
+  ];
 }
 
 function writeRwaPoolBattleSheet_(sh, rows) {
-  var headerRow = RWA_POOL_BATTLE_HEADER_ROW_1BASED;
-  var dataStart = headerRow + 1;
-  var stdHeaders = ['name', 'apy', 'period', 'status', 'link', 'description', 'pair'];
-  sh.getRange(headerRow, 1, 1, stdHeaders.length).setValues([stdHeaders]);
-
-  var lastRow = Math.max(sh.getLastRow(), dataStart);
-  if (lastRow >= dataStart) {
-    sh.getRange(dataStart, 1, lastRow - dataStart + 1, RWA_POOL_BATTLE_AUX_HEADERS.length).clearContent();
+  if (!rows || !rows.length) return 0;
+  var cols = POOL_BATTLE_UNIFIED_LABELS.length;
+  var wallet = getRwaWalletFromSheet_(sh);
+  sh.getRange('A1:W120').clearContent();
+  sh.getRange(1, 1, 1, cols).setValues([POOL_BATTLE_UNIFIED_LABELS]);
+  var lines = rows.map(rwaRowToUnifiedLine_);
+  sh.getRange(2, 1, lines.length, cols).setValues(lines);
+  sh.getRange('Z1').setValue('Кошелёк Jupiter');
+  if (wallet) {
+    sh.getRange('Z2').setValue('https://jup.ag/portfolio/' + wallet);
   }
-
-  if (!rows.length) return 0;
-
-  var primary = rows.map(function(row) {
-    var feeLabel = row.fee ? (String(row.fee).indexOf('%') !== -1 ? row.fee : row.fee + '%') : '';
-    return [
-      row.name,
-      row.apy,
-      row.period,
-      row.status,
-      row.link,
-      buildSolanaDesc_(row.chain, feeLabel),
-      row.pair
-    ];
-  });
-  sh.getRange(dataStart, 1, primary.length, 7).setValues(primary);
-
-  var auxHeaderRow = Math.max(dataStart + primary.length + 2, 11);
-  sh.getRange(auxHeaderRow, 1, 1, RWA_POOL_BATTLE_AUX_HEADERS.length)
-    .setValues([RWA_POOL_BATTLE_AUX_HEADERS]);
-
-  var auxDataStart = auxHeaderRow + 1;
-  var aux = rows.map(function(row) {
-    var feeLabel = row.fee ? (String(row.fee).indexOf('%') !== -1 ? row.fee : row.fee + '%') : '';
-    var line = new Array(RWA_POOL_BATTLE_AUX_HEADERS.length);
-    for (var i = 0; i < line.length; i++) line[i] = '';
-    line[7] = row.platform;
-    line[8] = row.priceMin || '';
-    line[9] = row.priceMax || '';
-    line[10] = row.openDate || '';
-    line[11] = formatSheetNumber_(row.earnedStables, 6);
-    line[12] = formatSheetNumber_(row.earnedAsset, 8);
-    line[13] = row.earnedAssetSymbol || '';
-    line[14] = '';
-    line[15] = formatSheetNumber_(row.totalFeeIncome, 4);
-    line[16] = row.pair;
-    line[17] = row.chain || 'solana';
-    line[18] = feeLabel;
-    line[19] = row.apy;
-    line[20] = row.apy;
-    line[21] = row.link;
-    line[22] = formatSheetNumber_(row.investedUsd, 2);
-    return line;
-  });
-  sh.getRange(auxDataStart, 1, aux.length, RWA_POOL_BATTLE_AUX_HEADERS.length)
-    .setValues(aux);
   return rows.length;
 }
 
@@ -506,99 +763,95 @@ function appendRwaDailyLog_(ss, rows) {
   logSh.getRange(start, 1, out.length, 10).setValues(out);
 }
 
-function copyRwaDataToSiteSpreadsheet_(sourceSh) {
-  var destSs = openSiteSpreadsheet_();
-  var destSh = findRwaSheet_(destSs);
-  if (!destSh) {
-    destSh = destSs.getSheetByName(RWA_SHEET_TITLE_CANONICAL);
-  }
-  if (!destSh) throw new Error('На сайтовой таблице нет листа «' + RWA_SHEET_TITLE_CANONICAL + '»');
-
-  var startRow = RWA_POOL_BATTLE_HEADER_ROW_1BASED;
-  var last = Math.max(sourceSh.getLastRow(), startRow + 5);
-  var cols = RWA_POOL_BATTLE_AUX_HEADERS.length;
-  var numRows = last - startRow + 1;
-  var block = sourceSh.getRange(startRow, 1, numRows, cols).getValues();
-
-  var clearRows = Math.max(destSh.getLastRow(), block.length + 5);
-  destSh.getRange(1, 1, clearRows, cols).clearContent();
-  destSh.getRange(1, 1, block.length, cols).setValues(block);
+/** VIP Navigator Data для RWA не используем — только таблица DeFi Labs Navigator. */
+function copyRwaDataToSiteSpreadsheet_() {
+  return false;
 }
 
 /**
  * Синхронизация листа RWA: Jupiter Portfolio → строки инструментов (только liquidity pool).
- * Кошелёк / ссылка jup.ag/portfolio/… — ячейка B6 на листе RWA.
+ * Кошелёк / ссылка jup.ag/portfolio/… — ячейка Z2 (или B6) на листе RWA.
  */
 function syncRwaJupiterPositions() {
   var ss = openRwaSourceSpreadsheet_();
   var sh = findRwaSheet_(ss);
   if (!sh) throw new Error('На таблице битвы пуллов нет листа «БИТВА ПУЛОВ RWA»');
 
-  var wallet = getRwaWalletFromSheet_(sh);
+  var wallet = getRwaWalletForSync_(sh);
   if (!wallet) {
-    throw new Error('Укажите кошелёк в B6: ссылка jup.ag/portfolio/… или Solana-адрес');
+    throw new Error('Укажите кошелёк в Z2 (или B6): jup.ag/portfolio/… или Solana-адрес');
   }
+  PropertiesService.getScriptProperties().setProperty('RWA_WALLET', wallet);
 
   var payload = fetchJupiterPositions_(wallet, false);
   var rows = jupiterElementsToRows_(payload, wallet);
+  var diag = jupiterPortfolioSummary_(payload);
+  var ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy HH:mm');
+
+  if (!rows.length) {
+    var kept = countRwaDataRowsOnSheet_(sh);
+    var msg = 'Jupiter API: 0 LP (elements=' + diag.elements + '). ' +
+      (kept ? ('Таблица A1 не очищена (' + kept + '). ') : '') +
+      'Проверьте verifyRwaSpreadsheetTarget — ID файла.';
+    writeRwaSyncStatus_(sh, msg.slice(0, 240));
+    return { wallet: wallet, count: 0, syncedAt: new Date().toISOString(), skippedWrite: true, diag: diag, keptRows: kept };
+  }
+
   writeRwaPoolBattleSheet_(sh, rows);
-  if (rows.length) appendRwaDailyLog_(ss, rows);
-  copyRwaDataToSiteSpreadsheet_(sh);
+  appendRwaDailyLog_(ss, rows);
 
   PropertiesService.getScriptProperties().setProperty('RWA_LAST_SYNC_MS', String(Date.now()));
   PropertiesService.getScriptProperties().setProperty('RWA_LAST_SYNC_COUNT', String(rows.length));
-  PropertiesService.getScriptProperties().setProperty('RWA_WALLET', wallet);
-  var ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy HH:mm');
-  var apiHint = getJupiterApiKey_() ? '' : ' · нужен JUPITER_API_KEY';
-  writeRwaSyncStatus_(sh, rows.length
-    ? ('OK · ' + rows.length + ' поз. → сайт · ' + ts)
-    : ('0 LP · проверь API/кошелёк B6' + apiHint + ' · ' + ts));
-  return { wallet: wallet, count: rows.length, syncedAt: new Date().toISOString() };
+  writeRwaSyncStatus_(sh, 'OK · ' + rows.length + ' LP · A1 · ' + ts);
+  return { wallet: wallet, count: rows.length, syncedAt: new Date().toISOString(), diag: diag };
 }
 
-/** Если на 2-м Excel уже есть строки, а на сайтовом листе пусто — только копия (быстро). */
-function copyRwaFromSourceToSiteIfNeeded_() {
-  try {
-    var sourceSh = findRwaSheet_(openRwaSourceSpreadsheet_());
-    if (!sourceSh || !rwaSheetHasDataRows_(sourceSh)) return false;
-    var siteSh = findRwaSheet_(openSiteSpreadsheet_());
-    if (siteSh && rwaSheetHasDataRows_(siteSh)) return false;
-    copyRwaDataToSiteSpreadsheet_(sourceSh);
-    return true;
-  } catch (err) {
-    Logger.log('RWA copy: ' + err);
-    return false;
-  }
+/** Журнал → View → Logs: проверка Jupiter API (ключ, elements, fetcherReports). */
+function diagnoseRwaJupiterApi() {
+  var sh = findRwaSheet_(openRwaSourceSpreadsheet_());
+  if (!sh) throw new Error('Нет листа «' + RWA_SHEET_TITLE_CANONICAL + '»');
+  var wallet = getRwaWalletForSync_(sh);
+  if (!wallet) throw new Error('Нет кошелька в Z2/B6');
+  var hasKey = !!getJupiterApiKey_();
+  Logger.log('JUPITER_API_KEY: ' + (hasKey ? 'есть (' + getJupiterApiKey_().length + ' симв.)' : 'НЕТ'));
+  Logger.log('wallet: ' + wallet);
+  var payload = fetchJupiterPositions_(wallet, false);
+  var diag = jupiterPortfolioSummary_(payload);
+  var rows = jupiterElementsToRows_(payload, wallet);
+  Logger.log('elements: ' + diag.elements + ' → LP-строк навигатора: ' + rows.length);
+  Logger.log('fetcherReports: ' + diag.fetcherReports);
+  Logger.log('ответ (начало): ' + JSON.stringify(payload).slice(0, 2500));
+  return { wallet: wallet, diag: diag, lpRows: rows.length };
 }
 
 function syncRwaJupiterPositionsIfDue_() {
   try {
-    copyRwaFromSourceToSiteIfNeeded_();
     var ss = openRwaSourceSpreadsheet_();
     var sh = findRwaSheet_(ss);
     if (!sh) {
-      Logger.log('RWA: лист «' + RWA_SHEET_TITLE_CANONICAL + '» не найден во 2-й таблице');
+      Logger.log('RWA: лист «' + RWA_SHEET_TITLE_CANONICAL + '» не найден');
       return;
     }
-    if (!getRwaWalletFromSheet_(sh)) {
-      writeRwaSyncStatus_(sh, 'Нет кошелька в B6 (jup.ag/portfolio/…)');
+    if (!getRwaWalletForSync_(sh)) {
+      writeRwaSyncStatus_(sh, 'Нет кошелька в Z2/B6 (jup.ag/portfolio/…)');
       return;
     }
     var last = Number(PropertiesService.getScriptProperties().getProperty('RWA_LAST_SYNC_MS') || '0');
-    var siteSh = findRwaSheet_(openSiteSpreadsheet_());
-    var forceEmpty = !siteSh || !rwaSheetHasDataRows_(siteSh);
-    if (!forceEmpty && Date.now() - last < RWA_SYNC_MIN_INTERVAL_MS) return;
-    var wallet = getRwaWalletFromSheet_(sh);
+    if (rwaSheetHasDataRows_(sh) && Date.now() - last < RWA_SYNC_MIN_INTERVAL_MS) return;
+    var wallet = getRwaWalletForSync_(sh);
     var payload = fetchJupiterPositions_(wallet, true);
     var rows = jupiterElementsToRows_(payload, wallet);
+    var ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy HH:mm');
+    if (!rows.length) {
+      writeRwaSyncStatus_(sh, '0 LP · A1 не очищена · ' + ts);
+      return;
+    }
     writeRwaPoolBattleSheet_(sh, rows);
-    if (rows.length) appendRwaDailyLog_(ss, rows);
-    copyRwaDataToSiteSpreadsheet_(sh);
+    appendRwaDailyLog_(ss, rows);
     PropertiesService.getScriptProperties().setProperty('RWA_LAST_SYNC_MS', String(Date.now()));
     PropertiesService.getScriptProperties().setProperty('RWA_LAST_SYNC_COUNT', String(rows.length));
     PropertiesService.getScriptProperties().setProperty('RWA_WALLET', wallet);
-    var ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy HH:mm');
-    writeRwaSyncStatus_(sh, rows.length ? ('OK · ' + rows.length + ' поз. → сайт · ' + ts) : ('0 LP после API · ' + ts));
+    writeRwaSyncStatus_(sh, 'OK · ' + rows.length + ' LP · ' + ts);
   } catch (err) {
     Logger.log('RWA sync: ' + err);
     try {
@@ -627,19 +880,13 @@ function removeRwaHourlyTrigger() {
   }
 }
 
-function copyRwaToSiteOnly() {
-  var sh = findRwaSheet_(openRwaSourceSpreadsheet_());
-  if (!sh) throw new Error('Нет листа «' + RWA_SHEET_TITLE_CANONICAL + '» во 2-й таблице');
-  if (!rwaSheetHasDataRows_(sh)) throw new Error('Сначала синхронизируйте RWA (нет строк с 8-й строки)');
-  copyRwaDataToSiteSpreadsheet_(sh);
-  writeRwaSyncStatus_(sh, 'Скопировано на сайт · ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy HH:mm'));
-}
-
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('DeFi Navigator')
+    .addItem('Проверить файл RWA (статус Z3)', 'verifyRwaSpreadsheetTarget')
+    .addItem('Перенести RWA в A1 (из H30)', 'relayoutRwaSheetToA1')
     .addItem('Синхронизировать RWA (Jupiter)', 'syncRwaJupiterPositions')
-    .addItem('Скопировать RWA на сайт', 'copyRwaToSiteOnly')
+    .addItem('Диагностика Jupiter API (журнал)', 'diagnoseRwaJupiterApi')
     .addItem('Авто-синх RWA каждый час', 'installRwaHourlyTrigger')
     .addItem('Отключить авто-синх RWA', 'removeRwaHourlyTrigger')
     .addToUi();
@@ -668,6 +915,56 @@ function normalizeHeaderCell(h) {
 
 function normalizeFeeValue(value) {
   return String(value || '').replace(',', '.').replace(/%/g, '').trim();
+}
+
+/** Убирает случайный суффикс «дн» в колонках мин/макс (ошибка вставки периода в цену). */
+function sanitizeRangeCell_(val) {
+  var s = String(val || '').trim();
+  var m = s.match(/^([\d\s\u00a0.,]+)\s*дн\s*$/i);
+  if (m) return m[1].trim();
+  return s;
+}
+
+/** APY для API: только колонка APY. Из «18,65%» или доли 0,1865. */
+function formatApyForApi_(rawVal, displayVal) {
+  var disp = displayVal != null ? String(displayVal).trim() : '';
+  if (disp && disp.indexOf('%') !== -1) return normalizeApyFromCell_(disp);
+  if (typeof rawVal === 'number' && !isNaN(rawVal)) {
+    if (rawVal > 0 && rawVal <= 1.5) return String(Math.round(rawVal * 1000) / 10);
+    if (rawVal > 1.5) return String(Math.round(rawVal * 10) / 10);
+  }
+  var s = normalizeApyFromCell_(rawVal) || normalizeApyFromCell_(disp);
+  if (s) {
+    var n = parseFloat(String(s).replace(',', '.'));
+    if (!isNaN(n) && n > 0 && n <= 1.5) return String(Math.round(n * 1000) / 10);
+  }
+  return s || '0';
+}
+
+/** fee_tier: из «0,30%» или доли 0,003 → 0,3 */
+function formatFeeForApi_(rawVal, displayVal) {
+  var disp = displayVal != null ? String(displayVal).trim() : '';
+  if (disp && disp.indexOf('%') !== -1) return normalizeFeeValue(disp);
+  if (typeof rawVal === 'number' && !isNaN(rawVal)) {
+    if (rawVal > 0 && rawVal < 0.5) return String(Math.round(rawVal * 10000) / 100);
+  }
+  return normalizeFeeValue(rawVal || disp);
+}
+
+function findApyColumnIndex_(headers) {
+  var idx = findHeaderColumn(headers, 0, [/^(apy)$/], -1);
+  if (idx >= 0) return idx;
+  return findHeaderColumn(headers, 0, [/^(доходность|доход|yield)$/], -1);
+}
+
+/** Мин/макс: число из value, не display (иначе Sheets портит как «2505 дн»). */
+function pickRangeValue_(r, idx, rw, displayRows) {
+  if (idx < 0) return '';
+  var raw = rw[idx];
+  if (typeof raw === 'number' && !isNaN(raw)) return formatSheetNumber_(raw, 4);
+  var disp = displayRows && displayRows[r] ? displayRows[r][idx] : '';
+  if (disp !== undefined && disp !== null && disp !== '') return sanitizeRangeCell_(String(disp).trim());
+  return sanitizeRangeCell_(String(raw || '').trim());
 }
 
 function parsePoolMetaFromDesc(desc) {
@@ -713,21 +1010,19 @@ function findHeaderColumn(headers, startIdx, patterns, fallbackIdx) {
   return fallbackIdx >= 0 ? fallbackIdx : -1;
 }
 
+/** Legacy: второй блок справа (H+) — только если лист ещё не переведён на A1. */
 function buildAuxiliaryDetailIndex(rows, displayRows) {
   var index = {};
   var r;
   for (r = 0; r < rows.length; r++) {
-    var rawHeaders = rows[r] || [];
-    var headers = [];
-    var hi;
-    for (hi = 0; hi < rawHeaders.length; hi++) headers.push(normalizeHeaderCell(rawHeaders[hi]));
+    var headers = rowToNormalizedHeaders_(rows[r]);
+    if (isUnifiedPoolBattleHeaderRow_(headers)) return {};
     var hasPlatform = false;
-    var hasMinRange = false;
+    var hi;
     for (hi = 7; hi < headers.length; hi++) {
       if (/^(платформа|platform|dex|protocol|протокол)$/.test(headers[hi])) hasPlatform = true;
-      if (/мин.*диапаз|min.*range|min_price|price_min/.test(headers[hi])) hasMinRange = true;
     }
-    if (!hasPlatform || !hasMinRange) continue;
+    if (!hasPlatform) continue;
 
     var platformCol = findHeaderColumn(headers, 7, [/^(платформа|platform|dex|protocol|протокол)$/], 7);
     var minPriceCol = findHeaderColumn(headers, 7, [/мин.*диапаз|min.*range|min_price|price_min/], 8);
@@ -735,10 +1030,11 @@ function buildAuxiliaryDetailIndex(rows, displayRows) {
     var pairCol = findHeaderColumn(headers, 7, [/^(пара|pair)$/], 15);
     var chainCol = findHeaderColumn(headers, 7, [/^(блокчейн|chain|blockchain|network|сеть)$/], 16);
     var feeCol = findHeaderColumn(headers, 7, [/^(fee_tier|fitier|fi tier|fee tier|fee|комиссия|tier|уровень)$/], 17);
-    var apyCol = findHeaderColumn(headers, 7, [/^(apy|доходность|доход)$/], 19);
+    var aprCol = findHeaderColumn(headers, 7, [/^(apr)$/], 19);
+    var apyCol = findHeaderColumn(headers, 7, [/^(apy|доходность|доход)$/], 20);
     var linkCol = findHeaderColumn(headers, 7, [/ссылка|link|url/], 20);
 
-  function pickAux(rowVals, dispVals, idx) {
+    function pickAux(rowVals, dispVals, idx) {
       if (idx < 0) return '';
       if (dispVals && dispVals[idx] !== undefined && dispVals[idx] !== null && dispVals[idx] !== '') {
         return String(dispVals[idx]).trim();
@@ -763,12 +1059,32 @@ function buildAuxiliaryDetailIndex(rows, displayRows) {
         pair: pickAux(rw, disp, pairCol),
         chain: pickAux(rw, disp, chainCol),
         fee: pickAux(rw, disp, feeCol),
+        apr: pickAux(rw, disp, aprCol),
         apy: pickAux(rw, disp, apyCol)
       };
     }
     break;
   }
   return index;
+}
+
+function mapUnifiedToolColumns_(headers) {
+  return {
+    platformCol: findHeaderColumn(headers, 0, [/^(платформа|platform|dex|protocol|протокол)$/], 0),
+    minPriceCol: findHeaderColumn(headers, 0, [/мин.*диапаз|min.*range|min_price|price_min/], 1),
+    maxPriceCol: findHeaderColumn(headers, 0, [/макс.*диапаз|max.*range|max_price|price_max/], 2),
+    openDateCol: findHeaderColumn(headers, 0, [/дата.*открыт|open.*date/], 3),
+    pairCol: findHeaderColumn(headers, 0, [/^(пара|pair)$/], -1),
+    chainCol: findHeaderColumn(headers, 0, [/^(блокчейн|chain|blockchain|network|сеть)$/], -1),
+    feeCol: findHeaderColumn(headers, 0, [/^(fee_tier|fitier|fi tier|fee tier|fee|комиссия|tier|уровень)$/], -1),
+    aprCol: findHeaderColumn(headers, 0, [/^(apr)$/], -1),
+    apyCol: findHeaderColumn(headers, 0, [/^(apy)$/], -1),
+    linkCol: findHeaderColumn(headers, 0, [/ссылка|link|url/], -1),
+    periodCol: findHeaderColumn(headers, 0, [/^(period|период|term|срок)$/], -1),
+    statusCol: findHeaderColumn(headers, 0, [/^(status|статус)$/], -1),
+    descCol: findHeaderColumn(headers, 0, [/^(description|desc|описание)$/], -1),
+    nameCol: findHeaderColumn(headers, 0, [/^(name|название|instrument|инструмент)$/], -1)
+  };
 }
 
 function findPriceColumnIndex(headers, kind) {
@@ -812,14 +1128,11 @@ function findPriceColumnIndex(headers, kind) {
 }
 
 function detectToolHeaderRow(rows) {
-  var maxScan = Math.min(10, rows.length);
+  var unified = findUnifiedHeaderRowIndex_(rows);
+  if (unified >= 0) return unified;
+  var maxScan = Math.min(15, rows.length);
   for (var r = 0; r < maxScan; r++) {
-    var line = rows[r] || [];
-    var headers = [];
-    var c;
-    for (c = 0; c < line.length; c++) {
-      headers.push(normalizeHeaderCell(line[c]));
-    }
+    var headers = rowToNormalizedHeaders_(rows[r]);
     var hasName = false;
     var hasApy = false;
     var hi;
@@ -876,14 +1189,30 @@ function getData() {
     var title = sh.getName();
     var fromSheetName = sheetNameToCategoryId(title);
     var fromOrder = categoryIds[s - 1] || '';
-    // Ключевая логика: приоритет у имени листа (устраняет сдвиги при перестановке вкладок).
     var catId = '';
-    if (fromSheetName && categoryIdSet[fromSheetName]) catId = fromSheetName;
-    else if (fromOrder) catId = fromOrder;
-    else if (fromSheetName) catId = fromSheetName;
-    else catId = String(s);
-    var rows = sh.getDataRange().getValues();
-    var displayRows = sh.getDataRange().getDisplayValues();
+    if (isRwaPoolBattleSheet_(title)) {
+      catId = 'rwa';
+    } else if (fromSheetName && categoryIdSet[fromSheetName]) {
+      catId = fromSheetName;
+    } else if (fromOrder) {
+      catId = fromOrder;
+    } else if (fromSheetName) {
+      catId = fromSheetName;
+    } else {
+      catId = String(s);
+    }
+
+    var dataSh = sh;
+    if (catId === 'rwa' || isRwaPoolBattleSheet_(title)) {
+      if (ss.getId() !== RWA_POOL_BATTLE_SPREADSHEET_ID) {
+        var battleSh = findRwaSheet_(openRwaSourceSpreadsheet_());
+        if (!battleSh) continue;
+        dataSh = battleSh;
+      }
+    }
+
+    var rows = dataSh.getDataRange().getValues();
+    var displayRows = dataSh.getDataRange().getDisplayValues();
     var headerRow = detectToolHeaderRow(rows);
     var headers = (rows[headerRow] || []).map(function(h) {
       return normalizeHeaderCell(h);
@@ -896,18 +1225,26 @@ function getData() {
       }
       return -1;
     }
-    var nameCol = colIndex(['name', 'название', 'instrument', 'инструмент']);
-    if (nameCol < 0) nameCol = 0;
-    var apyCol = colIndex(['apy', 'доходность', 'доход', 'yield', 'rate', 'apr']);
-    if (apyCol < 0) apyCol = 1;
-    var periodCol = colIndex(['period', 'период', 'term']);
-    if (periodCol < 0) periodCol = 2;
-    var statusCol = colIndex(['status', 'статус']);
-    if (statusCol < 0) statusCol = 3;
-    var linkCol = colIndex(['link', 'url', 'ссылка']);
-    if (linkCol < 0) linkCol = 4;
-    var descCol = colIndex(['description', 'desc', 'описание']);
-    if (descCol < 0) {
+    var unified = isUnifiedPoolBattleHeaderRow_(headers);
+    var umap = unified ? mapUnifiedToolColumns_(headers) : null;
+
+    var nameCol = unified
+      ? (umap.nameCol >= 0 ? umap.nameCol : umap.platformCol)
+      : colIndex(['name', 'название', 'instrument', 'инструмент']);
+    if (nameCol < 0) nameCol = unified ? umap.platformCol : 0;
+    var apyCol = unified
+      ? (umap.apyCol >= 0 ? umap.apyCol : findApyColumnIndex_(headers))
+      : findApyColumnIndex_(headers);
+    if (apyCol < 0) apyCol = colIndex(['apy', 'доходность', 'доход', 'yield']);
+    if (apyCol < 0) apyCol = unified ? 13 : 1;
+    var periodCol = unified ? umap.periodCol : colIndex(['period', 'период', 'term']);
+    if (periodCol < 0) periodCol = unified ? -1 : 2;
+    var statusCol = unified ? umap.statusCol : colIndex(['status', 'статус']);
+    if (statusCol < 0) statusCol = unified ? -1 : 3;
+    var linkCol = unified ? umap.linkCol : colIndex(['link', 'url', 'ссылка']);
+    if (linkCol < 0) linkCol = unified ? 14 : 4;
+    var descCol = unified ? umap.descCol : colIndex(['description', 'desc', 'описание']);
+    if (!unified && descCol < 0) {
       var di;
       for (di = 0; di < headers.length; di++) {
         var dh = headers[di];
@@ -916,22 +1253,25 @@ function getData() {
       }
     }
     if (descCol < 0) descCol = -1;
-    var pairCol = -1;
-    var pci;
-    for (pci = 0; pci < headers.length; pci++) {
-      if (headers[pci] === 'pair' || headers[pci] === 'пара') { pairCol = pci; break; }
+    var pairCol = unified ? umap.pairCol : -1;
+    if (!unified) {
+      var pci;
+      for (pci = 0; pci < headers.length; pci++) {
+        if (headers[pci] === 'pair' || headers[pci] === 'пара') { pairCol = pci; break; }
+      }
     }
-    var platformCol = colIndex(['platform', 'платформа', 'dex', 'protocol', 'протокол']);
+    var platformCol = unified ? umap.platformCol : colIndex(['platform', 'платформа', 'dex', 'protocol', 'протокол']);
     if (platformCol < 0) platformCol = -1;
-    var feeCol = colIndex(['fee', 'fee tier', 'fee_tier', 'fitier', 'fi tier', 'комиссия', 'tier', 'уровень']);
+    var feeCol = unified ? umap.feeCol : colIndex(['fee', 'fee tier', 'fee_tier', 'fitier', 'fi tier', 'комиссия', 'tier', 'уровень']);
     if (feeCol < 0) feeCol = -1;
-    var chainCol = colIndex(['chain', 'blockchain', 'network', 'сеть', 'блокчейн']);
+    var chainCol = unified ? umap.chainCol : colIndex(['chain', 'blockchain', 'network', 'сеть', 'блокчейн']);
     if (chainCol < 0) chainCol = -1;
     var typeCol = colIndex(['type', 'тип', 'position type', 'pool type', 'тип позиции']);
     if (typeCol < 0) typeCol = -1;
-    var minPriceCol = findPriceColumnIndex(headers, 'min');
-    var maxPriceCol = findPriceColumnIndex(headers, 'max');
-    var detailIndex = buildAuxiliaryDetailIndex(rows, displayRows);
+    var minPriceCol = unified ? umap.minPriceCol : findPriceColumnIndex(headers, 'min');
+    var maxPriceCol = unified ? umap.maxPriceCol : findPriceColumnIndex(headers, 'max');
+    var openDateCol = unified ? umap.openDateCol : -1;
+    var detailIndex = unified ? {} : buildAuxiliaryDetailIndex(rows, displayRows);
 
     function pick(row, idx, def) {
       def = def || '';
@@ -949,39 +1289,65 @@ function getData() {
 
     for (var r = headerRow + 1; r < rows.length; r++) {
       var rw = rows[r];
-      var name = pick(rw, nameCol);
+      var name = pickDisplay(r, nameCol, rw) || pick(rw, nameCol);
+      if (!name && unified && platformCol >= 0) name = pickDisplay(r, platformCol, rw) || pick(rw, platformCol);
       if (!name) continue;
-      var apy = pick(rw, apyCol).replace(/%/g, '') || '0';
-      var period = (periodCol >= 0 && displayRows[r] && displayRows[r][periodCol] !== undefined && displayRows[r][periodCol] !== '')
-        ? String(displayRows[r][periodCol]).trim()
-        : (pick(rw, periodCol) || '7d');
-      var status = (pick(rw, statusCol) || 'active').toLowerCase();
+      var apyDisp = apyCol >= 0 && displayRows[r] ? displayRows[r][apyCol] : '';
+      var apyRaw = apyCol >= 0 ? rw[apyCol] : '';
+      var apy = unified || apyCol >= 0
+        ? formatApyForApi_(apyRaw, apyDisp)
+        : (normalizeApyFromCell_(pickDisplay(r, apyCol, rw) || pick(rw, apyCol)) || '0');
+      var period = '';
+      if (periodCol >= 0 && !unified) {
+        period = (displayRows[r] && displayRows[r][periodCol] !== undefined && displayRows[r][periodCol] !== '')
+          ? String(displayRows[r][periodCol]).trim()
+          : pick(rw, periodCol);
+      }
+      if ((!period || unified) && openDateCol >= 0) {
+        var openRaw = openDateCol >= 0 ? rw[openDateCol] : '';
+        var openDisp = pickDisplay(r, openDateCol, rw) || pick(rw, openDateCol);
+        period = periodFromOpenDateCell_(openRaw, openDisp);
+      }
+      if (!period) period = '7d';
+      var status = statusCol >= 0 ? (pick(rw, statusCol) || 'active').toLowerCase() : 'active';
       if (status !== 'warning' && status !== 'внимание') status = 'active'; else status = 'warning';
-      var link = pick(rw, linkCol) || '#';
+      var link = pickDisplay(r, linkCol, rw) || pick(rw, linkCol) || '#';
       var desc = descCol >= 0 ? pick(rw, descCol) : '';
       var pair = pairCol >= 0 ? (pickDisplay(r, pairCol, rw) || pick(rw, pairCol, '')) : '';
-      var platform = platformCol >= 0 ? pick(rw, platformCol) : '';
-      var fee = feeCol >= 0 ? pick(rw, feeCol) : '';
-      var chain = chainCol >= 0 ? pick(rw, chainCol) : '';
+      var platform = platformCol >= 0 ? (pickDisplay(r, platformCol, rw) || pick(rw, platformCol)) : '';
+      if (!platform) platform = name;
+      var feeDisp = feeCol >= 0 && displayRows[r] ? displayRows[r][feeCol] : '';
+      var feeRaw = feeCol >= 0 ? rw[feeCol] : '';
+      var fee = (unified || feeCol >= 0)
+        ? formatFeeForApi_(feeRaw, feeDisp)
+        : (feeCol >= 0 ? pick(rw, feeCol) : '');
+      var chain = chainCol >= 0 ? (pickDisplay(r, chainCol, rw) || pick(rw, chainCol)) : '';
       var type = typeCol >= 0 ? pick(rw, typeCol) : '';
-      var priceMin = minPriceCol >= 0 ? pick(rw, minPriceCol) : '';
-      var priceMax = maxPriceCol >= 0 ? pick(rw, maxPriceCol) : '';
+      var priceMin = unified
+        ? pickRangeValue_(r, minPriceCol, rw, displayRows)
+        : (minPriceCol >= 0 ? (pickDisplay(r, minPriceCol, rw) || pick(rw, minPriceCol)) : '');
+      var priceMax = unified
+        ? pickRangeValue_(r, maxPriceCol, rw, displayRows)
+        : (maxPriceCol >= 0 ? (pickDisplay(r, maxPriceCol, rw) || pick(rw, maxPriceCol)) : '');
+      if (!desc && (chain || fee)) desc = buildSolanaDesc_(chain, fee);
       var enriched = enrichPoolBattleFields(name, desc, platform, chain, fee);
       platform = enriched.platform;
       chain = enriched.chain;
       fee = enriched.fee;
-      var detail = detailIndex[normalizeLinkKey(link)];
-      if (detail) {
-        if (detail.platform) platform = detail.platform;
-        if (detail.pair) pair = detail.pair;
-        if (detail.chain) chain = detail.chain;
-        if (detail.fee) fee = detail.fee;
-        if (detail.priceMin) priceMin = detail.priceMin;
-        if (detail.priceMax) priceMax = detail.priceMax;
-        if (detail.apy) {
-          var detailApy = String(detail.apy).replace(/%/g, '').replace(/\s/g, '').replace(',', '.');
-          var primaryApy = String(apy).replace(/%/g, '').replace(/\s/g, '').replace(',', '.');
-          if (!primaryApy || primaryApy === '0' || primaryApy === '0.0') apy = detailApy;
+      if (!unified) {
+        var detail = detailIndex[normalizeLinkKey(link)];
+        if (detail) {
+          if (detail.platform) platform = detail.platform;
+          if (detail.pair) pair = detail.pair;
+          if (detail.chain) chain = detail.chain;
+          if (detail.fee) fee = detail.fee;
+          if (detail.priceMin) priceMin = detail.priceMin;
+          if (detail.priceMax) priceMax = detail.priceMax;
+          if (detail.apy) {
+            var detailApy = normalizeApyFromCell_(detail.apy).replace(/\s/g, '').replace(',', '.');
+            var primaryApy = normalizeApyFromCell_(apy).replace(/\s/g, '').replace(',', '.');
+            if (!primaryApy || primaryApy === '0' || primaryApy === '0.0') apy = detailApy;
+          }
         }
       }
 
@@ -1006,7 +1372,7 @@ function getData() {
     }
   }
 
-  return { categories: categories, tools: allTools };
+  return { categories: categories, tools: allTools, apiVersion: 4, source: 'apps-script' };
 }
 
 function doGet(e) {

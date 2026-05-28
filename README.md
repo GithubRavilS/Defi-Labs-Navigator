@@ -28,8 +28,8 @@
 
 4. В начале скрипта есть строка:
    ```js
-   var SPREADSHEET_ID = '1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg'; // сайт
-   var RWA_POOL_BATTLE_SPREADSHEET_ID = '1NjN5ELRjNVlFSVfJLCQsho32Kod5HRA4JWakZ7KVsJY'; // RWA Jupiter, B6
+   var SPREADSHEET_ID = '1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg'; // Defi LABS Navigator
+   var RWA_POOL_BATTLE_SPREADSHEET_ID = '1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg'; // тот же файл, RWA: B6 + H30
    ```
    Если твоя таблица та же — ничего не меняй. Если другая — подставь ID своей таблицы (из ссылки: `docs.google.com/spreadsheets/d/**ЭТО_ID**/edit`).
 

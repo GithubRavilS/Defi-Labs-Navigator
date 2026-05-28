@@ -2429,6 +2429,10 @@
         function navApiPath(p) {
             return NAV_BACKEND_ORIGIN ? (NAV_BACKEND_ORIGIN + p) : p;
         }
+        /** Данные — с Vercel /api/nav-data (Google Sheets напрямую). Вход — PythonAnywhere. */
+        function navDataApiPath() {
+            return '/api/nav-data';
+        }
         function navFetchCreds() {
             return NAV_BACKEND_ORIGIN ? 'include' : 'same-origin';
         }
@@ -2736,7 +2740,9 @@
             }
             o.pair = (rawPair != null && String(rawPair).trim() !== '') ? String(rawPair).trim() : '';
             o.platform = (o.platform != null && String(o.platform).trim() !== '') ? String(o.platform).trim() : '';
+            o.apy = normalizeApyValue(o.apy);
             o.fee = (o.fee != null && String(o.fee).trim() !== '') ? normalizeFeeValue(o.fee) : '';
+            o.period = normalizePeriodValue(o.period);
             o.chain = (o.chain != null && String(o.chain).trim() !== '') ? String(o.chain).trim() : '';
             o.type = (o.type != null && String(o.type).trim() !== '') ? String(o.type).trim() : '';
             o.priceMin = (o.priceMin != null && String(o.priceMin).trim() !== '') ? String(o.priceMin).trim() : '';
@@ -2746,8 +2752,37 @@
             return enrichPoolBattleFields(o);
         }
 
+        function normalizeApyValue(value) {
+            if (value == null || value === '') return '0';
+            var disp = String(value).replace(/%/g, '').trim();
+            var n = parseFloat(String(value).replace(/\s/g, '').replace(',', '.'));
+            if (!Number.isFinite(n)) return disp || '0';
+            if (n > 0 && n <= 1.5) return String(Math.round(n * 1000) / 10);
+            return disp.replace(',', '.');
+        }
+
         function normalizeFeeValue(value) {
-            return String(value || '').replace(',', '.').replace(/%/g, '').trim();
+            var s = String(value || '').replace(',', '.').replace(/%/g, '').trim();
+            if (!s) return s;
+            var n = parseFloat(s);
+            if (!Number.isFinite(n)) return s;
+            if (n > 0 && n < 0.5) {
+                n = Math.round(n * 10000) / 100;
+                return String(n);
+            }
+            return s;
+        }
+
+        /** Период «2505 дн» — артефакт старого API (макс. цена вместо даты). */
+        function normalizePeriodValue(period) {
+            var p = (period != null) ? String(period).trim() : '';
+            if (!p) return p;
+            var m = p.match(/^(\d+(?:[.,]\d+)?)\s*(?:дн|d|days?)\b/i);
+            if (m) {
+                var days = parseFloat(m[1].replace(',', '.'));
+                if (!Number.isNaN(days) && days > 500) return '';
+            }
+            return p;
         }
 
         function parsePoolMetaFromDesc(desc) {
@@ -2872,6 +2907,8 @@
         function formatFeeLabel(fee) {
             var f = String(fee || '').trim();
             if (!f) return '';
+            var n = parseFloat(f.replace(',', '.'));
+            if (Number.isFinite(n) && n < 10) f = String(Math.round(n * 100) / 100);
             return f.indexOf('%') !== -1 ? f : f + '%';
         }
 
@@ -3666,17 +3703,13 @@
                         finish(false);
                     }, DATA_LOAD_TIMEOUT_MS);
                     var dataReq;
-                    if (NAV_BACKEND_ORIGIN) {
-                        var t = getNavJwtToken();
-                        dataReq = fetch(navApiPath('/nav-api/data'), {
-                            method: 'POST',
-                            credentials: navFetchCreds(),
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(t ? { token: t } : {})
-                        });
-                    } else {
-                        dataReq = fetch(navApiPath('/nav-api/data'), { credentials: navFetchCreds() });
-                    }
+                    var t = getNavJwtToken();
+                    dataReq = fetch(navDataApiPath(), {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(t ? { token: t } : {})
+                    });
                     dataReq
                         .then(function(r) {
                             if (r.status === 401) {
