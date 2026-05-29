@@ -10,9 +10,11 @@
     "prepare": "husky",
     "test:pair": "node scripts/test-pair-resolution.mjs",
     "test:rwa": "node scripts/test-jupiter-rwa-map.mjs",
-    "push:rwa": "node scripts/push-rwa-jupiter-a1.mjs"
+    "push:rwa": "node scripts/push-rwa-jupiter-a1.mjs",
+    "scrape:rwa": "node scripts/scrape-jupiter-portfolio-to-sheet.mjs"
   },
   "dependencies": {
+    "@solana/web3.js": "^1.98.4",
     "bcryptjs": "^2.4.3",
     "googleapis": "^140.0.0",
     "jsonwebtoken": "^9.0.2",

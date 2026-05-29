@@ -35,6 +35,8 @@ function sheetNameToCategoryId(name) {
 var RWA_WALLET_CELLS = ["Z2", "B6", "B2"];
 var RWA_SYNC_MIN_INTERVAL_MS = 50 * 60 * 1000;
 var JUPITER_PORTFOLIO_API_BASE = "https://api.jup.ag/portfolio/v1";
+/** Fallback: UI scrape на Vercel, когда api.jup.ag/portfolio/v1 отдаёт elements=[]. */
+var RWA_UI_SYNC_URL_DEFAULT = "https://defilabsvipnavigator.vercel.app/api/rwa-jupiter-sync";
 /** Запас: вставь ключ здесь в редакторе Apps Script (в GitHub остаётся пустым). */
 var JUPITER_API_KEY_CODE = "";
 var RWA_JUPITER_KEY_CELL = "Z4";
@@ -257,7 +259,7 @@ function jupiterSyncFailureMessage_(payload, wallet, apiKey) {
     "…";
   if (keyLen && fr === 0) {
     msg +=
-      " Сбой индексации Jupiter (ключ есть): подождите 5–10 мин, проверьте jup.ag/portfolio, повторите синх.";
+      " Известный сбой Jupiter Portfolio API (#828): on-chain fallback Raydium/Orca через Vercel API.";
   } else if (!keyLen) {
     msg += " Нет JUPITER_API_KEY в свойствах скрипта.";
   }
@@ -969,6 +971,59 @@ function jupiterElementsToRows_(payload, wallet) {
   return rows;
 }
 
+/** Fallback: on-chain Raydium/Orca через Vercel API (когда Jupiter REST пустой). */
+function fetchRwaPositionsViaUiProxy_(wallet) {
+  var base =
+    PropertiesService.getScriptProperties().getProperty("RWA_UI_SYNC_URL") ||
+    RWA_UI_SYNC_URL_DEFAULT;
+  var secret = PropertiesService.getScriptProperties().getProperty("RWA_UI_SYNC_SECRET") || "";
+  var url = base + "?wallet=" + encodeURIComponent(wallet);
+  if (secret) url += "&secret=" + encodeURIComponent(secret);
+  try {
+    var res = UrlFetchApp.fetch(url, {
+      method: "get",
+      muteHttpExceptions: true,
+      followRedirects: true,
+    });
+    if (res.getResponseCode() !== 200) {
+      Logger.log(
+        "RWA UI proxy HTTP " + res.getResponseCode() + ": " + res.getContentText().slice(0, 200),
+      );
+      return null;
+    }
+    var data = JSON.parse(res.getContentText());
+    if (!data || !data.ok || !data.rows || !data.rows.length) return null;
+    var ts = Utilities.formatDate(new Date(), RWA_DISPLAY_TZ, "dd.MM.yyyy HH:mm");
+    return data.rows.map(function (r) {
+      return {
+        name: r.platform,
+        platform: r.platform,
+        pair: r.pair,
+        apy: r.apy,
+        link: r.link,
+        investedUsd: r.investedUsd,
+        earnedStables: r.earnedStables,
+        earnedAsset: r.earnedAsset,
+        earnedAssetSymbol: r.earnedAssetSymbol,
+        totalFeeIncome: r.totalFeeIncome,
+        chain: r.chain || "solana",
+        fee: r.fee || "",
+        openDate: ts,
+        period: "",
+        status: "active",
+        desc: "",
+        type: "Liquidity Pool",
+        priceMin: "",
+        priceMax: "",
+        hoursOpen: "",
+      };
+    });
+  } catch (e) {
+    Logger.log("RWA UI proxy: " + e);
+    return null;
+  }
+}
+
 function fetchJupiterPositions_(wallet, fastMode) {
   var apiKey = getJupiterApiKey_();
   var attempts = fastMode ? 3 : 6;
@@ -1183,6 +1238,11 @@ function syncRwaJupiterPositions() {
   var payload = fetchJupiterPositions_(wallet, false);
   var rows = jupiterElementsToRows_(payload, wallet);
   var diag = jupiterPortfolioSummary_(payload);
+  var source = "jupiter-api";
+  if (!rows.length) {
+    rows = fetchRwaPositionsViaUiProxy_(wallet) || [];
+    if (rows.length) source = "onchain-raydium-orca";
+  }
   var ts = Utilities.formatDate(
     new Date(),
     Session.getScriptTimeZone() || "GMT",
@@ -1194,6 +1254,7 @@ function syncRwaJupiterPositions() {
     var apiKey = getJupiterApiKey_();
     var msg =
       jupiterSyncFailureMessage_(payload, wallet, apiKey) +
+      " Fallback UI scrape недоступен." +
       (kept ? " Старые " + kept + " строк не обновлены." : "");
     writeRwaSyncStatus_(sh, msg.slice(0, 240));
     throw new Error(msg.slice(0, 500));
@@ -1204,8 +1265,14 @@ function syncRwaJupiterPositions() {
 
   PropertiesService.getScriptProperties().setProperty("RWA_LAST_SYNC_MS", String(Date.now()));
   PropertiesService.getScriptProperties().setProperty("RWA_LAST_SYNC_COUNT", String(rows.length));
-  writeRwaSyncStatus_(sh, "OK · " + rows.length + " LP · A1 · " + ts);
-  return { wallet: wallet, count: rows.length, syncedAt: new Date().toISOString(), diag: diag };
+  writeRwaSyncStatus_(sh, "OK · " + rows.length + " LP · " + source + " · " + ts);
+  return {
+    wallet: wallet,
+    count: rows.length,
+    syncedAt: new Date().toISOString(),
+    diag: diag,
+    source: source,
+  };
 }
 
 /** Журнал → View → Logs: проверка Jupiter API (ключ, elements, fetcherReports). */
@@ -1265,6 +1332,9 @@ function syncRwaJupiterPositionsIfDue_() {
       Session.getScriptTimeZone() || "GMT",
       "dd.MM.yyyy HH:mm",
     );
+    if (!rows.length) {
+      rows = fetchRwaPositionsViaUiProxy_(wallet) || [];
+    }
     if (!rows.length) {
       writeRwaSyncStatus_(sh, "0 LP · A1 не очищена · " + ts);
       return;
