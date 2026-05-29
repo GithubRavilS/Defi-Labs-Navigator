@@ -16,13 +16,13 @@
     "scrape:rwa": "node scripts/scrape-jupiter-portfolio-to-sheet.mjs"
   },
   "dependencies": {
-    "@solana/web3.js": "^1.98.4",
     "bcryptjs": "^2.4.3",
     "googleapis": "^140.0.0",
     "jsonwebtoken": "^9.0.2",
     "mysql2": "^3.11.0"
   },
   "devDependencies": {
+    "@solana/web3.js": "^1.98.4",
     "husky": "^9.1.7",
     "nano-staged": "^1.0.2",
     "oxfmt": "^0.52.0",

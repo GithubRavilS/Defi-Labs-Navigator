@@ -1,36 +1,13 @@
 {
-  "buildCommand": "",
-  "outputDirectory": ".",
-  "redirects": [
+  "rewrites": [{ "source": "/", "destination": "/index.html" }],
+  "headers": [
     {
       "source": "/",
-      "destination": "https://githubravils.github.io/Defi-Labs-Navigator/",
-      "permanent": false
+      "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }]
     },
     {
       "source": "/index.html",
-      "destination": "https://githubravils.github.io/Defi-Labs-Navigator/",
-      "permanent": false
+      "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }]
     }
-  ],
-  "functions": {
-    "api/rwa-jupiter-sync.mjs": {
-      "maxDuration": 60
-    },
-    "api/solana-pda.mjs": {
-      "maxDuration": 10
-    },
-    "api/sheet-data.js": {
-      "maxDuration": 30
-    },
-    "api/nav-login.js": {
-      "maxDuration": 10
-    },
-    "api/nav-data.js": {
-      "maxDuration": 30
-    },
-    "api/nav-session.js": {
-      "maxDuration": 10
-    }
-  }
+  ]
 }
