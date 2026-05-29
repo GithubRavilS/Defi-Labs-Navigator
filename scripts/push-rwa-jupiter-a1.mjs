@@ -3,6 +3,7 @@
  * JUPITER_API_KEY=... node scripts/push-rwa-jupiter-a1.mjs
  */
 import { google } from "googleapis";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -112,10 +113,42 @@ function platformName(el) {
   return el.name || el.platformId || "RWA";
 }
 
-async function fetchJupiter(wallet) {
-  const key = String(process.env.JUPITER_API_KEY || "").trim();
+async function loadJupiterApiKey(sheetsApi, sheetQuery) {
+  if (process.env.JUPITER_API_KEY) return String(process.env.JUPITER_API_KEY).trim();
+  const paths = [
+    path.join(__dirname, "..", ".env"),
+    path.join(__dirname, "..", "secrets", "jupiter-api-key.txt"),
+  ];
+  for (const p of paths) {
+    try {
+      if (!fs.existsSync(p)) continue;
+      const raw = fs.readFileSync(p, "utf8");
+      const m = raw.match(/JUPITER_API_KEY\s*=\s*(\S+)/);
+      if (m) return m[1].trim();
+      if (p.endsWith(".txt")) return raw.trim().split("\n")[0].trim();
+    } catch {
+      /* ignore */
+    }
+  }
+  try {
+    const z4 = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${sheetQuery}!Z4`,
+    });
+    const v = String(z4.data.values?.[0]?.[0] || "").trim();
+    if (v && v.length >= 12 && !/jupiter\s*api/i.test(v)) return v;
+  } catch {
+    /* ignore */
+  }
+  return "";
+}
+
+async function fetchJupiter(wallet, apiKey) {
+  const key = apiKey;
   if (!key) {
-    console.error("Задайте JUPITER_API_KEY (portal.jup.ag → API Keys → Free).");
+    console.error(
+      "Нет ключа: JUPITER_API_KEY в env, secrets/jupiter-api-key.txt, .env или ячейка Z4 на листе RWA.",
+    );
     process.exit(1);
   }
   await new Promise((r) => setTimeout(r, 2200));
@@ -201,7 +234,9 @@ if (!wallet) {
   process.exit(1);
 }
 
-const payload = await fetchJupiter(wallet);
+const apiKey = await loadJupiterApiKey(sheets, q);
+console.log("Jupiter key:", apiKey ? `${apiKey.length} символов` : "нет");
+const payload = await fetchJupiter(wallet, apiKey);
 const lines = toLines(payload, wallet);
 console.log("Позиций LP:", lines.length);
 for (const line of lines) {

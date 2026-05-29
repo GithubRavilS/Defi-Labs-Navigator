@@ -35,11 +35,61 @@ function sheetNameToCategoryId(name) {
 var RWA_WALLET_CELLS = ["Z2", "B6", "B2"];
 var RWA_SYNC_MIN_INTERVAL_MS = 50 * 60 * 1000;
 var JUPITER_PORTFOLIO_API_BASE = "https://api.jup.ag/portfolio/v1";
+/** Запас: вставь ключ здесь в редакторе Apps Script (в GitHub остаётся пустым). */
+var JUPITER_API_KEY_CODE = "";
+var RWA_JUPITER_KEY_CELL = "Z4";
+
+function getJupiterApiKeyFromProperties_() {
+  var props = PropertiesService.getScriptProperties();
+  var keys = ["JUPITER_API_KEY", "JUPITER_API", "JUPITER_KEY", "jupiter_api_key"];
+  var i;
+  for (i = 0; i < keys.length; i++) {
+    var v = String(props.getProperty(keys[i]) || "").trim();
+    if (v) return v;
+  }
+  return "";
+}
+
+function getRwaJupiterApiKeyFromSheet_(sh) {
+  if (!sh) return "";
+  try {
+    var v = String(sh.getRange(RWA_JUPITER_KEY_CELL).getDisplayValue() || "").trim();
+    if (!v || /^jupiter\s*api/i.test(v) || /^ключ/i.test(v)) return "";
+    if (v.length < 12) return "";
+    return v;
+  } catch (e) {
+    return "";
+  }
+}
+
+function persistJupiterApiKeyIfNeeded_(key) {
+  var k = String(key || "").trim();
+  if (!k) return;
+  if (getJupiterApiKeyFromProperties_()) return;
+  PropertiesService.getScriptProperties().setProperty("JUPITER_API_KEY", k);
+}
+
+function ensureRwaJupiterConfigLabels_(sh) {
+  if (!sh) return;
+  if (!String(sh.getRange("Z1").getValue() || "").trim()) {
+    sh.getRange("Z1").setValue("Кошелёк Jupiter");
+  }
+  if (!String(sh.getRange("Z4").getValue() || "").trim()) {
+    sh.getRange("Z4").setValue("Jupiter API key (portal.jup.ag)");
+  }
+}
 
 function getJupiterApiKey_() {
-  return String(
-    PropertiesService.getScriptProperties().getProperty("JUPITER_API_KEY") || "",
-  ).trim();
+  var key = getJupiterApiKeyFromProperties_();
+  if (key) return key;
+  key = String(JUPITER_API_KEY_CODE || "").trim();
+  if (key) return key;
+  try {
+    var sh = findRwaSheet_(openRwaSourceSpreadsheet_());
+    key = getRwaJupiterApiKeyFromSheet_(sh);
+    if (key) persistJupiterApiKeyIfNeeded_(key);
+  } catch (e) {}
+  return String(key || "").trim();
 }
 
 function parseSolanaWalletFromCell_(value) {
@@ -1033,6 +1083,8 @@ function syncRwaJupiterPositions() {
   var ss = openRwaSourceSpreadsheet_();
   var sh = findRwaSheet_(ss);
   if (!sh) throw new Error("На таблице битвы пуллов нет листа «БИТВА ПУЛОВ RWA»");
+  ensureRwaJupiterConfigLabels_(sh);
+  persistJupiterApiKeyIfNeeded_(getRwaJupiterApiKeyFromSheet_(sh));
 
   var wallet = getRwaWalletForSync_(sh);
   if (!wallet) {
@@ -1165,7 +1217,24 @@ function onOpen() {
     .addItem("Авто-синх RWA каждый час", "installRwaHourlyTrigger")
     .addItem("Отключить авто-синх RWA", "removeRwaHourlyTrigger")
     .addItem("Открытие RWA: вчера 16:00 (Варшава)", "anchorAllRwaOpenYesterday16Warsaw_")
+    .addItem("Запомнить Jupiter ключ из Z4", "saveJupiterApiKeyFromZ4_")
     .addToUi();
+}
+
+/** Один раз: ключ в Z4 → свойства скрипта (если уже задавали ключ в свойствах — Z4 не нужна). */
+function saveJupiterApiKeyFromZ4_() {
+  var sh = findRwaSheet_(openRwaSourceSpreadsheet_());
+  if (!sh) throw new Error("Нет листа RWA");
+  ensureRwaJupiterConfigLabels_(sh);
+  var key = getRwaJupiterApiKeyFromSheet_(sh);
+  if (!key) {
+    throw new Error(
+      "Вставьте API-ключ в ячейку Z4 на листе RWA (тот же, что на portal.jup.ag), затем снова этот пункт меню.",
+    );
+  }
+  PropertiesService.getScriptProperties().setProperty("JUPITER_API_KEY", key);
+  writeRwaSyncStatus_(sh, "Jupiter key сохранён в свойствах скрипта · " + key.length + " симв.");
+  SpreadsheetApp.getActiveSpreadsheet().toast("Ключ Jupiter сохранён", "DeFi Navigator", 8);
 }
 
 /** Разовая фиксация времени открытия (~вчера 16:00 по Варшаве), если Jupiter отдаёт неверную дату. */
