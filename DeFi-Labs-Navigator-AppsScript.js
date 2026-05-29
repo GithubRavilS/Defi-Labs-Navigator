@@ -39,13 +39,27 @@ var JUPITER_PORTFOLIO_API_BASE = "https://api.jup.ag/portfolio/v1";
 var JUPITER_API_KEY_CODE = "";
 var RWA_JUPITER_KEY_CELL = "Z4";
 
+function normalizeJupiterApiKey_(key) {
+  return String(key || "")
+    .trim()
+    .replace(/^\uFEFF/, "")
+    .replace(/^["']+|["']+$/g, "");
+}
+
 function getJupiterApiKeyFromProperties_() {
-  var props = PropertiesService.getScriptProperties();
-  var keys = ["JUPITER_API_KEY", "JUPITER_API", "JUPITER_KEY", "jupiter_api_key"];
+  var propKeys = ["JUPITER_API_KEY", "JUPITER_API", "JUPITER_KEY", "jupiter_api_key"];
+  var stores = [PropertiesService.getScriptProperties(), PropertiesService.getUserProperties()];
+  try {
+    stores.push(PropertiesService.getDocumentProperties());
+  } catch (e) {}
+  var s;
   var i;
-  for (i = 0; i < keys.length; i++) {
-    var v = String(props.getProperty(keys[i]) || "").trim();
-    if (v) return v;
+  var v;
+  for (s = 0; s < stores.length; s++) {
+    for (i = 0; i < propKeys.length; i++) {
+      v = normalizeJupiterApiKey_(stores[s].getProperty(propKeys[i]));
+      if (v) return v;
+    }
   }
   return "";
 }
@@ -82,14 +96,14 @@ function ensureRwaJupiterConfigLabels_(sh) {
 function getJupiterApiKey_() {
   var key = getJupiterApiKeyFromProperties_();
   if (key) return key;
-  key = String(JUPITER_API_KEY_CODE || "").trim();
+  key = normalizeJupiterApiKey_(JUPITER_API_KEY_CODE);
   if (key) return key;
   try {
     var sh = findRwaSheet_(openRwaSourceSpreadsheet_());
     key = getRwaJupiterApiKeyFromSheet_(sh);
     if (key) persistJupiterApiKeyIfNeeded_(key);
   } catch (e) {}
-  return String(key || "").trim();
+  return normalizeJupiterApiKey_(key);
 }
 
 function parseSolanaWalletFromCell_(value) {
@@ -159,21 +173,95 @@ function jupiterPortfolioSummary_(payload) {
   };
 }
 
-function fetchJupiterPositionsOnce_(wallet, querySuffix, apiKey) {
-  var url =
-    JUPITER_PORTFOLIO_API_BASE + "/positions/" + encodeURIComponent(wallet) + (querySuffix || "");
+function fetchJupiterApi_(pathAndQuery, apiKey) {
+  var url = JUPITER_PORTFOLIO_API_BASE + pathAndQuery;
   var headers = { Accept: "application/json" };
-  if (apiKey) headers["x-api-key"] = apiKey;
+  var key = normalizeJupiterApiKey_(apiKey);
+  if (key) headers["x-api-key"] = key;
   var res = UrlFetchApp.fetch(url, {
     method: "get",
     muteHttpExceptions: true,
     headers: headers,
+    followRedirects: true,
   });
   return {
     code: res.getResponseCode(),
     text: res.getContentText(),
     url: url,
   };
+}
+
+function fetchJupiterPositionsOnce_(wallet, querySuffix, apiKey) {
+  return fetchJupiterApi_("/positions/" + encodeURIComponent(wallet) + (querySuffix || ""), apiKey);
+}
+
+function fetchJupiterPlatformsList_(apiKey) {
+  var res = fetchJupiterApi_("/platforms", apiKey);
+  if (res.code === 401) return [];
+  if (res.code < 200 || res.code >= 300) return [];
+  try {
+    var data = JSON.parse(res.text);
+    return Array.isArray(data) ? data : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function liquidityPlatformIdsForRwa_(platforms) {
+  var ids = [];
+  var seen = {};
+  var want = ["raydium", "orca", "meteora"];
+  var i;
+  var p;
+  var id;
+  var w;
+  var blob;
+  for (i = 0; i < (platforms || []).length; i++) {
+    p = platforms[i] || {};
+    id = String(p.id || "").trim();
+    if (!id || seen[id]) continue;
+    blob = (id + " " + String(p.name || "") + " " + String(p.defiLlamaId || "")).toLowerCase();
+    for (w = 0; w < want.length; w++) {
+      if (blob.indexOf(want[w]) !== -1) {
+        seen[id] = true;
+        ids.push(id);
+        break;
+      }
+    }
+  }
+  return ids;
+}
+
+function parseJupiterPortfolioResponse_(res) {
+  if (res.code === 401) {
+    throw new Error(
+      "Jupiter API 401: ключ не принят. JUPITER_API_KEY в свойствах скрипта — без кавычек, с portal.jup.ag (Free).",
+    );
+  }
+  if (res.code < 200 || res.code >= 300) {
+    throw new Error("Jupiter API HTTP " + res.code + ": " + res.text.slice(0, 280));
+  }
+  return JSON.parse(res.text);
+}
+
+function jupiterSyncFailureMessage_(payload, wallet, apiKey) {
+  var fr = payload && payload.fetcherReports ? payload.fetcherReports.length : 0;
+  var keyLen = apiKey ? apiKey.length : 0;
+  var msg =
+    "Jupiter 0 LP: elements=0, fetcherReports=" +
+    fr +
+    ", ключ=" +
+    (keyLen ? keyLen + " симв." : "НЕТ") +
+    ", кошелёк=" +
+    String(wallet || "").slice(0, 8) +
+    "…";
+  if (keyLen && fr === 0) {
+    msg +=
+      " Сбой индексации Jupiter (ключ есть): подождите 5–10 мин, проверьте jup.ag/portfolio, повторите синх.";
+  } else if (!keyLen) {
+    msg += " Нет JUPITER_API_KEY в свойствах скрипта.";
+  }
+  return msg;
 }
 
 function countRwaDataRowsOnSheet_(sh) {
@@ -883,30 +971,30 @@ function jupiterElementsToRows_(payload, wallet) {
 
 function fetchJupiterPositions_(wallet, fastMode) {
   var apiKey = getJupiterApiKey_();
-  var suffixes = ["", "?platforms=raydium,orca,meteora"];
-  var attempts = fastMode ? 1 : 2;
+  var attempts = fastMode ? 3 : 6;
   var bestPayload = null;
   var bestN = -1;
   var lastPayload = null;
+  var platforms = apiKey ? fetchJupiterPlatformsList_(apiKey) : [];
+  var liqIds = liquidityPlatformIdsForRwa_(platforms);
+  var queryPlan = [""];
+  if (liqIds.length) {
+    queryPlan.push("?platforms=" + encodeURIComponent(liqIds.join(",")));
+  }
   var attempt;
-  var s;
+  var q;
+  var res;
+  var payload;
+  var n;
 
   for (attempt = 0; attempt < attempts; attempt++) {
-    if (attempt > 0) Utilities.sleep(3500);
-    for (s = 0; s < suffixes.length; s++) {
-      if (!fastMode && (attempt > 0 || s > 0)) Utilities.sleep(2200);
-      var res = fetchJupiterPositionsOnce_(wallet, suffixes[s], apiKey);
-      if (res.code === 401) {
-        throw new Error(
-          "Jupiter API 401: проверьте JUPITER_API_KEY (portal.jup.ag → Free, без пробелов).",
-        );
-      }
-      if (res.code < 200 || res.code >= 300) {
-        throw new Error("Jupiter API HTTP " + res.code + ": " + res.text.slice(0, 280));
-      }
-      var payload = JSON.parse(res.text);
+    if (attempt > 0) Utilities.sleep(fastMode ? 3000 : 5000);
+    for (q = 0; q < queryPlan.length; q++) {
+      if (attempt > 0 || q > 0) Utilities.sleep(fastMode ? 1500 : 2500);
+      res = fetchJupiterPositionsOnce_(wallet, queryPlan[q], apiKey);
+      payload = parseJupiterPortfolioResponse_(res);
       lastPayload = payload;
-      var n = payload.elements && payload.elements.length ? payload.elements.length : 0;
+      n = payload.elements && payload.elements.length ? payload.elements.length : 0;
       if (n > bestN) {
         bestN = n;
         bestPayload = payload;
@@ -917,7 +1005,7 @@ function fetchJupiterPositions_(wallet, fastMode) {
 
   if (!apiKey) {
     throw new Error(
-      "Jupiter вернул 0 позиций без API-ключа. Добавьте JUPITER_API_KEY в свойства скрипта.",
+      "Jupiter 0 позиций: API-ключ не найден (свойства скрипта / Z4 / JUPITER_API_KEY_CODE).",
     );
   }
   return lastPayload || bestPayload || { elements: [], fetcherReports: [], tokenInfo: {} };
@@ -1103,15 +1191,10 @@ function syncRwaJupiterPositions() {
 
   if (!rows.length) {
     var kept = countRwaDataRowsOnSheet_(sh);
-    var keyHint = getJupiterApiKey_()
-      ? ""
-      : " Нет JUPITER_API_KEY в свойствах скрипта (Файл→Свойства проекта→Свойства скрипта).";
+    var apiKey = getJupiterApiKey_();
     var msg =
-      "ОШИБКА: Jupiter 0 LP (elements=" +
-      diag.elements +
-      ")." +
-      keyHint +
-      (kept ? " Старые " + kept + " строк в таблице НЕ обновлены." : "");
+      jupiterSyncFailureMessage_(payload, wallet, apiKey) +
+      (kept ? " Старые " + kept + " строк не обновлены." : "");
     writeRwaSyncStatus_(sh, msg.slice(0, 240));
     throw new Error(msg.slice(0, 500));
   }
@@ -1131,18 +1214,31 @@ function diagnoseRwaJupiterApi() {
   if (!sh) throw new Error("Нет листа «" + RWA_SHEET_TITLE_CANONICAL + "»");
   var wallet = getRwaWalletForSync_(sh);
   if (!wallet) throw new Error("Нет кошелька в Z2/B6");
-  var hasKey = !!getJupiterApiKey_();
-  Logger.log(
-    "JUPITER_API_KEY: " + (hasKey ? "есть (" + getJupiterApiKey_().length + " симв.)" : "НЕТ"),
-  );
+  var apiKey = getJupiterApiKey_();
+  Logger.log("JUPITER_API_KEY: " + (apiKey ? "есть (" + apiKey.length + " симв.)" : "НЕТ"));
   Logger.log("wallet: " + wallet);
-  var payload = fetchJupiterPositions_(wallet, false);
+  var platforms = apiKey ? fetchJupiterPlatformsList_(apiKey) : [];
+  var liqIds = liquidityPlatformIdsForRwa_(platforms);
+  Logger.log("platforms в API: " + platforms.length + ", RWA ids: " + liqIds.join(", "));
+  var res = fetchJupiterPositionsOnce_(wallet, "", apiKey);
+  Logger.log("HTTP " + res.code + " " + res.url);
+  var payload = parseJupiterPortfolioResponse_(res);
   var diag = jupiterPortfolioSummary_(payload);
   var rows = jupiterElementsToRows_(payload, wallet);
-  Logger.log("elements: " + diag.elements + " → LP-строк навигатора: " + rows.length);
+  Logger.log("elements: " + diag.elements + " → LP-строк: " + rows.length);
   Logger.log("fetcherReports: " + diag.fetcherReports);
+  if (!diag.elements && apiKey) {
+    Logger.log("Подсказка: " + jupiterSyncFailureMessage_(payload, wallet, apiKey));
+  }
   Logger.log("ответ (начало): " + JSON.stringify(payload).slice(0, 2500));
-  return { wallet: wallet, diag: diag, lpRows: rows.length };
+  return {
+    wallet: wallet,
+    diag: diag,
+    lpRows: rows.length,
+    platforms: platforms.length,
+    liquidityPlatformIds: liqIds,
+    httpCode: res.code,
+  };
 }
 
 function syncRwaJupiterPositionsIfDue_() {
