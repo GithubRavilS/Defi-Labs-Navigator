@@ -2,6 +2,9 @@
   "functions": {
     "api/rwa-jupiter-sync.mjs": {
       "maxDuration": 60
+    },
+    "api/solana-pda.mjs": {
+      "maxDuration": 10
     }
   },
   "rewrites": [{ "source": "/", "destination": "/index.html" }],

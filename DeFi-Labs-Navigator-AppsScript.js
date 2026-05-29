@@ -38,6 +38,8 @@ var JUPITER_PORTFOLIO_API_BASE = "https://api.jup.ag/portfolio/v1";
 /** Solana RPC + Raydium/Orca (когда Jupiter REST пустой). Vercel — опционально. */
 var SOLANA_MAINNET_RPC = "https://api.mainnet-beta.solana.com";
 var TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+var RAYDIUM_CLMM_PROGRAM_GAS = "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK";
+var ORCA_WHIRL_PROGRAM_GAS = "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc";
 var RWA_UI_SYNC_URL_DEFAULT = "https://defilabsvipnavigator.vercel.app/api/rwa-jupiter-sync";
 /** Запас: вставь ключ здесь в редакторе Apps Script (в GitHub остаётся пустым). */
 var JUPITER_API_KEY_CODE = "";
@@ -877,6 +879,12 @@ function periodFromOpenDateCell_(rawVal, displayVal) {
   return periodFromOpenDateString_(String(rawVal || ""));
 }
 
+function isAbsurdPeriodDays_(period) {
+  var m = String(period || "").match(/(\d+(?:[.,]\d+)?)\s*(?:дн|d|days?)\b/i);
+  if (!m) return false;
+  return parseFloat(m[1].replace(",", ".")) > 400;
+}
+
 function openDateFromElement_(el, liq) {
   var ms = null;
   if (el && el.updatedAt) ms = Number(el.updatedAt);
@@ -972,7 +980,7 @@ function jupiterElementsToRows_(payload, wallet) {
   return rows;
 }
 
-/** Solana JSON-RPC из Apps Script. */
+/** Solana JSON-RPC из Apps Script (массив params). */
 function solanaRpcGas_(method, params) {
   var res = UrlFetchApp.fetch(SOLANA_MAINNET_RPC, {
     method: "post",
@@ -980,6 +988,15 @@ function solanaRpcGas_(method, params) {
     payload: JSON.stringify({ jsonrpc: "2.0", id: 1, method: method, params: params }),
     muteHttpExceptions: true,
   });
+  if (res.getResponseCode() === 429) {
+    Utilities.sleep(2000);
+    res = UrlFetchApp.fetch(SOLANA_MAINNET_RPC, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({ jsonrpc: "2.0", id: 1, method: method, params: params }),
+      muteHttpExceptions: true,
+    });
+  }
   if (res.getResponseCode() !== 200) {
     throw new Error("Solana RPC HTTP " + res.getResponseCode());
   }
@@ -1013,40 +1030,106 @@ function base58EncodeGas_(bytes) {
 }
 
 function readU64LeGas_(bytes, off) {
-  var n = 0;
+  var lo = 0;
+  var hi = 0;
   var k;
-  for (k = 0; k < 8; k++) n += bytes[off + k] * Math.pow(256, k);
-  return n;
+  for (k = 0; k < 4; k++) lo += bytes[off + k] * Math.pow(256, k);
+  for (k = 0; k < 4; k++) hi += bytes[off + 4 + k] * Math.pow(256, k);
+  var val = hi * 4294967296 + lo;
+  if (!isFinite(val) || val > 9007199254740991) return 0;
+  return val;
 }
 
 function readU128LeNumGas_(bytes, off) {
-  var lo = readU64LeGas_(bytes, off);
-  var hi = readU64LeGas_(bytes, off + 8);
-  return hi * Math.pow(2, 64) + lo;
+  var lo = 0;
+  var hi = 0;
+  var k;
+  for (k = 0; k < 8; k++) lo += bytes[off + k] * Math.pow(256, k);
+  for (k = 0; k < 8; k++) hi += bytes[off + 8 + k] * Math.pow(256, k);
+  if (hi > 0 || lo > 1e15) return 0;
+  return lo;
 }
 
-function collectRwaLpJsonUrisGas_(wallet) {
-  var seen = {};
-  var uris = [];
-  function addUri(uri, desc) {
-    if (!uri || seen[uri]) return;
-    if (!/dynamic-ipfs\.raydium\.io|metadata\.orca\.so\/positions/i.test(uri)) return;
-    seen[uri] = true;
-    uris.push({ uri: String(uri), desc: String(desc || "") });
+function solanaDasGas_(method, paramsObj) {
+  var rpc =
+    PropertiesService.getScriptProperties().getProperty("SOLANA_DAS_RPC") ||
+    PropertiesService.getScriptProperties().getProperty("HELIUS_RPC_URL") ||
+    SOLANA_MAINNET_RPC;
+  var res = UrlFetchApp.fetch(rpc, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify({ jsonrpc: "2.0", id: 1, method: method, params: paramsObj }),
+    muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() !== 200) {
+    throw new Error("Solana DAS HTTP " + res.getResponseCode());
   }
-  try {
-    var das = solanaRpcGas_("getAssetsByOwner", [{ ownerAddress: wallet, page: 1, limit: 100 }]);
-    var items = (das && das.items) || [];
-    var i;
-    for (i = 0; i < items.length; i++) {
-      var it = items[i] || {};
-      var content = it.content || {};
-      var meta = content.metadata || {};
-      addUri(content.json_uri, meta.description || meta.name || "");
+  var body = JSON.parse(res.getContentText());
+  if (body.error) throw new Error(body.error.message || "Solana DAS error");
+  return body.result;
+}
+
+function base58DecodeGas_(str) {
+  var ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  var bytes = [];
+  var i, j, carry, val;
+  for (i = 0; i < str.length; i++) {
+    val = ALPHABET.indexOf(str.charAt(i));
+    if (val < 0) throw new Error("invalid base58");
+    carry = val;
+    for (j = 0; j < bytes.length; j++) {
+      carry += bytes[j] * 58;
+      bytes[j] = carry & 0xff;
+      carry = (carry / 256) | 0;
     }
-  } catch (e) {
-    Logger.log("RWA DAS: " + e);
+    while (carry > 0) {
+      bytes.push(carry & 0xff);
+      carry = (carry / 256) | 0;
+    }
   }
+  var zeros = 0;
+  for (i = 0; i < str.length && str.charAt(i) === "1"; i++) zeros++;
+  var out = [];
+  for (i = 0; i < zeros; i++) out.push(0);
+  for (i = bytes.length - 1; i >= 0; i--) out.push(bytes[i]);
+  if (out.length !== 32) throw new Error("bad pubkey length");
+  return out;
+}
+
+function concatByteArraysGas_(arrays) {
+  var out = [];
+  var i, j;
+  for (i = 0; i < arrays.length; i++) {
+    for (j = 0; j < arrays[i].length; j++) out.push(arrays[i][j]);
+  }
+  return out;
+}
+
+function sha256BytesGas_(bytes) {
+  var blob = Utilities.newBlob(
+    bytes
+      .map(function (b) {
+        return String.fromCharCode(b);
+      })
+      .join(""),
+  ).getBytes();
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, blob);
+}
+
+function createProgramAddressUncheckedGas_(seedArrays, programIdBytes) {
+  var marker = [
+    80, 114, 111, 103, 114, 97, 109, 68, 101, 114, 105, 118, 101, 100, 65, 100, 100, 114, 101, 115,
+    115,
+  ];
+  var i;
+  for (i = 0; i < seedArrays.length; i++) {
+    if (seedArrays[i].length > 32) throw new TypeError("Max seed length exceeded");
+  }
+  return sha256BytesGas_(concatByteArraysGas_(seedArrays.concat([programIdBytes, marker])));
+}
+
+function listRwaPositionNftMintsGas_(wallet) {
+  var mints = [];
   try {
     var ta = solanaRpcGas_("getTokenAccountsByOwner", [
       wallet,
@@ -1058,17 +1141,62 @@ function collectRwaLpJsonUrisGas_(wallet) {
     for (j = 0; j < rows.length; j++) {
       var info = rows[j].account.data.parsed.info;
       var amt = info.tokenAmount;
-      if (Number(amt.uiAmount) !== 1 || Number(amt.decimals) !== 0) continue;
-      try {
-        var asset = solanaRpcGas_("getAsset", [{ id: info.mint }]);
-        var c2 = asset && asset.content;
-        addUri(c2 && c2.json_uri, (c2 && c2.metadata && c2.metadata.description) || "");
-      } catch (e2) {}
+      if (Number(amt.uiAmount) === 1 && Number(amt.decimals) === 0 && info.mint) {
+        mints.push(String(info.mint));
+      }
     }
-  } catch (e3) {
-    Logger.log("RWA Token2022: " + e3);
+  } catch (e) {
+    Logger.log("RWA Token2022 mints: " + e);
   }
-  return uris;
+  return mints;
+}
+
+function fetchRaydiumForMintGas_(mint, wallet) {
+  var mintBytes = base58DecodeGas_(mint);
+  var programIdBytes = base58DecodeGas_(RAYDIUM_CLMM_PROGRAM_GAS);
+  var seedPos = [112, 111, 115, 105, 116, 105, 111, 110];
+  var bump;
+  for (bump = 255; bump >= 0; bump--) {
+    var hash = createProgramAddressUncheckedGas_([seedPos, mintBytes, [bump]], programIdBytes);
+    var pda = base58EncodeGas_(hash);
+    var uri = "https://dynamic-ipfs.raydium.io/clmm/position?id=" + pda;
+    var res = UrlFetchApp.fetch(uri, { method: "get", muteHttpExceptions: true });
+    if (res.getResponseCode() !== 200) continue;
+    try {
+      var data = JSON.parse(res.getContentText());
+      if (!data || !data.poolInfo) continue;
+      var row = fetchRaydiumPositionByUriGas_(uri, wallet);
+      if (row && row.pair) return row;
+    } catch (e2) {}
+    Utilities.sleep(60);
+  }
+  return null;
+}
+
+function fetchOrcaForMintGas_(mint) {
+  var mintBytes = base58DecodeGas_(mint);
+  var programIdBytes = base58DecodeGas_(ORCA_WHIRL_PROGRAM_GAS);
+  var seedPos = [112, 111, 115, 105, 116, 105, 111, 110];
+  var bump;
+  for (bump = 255; bump >= 0; bump--) {
+    var hash = createProgramAddressUncheckedGas_([seedPos, mintBytes, [bump]], programIdBytes);
+    var pda = base58EncodeGas_(hash);
+    var uri = "https://metadata.orca.so/positions/" + pda;
+    var metaRes = UrlFetchApp.fetch(uri, { method: "get", muteHttpExceptions: true });
+    if (metaRes.getResponseCode() !== 200) continue;
+    try {
+      var row = fetchOrcaPositionByUriGas_(uri);
+      if (row && row.pair) return row;
+    } catch (e3) {}
+    Utilities.sleep(60);
+  }
+  return null;
+}
+
+function fetchRwaPositionForMintGas_(mint, wallet) {
+  var ray = fetchRaydiumForMintGas_(mint, wallet);
+  if (ray && ray.pair) return ray;
+  return fetchOrcaForMintGas_(mint);
 }
 
 function mapOnchainRowGas_(r) {
@@ -1087,7 +1215,7 @@ function mapOnchainRowGas_(r) {
     chain: r.chain || "solana",
     fee: r.fee || "",
     openDate: ts,
-    period: "",
+    period: periodFromOpenDateString_(ts),
     status: "active",
     desc: "",
     type: "Liquidity Pool",
@@ -1170,6 +1298,8 @@ function fetchOrcaPositionByUriGas_(uri) {
   var decB = pool.tokenB && pool.tokenB.decimals != null ? pool.tokenB.decimals : 6;
   var feeAUi = feeA / Math.pow(10, decA);
   var feeBUi = feeB / Math.pow(10, decB);
+  if (!isFinite(feeAUi) || feeAUi > 1e6) feeAUi = 0;
+  if (!isFinite(feeBUi) || feeBUi > 1e6) feeBUi = 0;
   var priceA = Number((pool.tokenA && pool.tokenA.price) || 0);
   var priceB = Number((pool.tokenB && pool.tokenB.price) || 0);
   var feeUsd = feeAUi * priceA + feeBUi * priceB;
@@ -1204,22 +1334,21 @@ function fetchOrcaPositionByUriGas_(uri) {
   };
 }
 
-/** On-chain RWA LP: Solana DAS json_uri → Raydium dynamic-ipfs + Orca pools API. */
+/** On-chain RWA LP: Token2022 NFT mints → Raydium dynamic-ipfs + Orca (без DAS / Vercel). */
 function fetchRwaPositionsOnchainGas_(wallet) {
-  var uris = collectRwaLpJsonUrisGas_(wallet);
+  var mints = listRwaPositionNftMintsGas_(wallet);
   var rows = [];
   var seen = {};
   var i;
-  for (i = 0; i < uris.length; i++) {
-    var uri = uris[i].uri;
-    var row = null;
-    if (/dynamic-ipfs\.raydium\.io/i.test(uri)) row = fetchRaydiumPositionByUriGas_(uri, wallet);
-    else if (/metadata\.orca\.so\/positions/i.test(uri)) row = fetchOrcaPositionByUriGas_(uri);
+  for (i = 0; i < mints.length; i++) {
+    var row = fetchRwaPositionForMintGas_(mints[i], wallet);
     if (!row || !row.pair) continue;
+    if (pairContainsEthOrBtc_(row.pair, row.platform, row.platform)) continue;
     var key = row.platform + "|" + row.pair;
     if (seen[key]) continue;
     seen[key] = true;
     rows.push(mapOnchainRowGas_(row));
+    Utilities.sleep(150);
   }
   rows.sort(function (a, b) {
     return parseFloat(String(b.apy)) - parseFloat(String(a.apy));
@@ -1256,11 +1385,11 @@ function fetchRwaPositionsViaVercelProxy_(wallet) {
   }
 }
 
-/** Jupiter REST пустой → on-chain в GAS, затем Vercel. */
+/** Jupiter REST пустой → Vercel proxy, затем on-chain в GAS. */
 function fetchRwaPositionsOnchainFallback_(wallet) {
-  var rows = fetchRwaPositionsOnchainGas_(wallet);
-  if (rows && rows.length) return rows;
-  return fetchRwaPositionsViaVercelProxy_(wallet);
+  var viaVercel = fetchRwaPositionsViaVercelProxy_(wallet);
+  if (viaVercel && viaVercel.length) return viaVercel;
+  return fetchRwaPositionsOnchainGas_(wallet);
 }
 
 function fetchRwaPositionsViaUiProxy_(wallet) {
@@ -1500,6 +1629,18 @@ function syncRwaJupiterPositions() {
       " On-chain fallback не вернул LP." +
       (kept ? " Старые " + kept + " строк не обновлены." : "");
     writeRwaSyncStatus_(sh, msg.slice(0, 240));
+    if (kept) {
+      Logger.log(msg);
+      return {
+        wallet: wallet,
+        count: kept,
+        kept: true,
+        syncedAt: new Date().toISOString(),
+        diag: diag,
+        source: "kept-existing",
+        warning: msg.slice(0, 500),
+      };
+    }
     throw new Error(msg.slice(0, 500));
   }
 
@@ -2165,7 +2306,12 @@ function getData() {
         var openDisp = pickDisplay(r, openDateCol, rw) || pick(rw, openDateCol);
         period = periodFromOpenDateCell_(openRaw, openDisp);
       }
-      if (!period) period = "7d";
+      if (isAbsurdPeriodDays_(period) && openDateCol >= 0) {
+        var openRaw2 = rw[openDateCol];
+        var openDisp2 = pickDisplay(r, openDateCol, rw) || pick(rw, openDateCol);
+        period = periodFromOpenDateCell_(openRaw2, openDisp2);
+      }
+      if (!period) period = "";
       var status = statusCol >= 0 ? (pick(rw, statusCol) || "active").toLowerCase() : "active";
       if (status !== "warning" && status !== "внимание") status = "active";
       else status = "warning";
@@ -2237,7 +2383,10 @@ function getData() {
         priceMax: priceMax,
         apy: apy,
         period: period,
-        openDate: openDateCol >= 0 ? pickDisplay(r, openDateCol, rw) || pick(rw, openDateCol) : "",
+        openDate:
+          openDateCol >= 0
+            ? String(pickDisplay(r, openDateCol, rw) || pick(rw, openDateCol) || "")
+            : "",
         status: status,
         link: link,
         desc: desc,
