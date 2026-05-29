@@ -10,9 +10,7 @@
     "prepare": "husky",
     "test:pair": "node scripts/test-pair-resolution.mjs",
     "test:rwa": "node scripts/test-jupiter-rwa-map.mjs",
-    "test:nav": "node scripts/test-navigator-gviz.mjs && node scripts/test-solana-pda.mjs",
-    "test:pda": "node scripts/test-solana-pda.mjs",
-    "push:rwa": "node scripts/push-rwa-jupiter-a1.mjs",
+    "test:nav": "node scripts/test-navigator-gviz.mjs",
     "scrape:rwa": "node scripts/scrape-jupiter-portfolio-to-sheet.mjs"
   },
   "dependencies": {
@@ -22,7 +20,6 @@
     "mysql2": "^3.11.0"
   },
   "devDependencies": {
-    "@solana/web3.js": "^1.98.4",
     "husky": "^9.1.7",
     "nano-staged": "^1.0.2",
     "oxfmt": "^0.52.0",
