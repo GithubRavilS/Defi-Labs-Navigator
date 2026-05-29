@@ -1,15 +1,11 @@
 /**
- * Vercel / local: RWA positions via Solana RPC when Jupiter Portfolio API is empty.
- * GET /api/rwa-jupiter-sync?wallet=...&secret=...
+ * Vercel serverless: RWA on-chain sync.
+ * GET /api/rwa-jupiter-sync?wallet=...
  */
 import {
   fetchRwaPositionsOnchain,
   rowsToUnifiedSheetLines,
 } from "../lib/rwa-onchain-positions.mjs";
-
-export const config = {
-  maxDuration: 30,
-};
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");

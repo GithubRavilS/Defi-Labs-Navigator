@@ -1,6 +1,6 @@
 {
   "functions": {
-    "api/rwa-jupiter-sync.js": {
+    "api/rwa-jupiter-sync.mjs": {
       "maxDuration": 60
     }
   },
