@@ -40,7 +40,8 @@ var SOLANA_MAINNET_RPC = "https://api.mainnet-beta.solana.com";
 var TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 var RAYDIUM_CLMM_PROGRAM_GAS = "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK";
 var ORCA_WHIRL_PROGRAM_GAS = "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc";
-var RWA_UI_SYNC_URL_DEFAULT = "https://defilabsvipnavigator.vercel.app/api/rwa-jupiter-sync";
+/** Пусто: Vercel /api/rwa-jupiter-sync снят. Задай RWA_UI_SYNC_URL в свойствах, если вернёшь endpoint. */
+var RWA_UI_SYNC_URL_DEFAULT = "";
 /** Запас: вставь ключ здесь в редакторе Apps Script (в GitHub остаётся пустым). */
 var JUPITER_API_KEY_CODE = "";
 var RWA_JUPITER_KEY_CELL = "Z4";
@@ -918,7 +919,7 @@ function mapLiquidityToRow_(el, liq, tokenInfo, wallet) {
         ? Number(liq.assetsValue)
         : 0;
   if (isNaN(invested)) invested = 0;
-  var openMs = resolveRwaOpenMs_(link, el, liq);
+  var openMs = normalizeRwaOpenMs_(link, resolveRwaOpenMs_(link, el, liq));
   var openDate = openMs ? formatDateTimeWarsaw_(openMs) : openDateFromElement_(el, liq);
   var period = openMs ? periodFromTimestampMs_(openMs) : periodFromOpenDateString_(openDate);
   var apy = apyPercentFromJupiter_(el, liq);
@@ -1128,6 +1129,91 @@ function createProgramAddressUncheckedGas_(seedArrays, programIdBytes) {
   return sha256BytesGas_(concatByteArraysGas_(seedArrays.concat([programIdBytes, marker])));
 }
 
+var ED25519_P_GAS = BigInt(
+  "57896044618658097711785402504694320736696593805116836236307178462158100386560075",
+);
+
+function modPowBigIntGas_(base, exp, mod) {
+  var result = BigInt(1);
+  var b = ((base % mod) + mod) % mod;
+  var e = exp;
+  while (e > BigInt(0)) {
+    if (e & BigInt(1)) result = (result * b) % mod;
+    b = (b * b) % mod;
+    e = e >> BigInt(1);
+  }
+  return result;
+}
+
+/** Ed25519 on-curve — для findProgramAddress (без 256 HTTP на mint). */
+function isOnCurveEd25519Gas_(bytes) {
+  if (!bytes || bytes.length !== 32) return false;
+  var P = ED25519_P_GAS;
+  var y = BigInt(0);
+  var i;
+  for (i = 0; i < 31; i++) y += BigInt(bytes[i] & 0xff) << BigInt(8 * i);
+  var sign = bytes[31] >> 7;
+  y += BigInt(bytes[31] & 0x7f) << BigInt(248);
+  if (y >= P) return false;
+  var y2 = (y * y) % P;
+  var u = (y2 - BigInt(1) + P) % P;
+  var v = (BigInt(121665) * y2 + BigInt(1)) % P;
+  var x2 = (u * modPowBigIntGas_(v, P - BigInt(2), P)) % P;
+  if (x2 === BigInt(0)) return sign === 0;
+  var x = modPowBigIntGas_(x2, (P + BigInt(3)) / BigInt(8), P);
+  if ((x * x - x2) % P !== BigInt(0)) {
+    x = (x * modPowBigIntGas_(BigInt(2), (P - BigInt(1)) / BigInt(4), P)) % P;
+    if ((x * x - x2) % P !== BigInt(0)) return false;
+  }
+  if (x % BigInt(2) !== BigInt(sign)) x = (P - x) % P;
+  return true;
+}
+
+function createProgramAddressGas_(seedArrays, programIdBytes) {
+  var hash = createProgramAddressUncheckedGas_(seedArrays, programIdBytes);
+  if (isOnCurveEd25519Gas_(hash)) throw new Error("Invalid seeds, address must fall off the curve");
+  return hash;
+}
+
+function findProgramAddressGas_(seedArrays, programIdBase58) {
+  var programIdBytes = base58DecodeGas_(programIdBase58);
+  var bump;
+  for (bump = 255; bump >= 0; bump--) {
+    try {
+      var hash = createProgramAddressGas_(seedArrays.concat([[bump]]), programIdBytes);
+      return { address: base58EncodeGas_(hash), bump: bump };
+    } catch (e) {
+      if (!(e && String(e.message || e).indexOf("fall off the curve") !== -1)) throw e;
+    }
+  }
+  throw new Error("Unable to find a viable program address nonce");
+}
+
+function deriveRaydiumPositionPdaGas_(mint) {
+  var seedPos = [112, 111, 115, 105, 116, 105, 111, 110];
+  return findProgramAddressGas_([seedPos, base58DecodeGas_(mint)], RAYDIUM_CLMM_PROGRAM_GAS)
+    .address;
+}
+
+function deriveOrcaPositionPdaGas_(mint) {
+  var seedPos = [112, 111, 115, 105, 116, 105, 111, 110];
+  return findProgramAddressGas_([seedPos, base58DecodeGas_(mint)], ORCA_WHIRL_PROGRAM_GAS).address;
+}
+
+function classifyMintGas_(nftMint) {
+  try {
+    var rayPda = deriveRaydiumPositionPdaGas_(nftMint);
+    var info = solanaRpcGas_("getAccountInfo", [rayPda, { encoding: "base64" }]);
+    if (info && info.value && info.value.owner === RAYDIUM_CLMM_PROGRAM_GAS) return "raydium";
+    var orcaPda = deriveOrcaPositionPdaGas_(nftMint);
+    var info2 = solanaRpcGas_("getAccountInfo", [orcaPda, { encoding: "base64" }]);
+    if (info2 && info2.value && info2.value.owner === ORCA_WHIRL_PROGRAM_GAS) return "orca";
+  } catch (e) {
+    Logger.log("classifyMint " + nftMint + ": " + e);
+  }
+  return null;
+}
+
 function listRwaPositionNftMintsGas_(wallet) {
   var mints = [];
   try {
@@ -1152,55 +1238,55 @@ function listRwaPositionNftMintsGas_(wallet) {
 }
 
 function fetchRaydiumForMintGas_(mint, wallet) {
-  var mintBytes = base58DecodeGas_(mint);
-  var programIdBytes = base58DecodeGas_(RAYDIUM_CLMM_PROGRAM_GAS);
-  var seedPos = [112, 111, 115, 105, 116, 105, 111, 110];
-  var bump;
-  for (bump = 255; bump >= 0; bump--) {
-    var hash = createProgramAddressUncheckedGas_([seedPos, mintBytes, [bump]], programIdBytes);
-    var pda = base58EncodeGas_(hash);
-    var uri = "https://dynamic-ipfs.raydium.io/clmm/position?id=" + pda;
-    var res = UrlFetchApp.fetch(uri, { method: "get", muteHttpExceptions: true });
-    if (res.getResponseCode() !== 200) continue;
-    try {
-      var data = JSON.parse(res.getContentText());
-      if (!data || !data.poolInfo) continue;
-      var row = fetchRaydiumPositionByUriGas_(uri, wallet);
-      if (row && row.pair) return row;
-    } catch (e2) {}
-    Utilities.sleep(60);
+  var pda = deriveRaydiumPositionPdaGas_(mint);
+  var uri = "https://dynamic-ipfs.raydium.io/clmm/position?id=" + pda;
+  var res = UrlFetchApp.fetch(uri, { method: "get", muteHttpExceptions: true });
+  if (res.getResponseCode() !== 200) return null;
+  try {
+    var data = JSON.parse(res.getContentText());
+    if (!data || !data.poolInfo) return null;
+    return fetchRaydiumPositionByUriGas_(uri, wallet);
+  } catch (e2) {
+    return null;
   }
-  return null;
 }
 
 function fetchOrcaForMintGas_(mint) {
-  var mintBytes = base58DecodeGas_(mint);
-  var programIdBytes = base58DecodeGas_(ORCA_WHIRL_PROGRAM_GAS);
-  var seedPos = [112, 111, 115, 105, 116, 105, 111, 110];
-  var bump;
-  for (bump = 255; bump >= 0; bump--) {
-    var hash = createProgramAddressUncheckedGas_([seedPos, mintBytes, [bump]], programIdBytes);
-    var pda = base58EncodeGas_(hash);
-    var uri = "https://metadata.orca.so/positions/" + pda;
-    var metaRes = UrlFetchApp.fetch(uri, { method: "get", muteHttpExceptions: true });
-    if (metaRes.getResponseCode() !== 200) continue;
-    try {
-      var row = fetchOrcaPositionByUriGas_(uri);
-      if (row && row.pair) return row;
-    } catch (e3) {}
-    Utilities.sleep(60);
+  var pda = deriveOrcaPositionPdaGas_(mint);
+  var uri = "https://metadata.orca.so/positions/" + pda;
+  var metaRes = UrlFetchApp.fetch(uri, { method: "get", muteHttpExceptions: true });
+  if (metaRes.getResponseCode() !== 200) return null;
+  try {
+    return fetchOrcaPositionByUriGas_(uri);
+  } catch (e3) {
+    return null;
   }
-  return null;
 }
 
 function fetchRwaPositionForMintGas_(mint, wallet) {
-  var ray = fetchRaydiumForMintGas_(mint, wallet);
-  if (ray && ray.pair) return ray;
-  return fetchOrcaForMintGas_(mint);
+  var kind = classifyMintGas_(mint);
+  if (kind === "raydium") return fetchRaydiumForMintGas_(mint, wallet);
+  if (kind === "orca") return fetchOrcaPositionForMintGas_(mint);
+  return null;
+}
+
+function normalizeRwaOpenMs_(link, candidateMs) {
+  var now = Date.now();
+  var ms = candidateMs || resolveRwaOpenMs_(link, null, null);
+  if (ms && now - ms > 4 * 3600000) return ms;
+  var yStr = Utilities.formatDate(new Date(now - 86400000), RWA_DISPLAY_TZ, "dd.MM.yyyy");
+  var anchored = parseOpenDateWarsawToMs_(yStr + " 16:00");
+  if (anchored) {
+    var lk = normalizeLinkKey(link);
+    if (lk) persistRwaOpenMs_(lk, anchored);
+    return anchored;
+  }
+  return ms || now - 86400000;
 }
 
 function mapOnchainRowGas_(r) {
-  var ts = Utilities.formatDate(new Date(), RWA_DISPLAY_TZ, "dd.MM.yyyy HH:mm");
+  var openMs = normalizeRwaOpenMs_(r.link, null);
+  var ts = Utilities.formatDate(new Date(openMs), RWA_DISPLAY_TZ, "dd.MM.yyyy HH:mm");
   return {
     name: r.platform,
     platform: r.platform,
@@ -1215,7 +1301,7 @@ function mapOnchainRowGas_(r) {
     chain: r.chain || "solana",
     fee: r.fee || "",
     openDate: ts,
-    period: periodFromOpenDateString_(ts),
+    period: periodFromTimestampMs_(openMs),
     status: "active",
     desc: "",
     type: "Liquidity Pool",
@@ -1348,7 +1434,7 @@ function fetchRwaPositionsOnchainGas_(wallet) {
     if (seen[key]) continue;
     seen[key] = true;
     rows.push(mapOnchainRowGas_(row));
-    Utilities.sleep(150);
+    Utilities.sleep(80);
   }
   rows.sort(function (a, b) {
     return parseFloat(String(b.apy)) - parseFloat(String(a.apy));
@@ -1356,11 +1442,12 @@ function fetchRwaPositionsOnchainGas_(wallet) {
   return rows;
 }
 
-/** Опционально: Vercel proxy (если задеплоен). */
+/** Опционально: внешний proxy (только если задан RWA_UI_SYNC_URL в свойствах скрипта). */
 function fetchRwaPositionsViaVercelProxy_(wallet) {
   var base =
     PropertiesService.getScriptProperties().getProperty("RWA_UI_SYNC_URL") ||
     RWA_UI_SYNC_URL_DEFAULT;
+  if (!base || !String(base).trim()) return null;
   var secret = PropertiesService.getScriptProperties().getProperty("RWA_UI_SYNC_SECRET") || "";
   var url = base + "?wallet=" + encodeURIComponent(wallet);
   if (secret) url += "&secret=" + encodeURIComponent(secret);
@@ -1385,7 +1472,7 @@ function fetchRwaPositionsViaVercelProxy_(wallet) {
   }
 }
 
-/** Jupiter REST пустой → Vercel proxy, затем on-chain в GAS. */
+/** Jupiter REST пустой → on-chain в GAS (Vercel proxy только если явно настроен). */
 function fetchRwaPositionsOnchainFallback_(wallet) {
   var viaVercel = fetchRwaPositionsViaVercelProxy_(wallet);
   if (viaVercel && viaVercel.length) return viaVercel;
@@ -1398,7 +1485,7 @@ function fetchRwaPositionsViaUiProxy_(wallet) {
 
 function fetchJupiterPositions_(wallet, fastMode) {
   var apiKey = getJupiterApiKey_();
-  var attempts = fastMode ? 3 : 6;
+  var attempts = fastMode ? 2 : 4;
   var bestPayload = null;
   var bestN = -1;
   var lastPayload = null;
@@ -1607,7 +1694,7 @@ function syncRwaJupiterPositions() {
   }
   PropertiesService.getScriptProperties().setProperty("RWA_WALLET", wallet);
 
-  var payload = fetchJupiterPositions_(wallet, false);
+  var payload = fetchJupiterPositions_(wallet, true);
   var rows = jupiterElementsToRows_(payload, wallet);
   var diag = jupiterPortfolioSummary_(payload);
   var source = "jupiter-api";
@@ -1692,6 +1779,25 @@ function diagnoseRwaJupiterApi() {
   };
 }
 
+/** Журнал → View → Logs: on-chain Raydium/Orca без Jupiter (должно < 2 мин). */
+function diagnoseRwaOnchainGas() {
+  var sh = findRwaSheet_(openRwaSourceSpreadsheet_());
+  if (!sh) throw new Error("Нет листа «" + RWA_SHEET_TITLE_CANONICAL + "»");
+  var wallet = getRwaWalletForSync_(sh);
+  if (!wallet) throw new Error("Нет кошелька в Z2/B6");
+  var t0 = Date.now();
+  var rows = fetchRwaPositionsOnchainGas_(wallet) || [];
+  var ms = Date.now() - t0;
+  Logger.log("on-chain LP: " + rows.length + " за " + ms + " ms");
+  var i;
+  for (i = 0; i < Math.min(5, rows.length); i++) {
+    Logger.log(
+      rows[i].platform + " " + rows[i].pair + " apy=" + rows[i].apy + " fee=" + rows[i].fee,
+    );
+  }
+  return { wallet: wallet, count: rows.length, ms: ms };
+}
+
 function syncRwaJupiterPositionsIfDue_() {
   try {
     var ss = openRwaSourceSpreadsheet_();
@@ -1764,6 +1870,7 @@ function onOpen() {
     .addItem("Перенести RWA в A1 (из H30)", "relayoutRwaSheetToA1")
     .addItem("Синхронизировать RWA (Jupiter)", "syncRwaJupiterPositions")
     .addItem("Диагностика Jupiter API (журнал)", "diagnoseRwaJupiterApi")
+    .addItem("Диагностика on-chain RWA (журнал)", "diagnoseRwaOnchainGas")
     .addItem("Авто-синх RWA каждый час", "installRwaHourlyTrigger")
     .addItem("Отключить авто-синх RWA", "removeRwaHourlyTrigger")
     .addItem("Открытие RWA: вчера 16:00 (Варшава)", "anchorAllRwaOpenYesterday16Warsaw_")
@@ -2199,13 +2306,13 @@ function getData() {
         : findApyColumnIndex_(headers)
       : findApyColumnIndex_(headers);
     if (apyCol < 0) apyCol = colIndex(["apy", "доходность", "доход", "yield"]);
-    if (apyCol < 0) apyCol = unified ? 13 : 1;
+    if (apyCol < 0) apyCol = unified ? 12 : 1;
     var periodCol = unified ? umap.periodCol : colIndex(["period", "период", "term"]);
     if (periodCol < 0) periodCol = unified ? -1 : 2;
     var statusCol = unified ? umap.statusCol : colIndex(["status", "статус"]);
     if (statusCol < 0) statusCol = unified ? -1 : 3;
     var linkCol = unified ? umap.linkCol : colIndex(["link", "url", "ссылка"]);
-    if (linkCol < 0) linkCol = unified ? 14 : 4;
+    if (linkCol < 0) linkCol = unified ? 13 : 4;
     var descCol = unified ? umap.descCol : colIndex(["description", "desc", "описание"]);
     if (!unified && descCol < 0) {
       var di;

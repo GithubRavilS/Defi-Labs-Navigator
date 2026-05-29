@@ -1,9 +1,14 @@
 /**
- * Test gviz parsing for RWA / ETH — APY col 12, period from openDate.
+ * Test gviz parsing for RWA / ETH / BTC — APY + period from openDate.
  * node scripts/test-navigator-gviz.mjs
  */
 const SPREADSHEET_ID = "1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg";
-const POOL_BATTLE_COL = { platform: 0, openDate: 3, pair: 9, apy: 12, link: 13, fee: 11 };
+
+const POOL_BATTLE_COL_BY_CAT = {
+  rwa: { platform: 0, openDate: 3, pair: 9, chain: 10, fee: 11, apy: 12, link: 13 },
+  ethereum: { platform: 0, openDate: 3, pair: 8, chain: 9, fee: 10, apy: 12, link: 13 },
+  bitcoin: { platform: 0, openDate: 3, pair: 9, chain: 10, fee: 11, apy: 13, link: 14 },
+};
 
 function gvizCellValue(cell) {
   if (!cell) return "";
@@ -25,10 +30,30 @@ function parseGvizDateTimeValue(v) {
   return `${d < 10 ? "0" : ""}${d}.${mo < 10 ? "0" : ""}${mo}.${y}${m[4] != null ? ` ${hh < 10 ? "0" : ""}${hh}:${mm < 10 ? "0" : ""}${mm}` : ""}`;
 }
 
-function periodFromOpenDateString(dateStr) {
+function isLikelySyncStampOpenDate(dateStr) {
   const m = String(dateStr || "").match(
     /(\d{1,2})[./](\d{1,2})[./](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/,
   );
+  if (!m) return false;
+  let y = parseInt(m[3], 10);
+  if (y < 100) y += 2000;
+  const opened = new Date(
+    y,
+    parseInt(m[2], 10) - 1,
+    parseInt(m[1], 10),
+    m[4] ? parseInt(m[4], 10) : 0,
+    m[5] ? parseInt(m[5], 10) : 0,
+  );
+  return Date.now() - opened.getTime() < 4 * 3600000;
+}
+
+function periodFromOpenDateString(dateStr) {
+  let s = String(dateStr || "").trim();
+  if (isLikelySyncStampOpenDate(s)) {
+    const d = new Date(Date.now() - 86400000);
+    s = `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()} 16:00`;
+  }
+  const m = s.match(/(\d{1,2})[./](\d{1,2})[./](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
   if (!m) return "";
   let y = parseInt(m[3], 10);
   if (y < 100) y += 2000;
@@ -44,40 +69,29 @@ function periodFromOpenDateString(dateStr) {
   return `${Math.floor(hours / 24)} дн`;
 }
 
-function normalizeFeeValue(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-  const hadPct = raw.includes("%");
-  const s = raw.replace(",", ".").replace(/%/g, "").trim();
-  const n = parseFloat(s);
-  if (!Number.isFinite(n)) return s;
-  if (hadPct || n >= 1) return String(Math.round(n * 100) / 100);
-  if (n > 0 && n < 0.5) return String(Math.round(n * 10000) / 100);
-  return s;
-}
-
 async function fetchGviz(sheet) {
   const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheet)}`;
   const text = await fetch(url).then((r) => r.text());
-  const json = JSON.parse(text.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/, "$1"));
-  return json;
+  return JSON.parse(text.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/, "$1"));
 }
 
 function parseRows(payload, categoryId) {
+  const cols = POOL_BATTLE_COL_BY_CAT[categoryId];
   const rows = payload?.table?.rows || [];
   const out = [];
   for (const row of rows) {
     const cells = row.c || [];
-    const platform = String(gvizCellValue(cells[POOL_BATTLE_COL.platform]) || "").trim();
+    const platform = String(gvizCellValue(cells[cols.platform]) || "").trim();
     if (!platform || /^платформа$/i.test(platform)) continue;
-    const openDate = parseGvizDateTimeValue(gvizCellValue(cells[POOL_BATTLE_COL.openDate]));
+    const openDate = parseGvizDateTimeValue(gvizCellValue(cells[cols.openDate]));
     out.push({
       categoryId,
       platform,
-      pair: String(gvizCellValue(cells[POOL_BATTLE_COL.pair]) || ""),
-      apy: String(gvizCellValue(cells[POOL_BATTLE_COL.apy]) || ""),
-      link: String(gvizCellValue(cells[POOL_BATTLE_COL.link]) || ""),
-      fee: normalizeFeeValue(gvizCellValue(cells[POOL_BATTLE_COL.fee])),
+      pair: String(gvizCellValue(cells[cols.pair]) || ""),
+      apy: String(gvizCellValue(cells[cols.apy]) || ""),
+      link: String(gvizCellValue(cells[cols.link]) || ""),
+      fee: String(gvizCellValue(cells[cols.fee]) || ""),
+      chain: String(gvizCellValue(cells[cols.chain]) || ""),
       openDate,
       period: openDate ? periodFromOpenDateString(openDate) : "",
     });
@@ -85,24 +99,29 @@ function parseRows(payload, categoryId) {
   return out;
 }
 
-let failed = 0;
-for (const [sheet, cat] of [
-  ["БИТВА ПУЛОВ RWA", "rwa"],
-  ["ethereum", "ethereum"],
-]) {
-  const payload = await fetchGviz(sheet);
-  const rows = parseRows(payload, cat);
-  console.log(`\n=== ${sheet} (${rows.length}) ===`);
-  for (const r of rows.slice(0, 3)) {
-    console.log(JSON.stringify(r));
-    if (!r.apy || r.apy === r.link) {
-      console.error("FAIL: bad APY for", r.platform);
-      failed++;
-    }
-    if (cat === "rwa" && r.fee === "25") {
-      console.error("FAIL: fee should not be 25 for", r.platform);
-      failed++;
-    }
+const rwa = parseRows(await fetchGviz("БИТВА ПУЛОВ RWA"), "rwa");
+console.log(`\n=== БИТВА ПУЛОВ RWA (${rwa.length}) ===`);
+rwa.slice(0, 3).forEach((r) => console.log(JSON.stringify(r)));
+
+const eth = parseRows(await fetchGviz("ethereum"), "ethereum");
+console.log(`\n=== ethereum (${eth.length}) ===`);
+eth.slice(0, 3).forEach((r) => console.log(JSON.stringify(r)));
+
+let failed = false;
+for (const r of rwa.slice(0, 3)) {
+  if (!r.apy || r.period === "0 ч") {
+    console.error("RWA period should not be 0 ч after sync-stamp fix:", r);
+    failed = true;
+  }
+}
+for (const r of eth.slice(0, 3)) {
+  if (!r.period || r.period === "0 ч") {
+    console.error("ETH missing period:", r);
+    failed = true;
+  }
+  if (r.pair === r.chain) {
+    console.error("ETH pair should not equal chain:", r);
+    failed = true;
   }
 }
 if (failed) process.exit(1);

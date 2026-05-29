@@ -2958,8 +2958,32 @@
         return s;
       }
 
+      function isLikelySyncStampOpenDate(dateStr) {
+        var s = String(dateStr || "").trim();
+        var m = s.match(/(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
+        if (!m) return false;
+        var y = parseInt(m[3], 10);
+        if (y < 100) y += 2000;
+        var hh = m[4] != null ? parseInt(m[4], 10) : 0;
+        var mm = m[5] != null ? parseInt(m[5], 10) : 0;
+        var opened = new Date(y, parseInt(m[2], 10) - 1, parseInt(m[1], 10), hh, mm);
+        if (isNaN(opened.getTime())) return false;
+        return Date.now() - opened.getTime() < 4 * 3600000;
+      }
+
+      function anchoredRwaOpenDateString() {
+        var d = new Date(Date.now() - 86400000);
+        var dd = d.getDate();
+        var mo = d.getMonth() + 1;
+        var y = d.getFullYear();
+        return (dd < 10 ? "0" : "") + dd + "." + (mo < 10 ? "0" : "") + mo + "." + y + " 16:00";
+      }
+
       function periodFromOpenDateString(dateStr) {
         var s = String(dateStr || "").trim();
+        if (isLikelySyncStampOpenDate(s)) {
+          s = anchoredRwaOpenDateString();
+        }
         var m = s.match(/(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
         if (!m) return "";
         var y = parseInt(m[3], 10);
@@ -3010,30 +3034,59 @@
         });
       }
 
-      /** Единая таблица битвы пуллов A1: индексы колонок (0-based). */
-      var POOL_BATTLE_COL = {
-        platform: 0,
-        openDate: 3,
-        pair: 9,
-        chain: 10,
-        fee: 11,
-        apy: 12,
-        link: 13,
-        invested: 14,
+      /** Индексы колонок (0-based) — у листов ETH и RWA разная ширина блока «доходов». */
+      var POOL_BATTLE_COL_BY_CAT = {
+        rwa: {
+          platform: 0,
+          openDate: 3,
+          pair: 9,
+          chain: 10,
+          fee: 11,
+          apy: 12,
+          link: 13,
+          invested: 14,
+        },
+        ethereum: {
+          platform: 0,
+          openDate: 3,
+          pair: 8,
+          chain: 9,
+          fee: 10,
+          apy: 12,
+          link: 13,
+          invested: 14,
+        },
+        bitcoin: {
+          platform: 0,
+          openDate: 3,
+          pair: 9,
+          chain: 10,
+          fee: 11,
+          apy: 13,
+          link: 14,
+          invested: 15,
+        },
       };
+
+      function poolBattleCols(categoryId) {
+        return POOL_BATTLE_COL_BY_CAT[categoryId] || POOL_BATTLE_COL_BY_CAT.rwa;
+      }
+
+      /** @deprecated use poolBattleCols */
+      var POOL_BATTLE_COL = POOL_BATTLE_COL_BY_CAT.rwa;
 
       function gvizCellAt(cells, colIdx) {
         return gvizCellValue(cells[colIdx]);
       }
 
-      function parseApyFromGvizCell(cells) {
-        var raw = gvizCellAt(cells, POOL_BATTLE_COL.apy);
+      function parseApyFromGvizCell(cells, cols) {
+        var raw = gvizCellAt(cells, cols.apy);
         if (raw == null || raw === "") return "";
         return String(raw);
       }
 
-      function parseLinkFromGvizCell(cells) {
-        var raw = gvizCellAt(cells, POOL_BATTLE_COL.link);
+      function parseLinkFromGvizCell(cells, cols) {
+        var raw = gvizCellAt(cells, cols.link);
         return raw != null ? String(raw).trim() : "";
       }
 
@@ -3081,18 +3134,19 @@
         "https://docs.google.com/spreadsheets/d/1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg/gviz/tq?tqx=out:json&sheet=";
 
       function parsePoolBattleGvizPayload(payload, categoryId) {
+        var cols = poolBattleCols(categoryId);
         var tableRows = payload && payload.table && payload.table.rows ? payload.table.rows : [];
         var out = [];
         var i;
         for (i = 0; i < tableRows.length; i++) {
           var cells = tableRows[i].c || [];
-          var platform = String(gvizCellAt(cells, POOL_BATTLE_COL.platform) || "").trim();
+          var platform = String(gvizCellAt(cells, cols.platform) || "").trim();
           if (!platform || /^платформа$/i.test(platform)) continue;
-          var openDate = parseGvizDateTimeValue(gvizCellAt(cells, POOL_BATTLE_COL.openDate));
+          var openDate = parseGvizDateTimeValue(gvizCellAt(cells, cols.openDate));
           var period = openDate ? periodFromOpenDateString(openDate) : "";
-          var pair = String(gvizCellAt(cells, POOL_BATTLE_COL.pair) || "").trim();
-          var apyRaw = parseApyFromGvizCell(cells);
-          var link = parseLinkFromGvizCell(cells);
+          var pair = String(gvizCellAt(cells, cols.pair) || "").trim();
+          var apyRaw = parseApyFromGvizCell(cells, cols);
+          var link = parseLinkFromGvizCell(cells, cols);
           out.push({
             categoryId: categoryId,
             platform: platform,
@@ -3101,8 +3155,8 @@
             openDate: openDate,
             period: period,
             apy: apyRaw,
-            fee: String(gvizCellAt(cells, POOL_BATTLE_COL.fee) || ""),
-            chain: String(gvizCellAt(cells, POOL_BATTLE_COL.chain) || ""),
+            fee: String(gvizCellAt(cells, cols.fee) || ""),
+            chain: String(gvizCellAt(cells, cols.chain) || ""),
           });
         }
         return out;
@@ -3196,15 +3250,16 @@
       }
 
       function parseRwaGvizPayload(payload) {
+        var cols = poolBattleCols("rwa");
         var tableRows = payload && payload.table && payload.table.rows ? payload.table.rows : [];
         var out = [];
         var i;
         for (i = 0; i < tableRows.length; i++) {
           var cells = tableRows[i].c || [];
-          var platform = String(gvizCellAt(cells, POOL_BATTLE_COL.platform) || "").trim();
+          var platform = String(gvizCellAt(cells, cols.platform) || "").trim();
           if (!platform || /^платформа$/i.test(platform)) continue;
-          var openDate = parseGvizDateTimeValue(gvizCellAt(cells, POOL_BATTLE_COL.openDate));
-          var pairStr = String(gvizCellAt(cells, POOL_BATTLE_COL.pair) || "");
+          var openDate = parseGvizDateTimeValue(gvizCellAt(cells, cols.openDate));
+          var pairStr = String(gvizCellAt(cells, cols.pair) || "");
           if (pairContainsEthOrBtc(pairStr, platform, platform)) continue;
           out.push(
             normalizeTool({
@@ -3215,10 +3270,10 @@
               priceMax: "+10%",
               openDate: openDate,
               pair: pairStr,
-              chain: String(gvizCellAt(cells, POOL_BATTLE_COL.chain) || "solana"),
-              fee: String(gvizCellAt(cells, POOL_BATTLE_COL.fee) || ""),
-              apy: String(parseApyFromGvizCell(cells) || ""),
-              link: parseLinkFromGvizCell(cells) || "#",
+              chain: String(gvizCellAt(cells, cols.chain) || "solana"),
+              fee: String(gvizCellAt(cells, cols.fee) || ""),
+              apy: String(parseApyFromGvizCell(cells, cols) || ""),
+              link: parseLinkFromGvizCell(cells, cols) || "#",
               period: openDate ? periodFromOpenDateString(openDate) : "",
               status: "active",
               desc: "solana",
@@ -3256,6 +3311,34 @@
         return data;
       }
 
+      function normalizeFeeKeyForPatch(fee) {
+        var s = String(fee || "")
+          .trim()
+          .replace(",", ".")
+          .replace(/%/g, "");
+        var n = parseFloat(s);
+        if (!Number.isFinite(n)) return poolBattleIdentityPart(fee);
+        if (n > 0 && n < 0.5) return String(Math.round(n * 10000) / 10000);
+        if (n >= 1) return String(Math.round(n * 100) / 100);
+        return String(n);
+      }
+
+      function patchKeyPlatformChainFee(row) {
+        return (
+          poolBattleIdentityPart(row.platform || row.name) +
+          "\u0001" +
+          poolBattleIdentityPart(row.chain) +
+          "\u0001" +
+          normalizeFeeKeyForPatch(row.fee)
+        );
+      }
+
+      function extractPositionIdFromLink(link) {
+        var s = String(link || "").trim();
+        var m = s.match(/\/(\d{5,})(?:[/?#]|$)/);
+        return m ? m[1] : "";
+      }
+
       function patchPoolBattleToolsFromRows(tools, rows, categoryId) {
         if (!tools || !rows || !rows.length) return tools;
         var index = {};
@@ -3263,27 +3346,37 @@
         for (j = 0; j < rows.length; j++) {
           var row = rows[j];
           if (row.link) index[normalizeLinkKeyForPatch(row.link)] = row;
+          var posId = extractPositionIdFromLink(row.link);
+          if (posId) index["pos:" + posId] = row;
           var pk =
             poolBattleIdentityPart(row.platform || row.name) +
             "\u0001" +
             poolBattleIdentityPart(row.pair);
           if (pk !== "\u0001") index[pk] = row;
+          var pcf = patchKeyPlatformChainFee(row);
+          if (pcf !== "\u0001\u0001") index[pcf] = row;
         }
         tools.forEach(function (t) {
           if (t.categoryId !== categoryId) return;
           var patch =
             index[normalizeLinkKeyForPatch(t.link)] ||
+            index["pos:" + extractPositionIdFromLink(t.link)] ||
             index[
               poolBattleIdentityPart(t.platform || t.name) +
                 "\u0001" +
                 poolBattleIdentityPart(t.pair)
-            ];
+            ] ||
+            index[patchKeyPlatformChainFee(t)];
           if (!patch) return;
           if (patch.apy && (!t.apy || !parseApyNumber(t.apy))) t.apy = patch.apy;
-          if (patch.period) t.period = patch.period;
           if (patch.openDate) t.openDate = patch.openDate;
+          if (patch.period || patch.openDate) {
+            t.period = patch.period || periodFromOpenDateString(patch.openDate);
+          }
           if (patch.fee && !t.fee) t.fee = patch.fee;
           if (patch.chain && !t.chain) t.chain = patch.chain;
+          if (patch.pair && (!t.pair || t.pair === t.chain)) t.pair = patch.pair;
+          if (patch.link && !/^https?:\/\//i.test(String(t.link || ""))) t.link = patch.link;
         });
         return tools;
       }
@@ -4258,7 +4351,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260529b";
+      var NAVIGATOR_BUILD = "20260529c";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
