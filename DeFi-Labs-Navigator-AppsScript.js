@@ -13,38 +13,41 @@
  */
 
 /** Таблица «Defi LABS Navigator» — сайт (getData) и RWA (лист «БИТВА ПУЛОВ RWA», кошелёк Z2). */
-var SPREADSHEET_ID = '1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg';
+var SPREADSHEET_ID = "1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg";
 /**
  * RWA пишется в ЭТУ ЖЕ таблицу (файл в браузере: «Defi LABS Navigator»).
  * Старый ID 1NjN5… — другой файл; если синхронизация «ничего не меняла» — была эта путаница.
  */
-var RWA_POOL_BATTLE_SPREADSHEET_ID = '1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg';
+var RWA_POOL_BATTLE_SPREADSHEET_ID = "1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg";
 
 function sheetNameToCategoryId(name) {
-  if (!name || typeof name !== 'string') return '';
+  if (!name || typeof name !== "string") return "";
   var raw = String(name).trim();
-  if (/\brwa\b/i.test(raw) || /real\s*world/i.test(raw)) return 'rwa';
-  return raw.toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-]/g, '');
+  if (/\brwa\b/i.test(raw) || /real\s*world/i.test(raw)) return "rwa";
+  return raw
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
 }
 
 /** Лист RWA: ссылка jup.ag/portfolio/… или адрес (Z2; B6 — старый формат). */
-var RWA_WALLET_CELLS = ['Z2', 'B6', 'B2'];
+var RWA_WALLET_CELLS = ["Z2", "B6", "B2"];
 var RWA_SYNC_MIN_INTERVAL_MS = 50 * 60 * 1000;
-var JUPITER_PORTFOLIO_API_BASE = 'https://api.jup.ag/portfolio/v1';
+var JUPITER_PORTFOLIO_API_BASE = "https://api.jup.ag/portfolio/v1";
 
 function getJupiterApiKey_() {
-  return String(PropertiesService.getScriptProperties().getProperty('JUPITER_API_KEY') || '').trim();
+  return String(
+    PropertiesService.getScriptProperties().getProperty("JUPITER_API_KEY") || "",
+  ).trim();
 }
 
 function parseSolanaWalletFromCell_(value) {
-  var s = String(value || '').trim();
-  if (!s) return '';
+  var s = String(value || "").trim();
+  if (!s) return "";
   var m = s.match(/portfolio\/([1-9A-HJ-NP-Za-km-z]{32,44})/i);
   if (m) return m[1];
   m = s.match(/([1-9A-HJ-NP-Za-km-z]{32,44})/);
-  return m ? m[1] : '';
+  return m ? m[1] : "";
 }
 
 /** Кошелёк с листа RWA (Z2 или legacy B6 / поиск по листу). */
@@ -55,10 +58,14 @@ function getRwaWalletFromSheet_(sh) {
     var w = parseSolanaWalletFromCell_(rng.getDisplayValue());
     if (!w) w = parseSolanaWalletFromCell_(rng.getValue());
     if (!w) {
-      try { w = parseSolanaWalletFromCell_(rng.getFormula()); } catch (e1) {}
+      try {
+        w = parseSolanaWalletFromCell_(rng.getFormula());
+      } catch (e1) {}
     }
     if (!w) {
-      try { w = parseSolanaWalletFromCell_(rng.getRichTextValue().getLinkUrl()); } catch (e2) {}
+      try {
+        w = parseSolanaWalletFromCell_(rng.getRichTextValue().getLinkUrl());
+      } catch (e2) {}
     }
     if (w) return w;
   }
@@ -72,9 +79,11 @@ function getRwaWalletFromSheet_(sh) {
       if (w2) return w2;
     }
   }
-  var saved = String(PropertiesService.getScriptProperties().getProperty('RWA_WALLET') || '').trim();
+  var saved = String(
+    PropertiesService.getScriptProperties().getProperty("RWA_WALLET") || "",
+  ).trim();
   if (saved && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(saved)) return saved;
-  return '';
+  return "";
 }
 
 /** Кошелёк только из листа «DeFi Labs Navigator» (битва пуллов), ячейка B6. */
@@ -83,33 +92,36 @@ function getRwaWalletForSync_(sourceSh) {
 }
 
 function jupiterPortfolioSummary_(payload) {
-  var n = (payload && payload.elements && payload.elements.length) ? payload.elements.length : 0;
-  var reports = (payload && payload.fetcherReports) ? payload.fetcherReports : [];
+  var n = payload && payload.elements && payload.elements.length ? payload.elements.length : 0;
+  var reports = payload && payload.fetcherReports ? payload.fetcherReports : [];
   var parts = [];
   var i;
   for (i = 0; i < reports.length; i++) {
     var r = reports[i] || {};
-    parts.push(String(r.id || '?') + ':' + String(r.status || '?'));
+    parts.push(String(r.id || "?") + ":" + String(r.status || "?"));
   }
   return {
     elements: n,
-    fetcherReports: parts.length ? parts.join(', ') : '(пусто — индексация Jupiter не отдала данные)'
+    fetcherReports: parts.length
+      ? parts.join(", ")
+      : "(пусто — индексация Jupiter не отдала данные)",
   };
 }
 
 function fetchJupiterPositionsOnce_(wallet, querySuffix, apiKey) {
-  var url = JUPITER_PORTFOLIO_API_BASE + '/positions/' + encodeURIComponent(wallet) + (querySuffix || '');
-  var headers = { Accept: 'application/json' };
-  if (apiKey) headers['x-api-key'] = apiKey;
+  var url =
+    JUPITER_PORTFOLIO_API_BASE + "/positions/" + encodeURIComponent(wallet) + (querySuffix || "");
+  var headers = { Accept: "application/json" };
+  if (apiKey) headers["x-api-key"] = apiKey;
   var res = UrlFetchApp.fetch(url, {
-    method: 'get',
+    method: "get",
     muteHttpExceptions: true,
-    headers: headers
+    headers: headers,
   });
   return {
     code: res.getResponseCode(),
     text: res.getContentText(),
-    url: url
+    url: url,
   };
 }
 
@@ -119,7 +131,7 @@ function countRwaDataRowsOnSheet_(sh) {
   var n = 0;
   var r;
   for (r = hr + 1; r < data.length; r++) {
-    if (String(data[r][0] || '').trim()) n++;
+    if (String(data[r][0] || "").trim()) n++;
   }
   return n;
 }
@@ -132,9 +144,9 @@ function openRwaSourceSpreadsheet_() {
 function verifyRwaSpreadsheetTarget() {
   var ss = openRwaSourceSpreadsheet_();
   var sh = findRwaSheet_(ss);
-  if (!sh) throw new Error('Нет листа «' + RWA_SHEET_TITLE_CANONICAL + '»');
+  if (!sh) throw new Error("Нет листа «" + RWA_SHEET_TITLE_CANONICAL + "»");
   var id = ss.getId();
-  var msg = 'OK · «' + ss.getName() + '» · ID ' + id;
+  var msg = "OK · «" + ss.getName() + "» · ID " + id;
   writeRwaSyncStatus_(sh, msg.slice(0, 240));
   return { spreadsheetTitle: ss.getName(), spreadsheetId: id, sheet: sh.getName() };
 }
@@ -171,12 +183,12 @@ function findUnifiedHeaderRowIndex_(data) {
 function relayoutRwaSheetToA1() {
   var ss = openRwaSourceSpreadsheet_();
   var sh = findRwaSheet_(ss);
-  if (!sh) throw new Error('Нет листа «' + RWA_SHEET_TITLE_CANONICAL + '»');
+  if (!sh) throw new Error("Нет листа «" + RWA_SHEET_TITLE_CANONICAL + "»");
 
   var data = sh.getDataRange().getValues();
   var unifiedAt = findUnifiedHeaderRowIndex_(data);
   if (unifiedAt === 0) {
-    writeRwaSyncStatus_(sh, 'RWA: таблица уже с A1');
+    writeRwaSyncStatus_(sh, "RWA: таблица уже с A1");
     return { moved: 0, headerRow: 1 };
   }
 
@@ -187,37 +199,41 @@ function relayoutRwaSheetToA1() {
   for (r = 0; r < data.length; r++) {
     var row = data[r] || [];
     var h0 = normalizeHeaderCell(row[0]);
-    var h7 = row.length > 7 ? normalizeHeaderCell(row[7]) : '';
+    var h7 = row.length > 7 ? normalizeHeaderCell(row[7]) : "";
     if (/^(платформа|platform)$/.test(h0) || /^(платформа|platform)$/.test(h7)) {
       if (!headerRow1 || r + 1 < headerRow1) headerRow1 = r + 1;
     }
   }
-  if (!headerRow1) throw new Error('Не найден блок «Платформа» (A1 или H30)');
+  if (!headerRow1) throw new Error("Не найден блок «Платформа» (A1 или H30)");
 
-  var startCol = normalizeHeaderCell((data[headerRow1 - 1] || [])[0]) === 'платформа' ? 1 : auxCol;
+  var startCol = normalizeHeaderCell((data[headerRow1 - 1] || [])[0]) === "платформа" ? 1 : auxCol;
   var last = sh.getLastRow();
   var lines = [];
   for (r = headerRow1; r <= last; r++) {
     var row = data[r - 1] || [];
-    if (!String(row[startCol - 1] || '').trim()) {
+    if (!String(row[startCol - 1] || "").trim()) {
       if (lines.length) break;
       continue;
     }
     lines.push(row.slice(startCol - 1, startCol - 1 + auxCols));
   }
-  if (!lines.length) throw new Error('Нет строк данных под шапкой (строка ' + headerRow1 + ')');
+  if (!lines.length) throw new Error("Нет строк данных под шапкой (строка " + headerRow1 + ")");
 
   var wallet = getRwaWalletFromSheet_(sh);
-  sh.getRange('A1:W120').clearContent();
+  sh.getRange("A1:W120").clearContent();
   sh.getRange(1, 1, 1, POOL_BATTLE_UNIFIED_LABELS.length).setValues([POOL_BATTLE_UNIFIED_LABELS]);
   sh.getRange(2, 1, lines.length, POOL_BATTLE_UNIFIED_LABELS.length).setValues(lines);
   if (wallet) {
-    sh.getRange('Z1').setValue('Кошелёк Jupiter');
-    sh.getRange('Z2').setValue('https://jup.ag/portfolio/' + wallet);
+    sh.getRange("Z1").setValue("Кошелёк Jupiter");
+    sh.getRange("Z2").setValue("https://jup.ag/portfolio/" + wallet);
   }
 
-  var ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy HH:mm');
-  writeRwaSyncStatus_(sh, 'A1: ' + lines.length + ' строк · ' + ts);
+  var ts = Utilities.formatDate(
+    new Date(),
+    Session.getScriptTimeZone() || "GMT",
+    "dd.MM.yyyy HH:mm",
+  );
+  writeRwaSyncStatus_(sh, "A1: " + lines.length + " строк · " + ts);
   return { moved: lines.length, fromRow: headerRow1 };
 }
 
@@ -235,26 +251,26 @@ function rwaSheetHasDataRows_(sh) {
   var hr = getRwaToolHeaderRowIndex_(data);
   var r;
   for (r = hr + 1; r < data.length; r++) {
-    if (String(data[r][0] || '').trim()) return true;
+    if (String(data[r][0] || "").trim()) return true;
   }
   return false;
 }
 
 function writeRwaSyncStatus_(sh, message) {
   try {
-    sh.getRange('Z3').setValue(String(message || '').slice(0, 240));
+    sh.getRange("Z3").setValue(String(message || "").slice(0, 240));
   } catch (e) {}
 }
 
 /** Истинное имя листа в таблице (регистр не важен; «пулов» и «пуллов» — оба варианта). */
-var RWA_SHEET_TITLE_CANONICAL = 'БИТВА ПУЛОВ RWA';
+var RWA_SHEET_TITLE_CANONICAL = "БИТВА ПУЛОВ RWA";
 
 function normalizeRwaSheetTitle_(title) {
-  return String(title || '')
+  return String(title || "")
     .trim()
     .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .replace(/ё/g, 'е');
+    .replace(/\s+/g, " ")
+    .replace(/ё/g, "е");
 }
 
 function isRwaPoolBattleSheet_(title) {
@@ -282,23 +298,41 @@ function findRwaSheet_(ss) {
 
 /** Единая таблица «битва пуллов» с A1 (ETH, BTC, RWA). */
 var POOL_BATTLE_UNIFIED_LABELS = [
-  'Платформа', 'Мин диапазона', 'Макс диапазон', 'Дата открытия норм',
-  'Заработано стейблов USD', 'Заработано актива', 'Символ актива', 'Заработано AERO',
-  'Итого комс доход USD', 'Пара', 'Блокчейн', 'fee_tier', 'APR', 'APY', 'Ссылка', 'Инвестировано USD'
+  "Платформа",
+  "Мин диапазона",
+  "Макс диапазон",
+  "Дата открытия норм",
+  "Заработано стейблов USD",
+  "Заработано актива",
+  "Символ актива",
+  "Заработано AERO",
+  "Итого комс доход USD",
+  "Пара",
+  "Блокчейн",
+  "fee_tier",
+  "APR",
+  "APY",
+  "Ссылка",
+  "Инвестировано USD",
 ];
-var RWA_DAILY_LOG_SHEET = 'RWA_DAILY_LOG';
+var RWA_DAILY_LOG_SHEET = "RWA_DAILY_LOG";
 /** RWA на сайте: фиксированный «диапазон» ±10% (в лист не пишем цены). */
-var RWA_RANGE_MIN_LABEL = '-10%';
-var RWA_RANGE_MAX_LABEL = '+10%';
+var RWA_RANGE_MIN_LABEL = "-10%";
+var RWA_RANGE_MAX_LABEL = "+10%";
 
 function normalizePairKey_(pair) {
-  return String(pair || '').toLowerCase().replace(/\s+/g, '').replace(/\u00a0/g, '').replace(/[·•]/g, '/');
+  return String(pair || "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/\u00a0/g, "")
+    .replace(/[·•]/g, "/");
 }
 
 /** RWA: отсекаем пулы с ETH/WETH/BTC/WBTC/cbBTC и т.п. */
 function pairContainsEthOrBtc_(pair, name, platform) {
-  var blob = normalizePairKey_(pair) + '|' + normalizePairKey_(name) + '|' + normalizePairKey_(platform);
-  if (!blob || blob === '||') return false;
+  var blob =
+    normalizePairKey_(pair) + "|" + normalizePairKey_(name) + "|" + normalizePairKey_(platform);
+  if (!blob || blob === "||") return false;
   if (/\b(weth|ethereum)\b/.test(blob)) return true;
   if (/\b(eth)\b/.test(blob) && !/\bether/.test(blob)) return true;
   if (/\b(wbtc|cbbtc|bitcoin)\b/.test(blob)) return true;
@@ -307,15 +341,16 @@ function pairContainsEthOrBtc_(pair, name, platform) {
   return false;
 }
 
-/** Bitcoin: убрать USDC/cbBTC (Orca и др.). */
-function isExcludedBitcoinUsdcCbbtc_(pair) {
+/** Bitcoin: только лишняя позиция Orca USDC/cbBTC (не все пары с cbBTC). */
+function isExcludedBitcoinUsdcCbbtc_(pair, platform) {
   var p = normalizePairKey_(pair);
-  return p.indexOf('cbbtc') !== -1 && p.indexOf('usdc') !== -1;
+  if (p !== "usdc/cbbtc") return false;
+  return /orca/i.test(String(platform || ""));
 }
 
 function shouldSkipToolRow_(catId, pair, name, platform) {
-  if (catId === 'rwa' && pairContainsEthOrBtc_(pair, name, platform)) return true;
-  if (catId === 'bitcoin' && isExcludedBitcoinUsdcCbbtc_(pair)) return true;
+  if (catId === "rwa" && pairContainsEthOrBtc_(pair, name, platform)) return true;
+  if (catId === "bitcoin" && isExcludedBitcoinUsdcCbbtc_(pair, platform)) return true;
   return false;
 }
 
@@ -336,47 +371,51 @@ function getRwaToolHeaderRowIndex_(data) {
 }
 
 function buildSolanaDesc_(chain, fee) {
-  var c = String(chain || 'solana').trim() || 'solana';
-  var f = String(fee || '').trim();
-  return f ? (c + ' ' + f) : c;
+  var c = String(chain || "solana").trim() || "solana";
+  var f = String(fee || "").trim();
+  return f ? c + " " + f : c;
 }
 
 function formatPlatformDisplay_(platformId, fallbackName) {
-  var pid = String(platformId || '').toLowerCase();
-  if (pid.indexOf('raydium') !== -1) return 'Raydium';
-  if (pid.indexOf('orca') !== -1) return 'Orca';
-  if (pid.indexOf('meteora') !== -1) return 'Meteora';
-  if (pid.indexOf('kamino') !== -1) return 'Kamino';
+  var pid = String(platformId || "").toLowerCase();
+  if (pid.indexOf("raydium") !== -1) return "Raydium";
+  if (pid.indexOf("orca") !== -1) return "Orca";
+  if (pid.indexOf("meteora") !== -1) return "Meteora";
+  if (pid.indexOf("kamino") !== -1) return "Kamino";
   if (fallbackName) return String(fallbackName).trim();
-  if (!pid) return 'Solana';
+  if (!pid) return "Solana";
   return pid.charAt(0).toUpperCase() + pid.slice(1);
 }
 
 function isNavigatorLiquidityElement_(el) {
   if (!el) return false;
-  if (String(el.networkId || '') !== 'solana') return false;
-  var type = String(el.type || '');
-  var label = String(el.label || '');
-  var pid = String(el.platformId || '').toLowerCase();
+  if (String(el.networkId || "") !== "solana") return false;
+  var type = String(el.type || "");
+  var label = String(el.label || "");
+  var pid = String(el.platformId || "").toLowerCase();
 
-  if (type === 'borrowlend') return false;
-  if (label === 'Lending') return false;
-  if (pid.indexOf('kamino') !== -1 && (type === 'borrowlend' || label === 'Lending')) return false;
-  if (type === 'liquidity') return true;
-  if (label === 'LiquidityPool') return true;
-  if (type === 'multiple' && label === 'LiquidityPool') return true;
+  if (type === "borrowlend") return false;
+  if (label === "Lending") return false;
+  if (pid.indexOf("kamino") !== -1 && (type === "borrowlend" || label === "Lending")) return false;
+  if (type === "liquidity") return true;
+  if (label === "LiquidityPool") return true;
+  if (type === "multiple" && label === "LiquidityPool") return true;
   if (el.data && el.data.liquidities && el.data.liquidities.length) return true;
-  if (pid.indexOf('raydium') !== -1 || pid.indexOf('orca') !== -1 || pid.indexOf('meteora') !== -1) {
+  if (
+    pid.indexOf("raydium") !== -1 ||
+    pid.indexOf("orca") !== -1 ||
+    pid.indexOf("meteora") !== -1
+  ) {
     return true;
   }
   return false;
 }
 
 function extractFeePercent_(text) {
-  var s = String(text || '');
+  var s = String(text || "");
   var m = s.match(/(\d+(?:[.,]\d+)?)\s*%/);
-  if (!m) return '';
-  return String(m[1]).replace(',', '.');
+  if (!m) return "";
+  return String(m[1]).replace(",", ".");
 }
 
 function aprPercentNumberFromElement_(el, liq) {
@@ -386,7 +425,8 @@ function aprPercentNumberFromElement_(el, liq) {
     if (y0 && y0.apr != null && !isNaN(Number(y0.apr))) frac = Number(y0.apr);
     else if (y0 && y0.apy != null && !isNaN(Number(y0.apy))) frac = Number(y0.apy);
   }
-  if (frac == null && el && el.netApy != null && !isNaN(Number(el.netApy))) frac = Number(el.netApy);
+  if (frac == null && el && el.netApy != null && !isNaN(Number(el.netApy)))
+    frac = Number(el.netApy);
   if (frac == null) return 0;
   return frac <= 1 && frac >= -1 ? frac * 100 : frac;
 }
@@ -401,19 +441,21 @@ function apyPercentFromAprMonthly_(aprPct) {
 function apyPercentFromElement_(el, liq) {
   var apr = aprPercentNumberFromElement_(el, liq);
   var apy = apyPercentFromAprMonthly_(apr);
-  return String(Math.round(apy * 10) / 10) + '%';
+  return String(Math.round(apy * 10) / 10) + "%";
 }
 
 function aprPercentFromElement_(el, liq) {
   var apr = aprPercentNumberFromElement_(el, liq);
-  return String(Math.round(apr * 10) / 10) + '%';
+  return String(Math.round(apr * 10) / 10) + "%";
 }
 
 /** Строка APY для ячеек таблицы — без авто-даты (20.07 → 20 июля). */
 function formatApyForSheet_(apy) {
-  var s = String(apy == null ? '' : apy).replace(/%/g, '').trim();
-  if (!s || s === '0') return '0%';
-  return s.indexOf('%') !== -1 ? s : s + '%';
+  var s = String(apy == null ? "" : apy)
+    .replace(/%/g, "")
+    .trim();
+  if (!s || s === "0") return "0%";
+  return s.indexOf("%") !== -1 ? s : s + "%";
 }
 
 /** APY из ячейки: Google Sheets иногда превращает 20.07 в дату 20.07.2026. */
@@ -421,39 +463,41 @@ function normalizeApyFromCell_(val) {
   if (val instanceof Date) {
     var d = val.getDate();
     var m = val.getMonth() + 1;
-    return String(d) + '.' + String(m);
+    return String(d) + "." + String(m);
   }
-  return String(val == null ? '' : val).replace(/%/g, '').trim();
+  return String(val == null ? "" : val)
+    .replace(/%/g, "")
+    .trim();
 }
 
 function tokenSymbolFromAsset_(asset, tokenInfo) {
-  if (!asset || asset.type !== 'token' || !asset.data) return '';
+  if (!asset || asset.type !== "token" || !asset.data) return "";
   var addr = asset.data.address;
   if (tokenInfo && tokenInfo.solana && addr && tokenInfo.solana[addr]) {
-    return String(tokenInfo.solana[addr].symbol || '').trim();
+    return String(tokenInfo.solana[addr].symbol || "").trim();
   }
   if (asset.data.symbol) return String(asset.data.symbol).trim();
-  return addr ? String(addr).slice(0, 6) : '';
+  return addr ? String(addr).slice(0, 6) : "";
 }
 
 function pairFromLiquidityAssets_(liq, tokenInfo) {
-  var assets = (liq && liq.assets) ? liq.assets : [];
+  var assets = liq && liq.assets ? liq.assets : [];
   var syms = [];
   for (var i = 0; i < assets.length; i++) {
     var sym = tokenSymbolFromAsset_(assets[i], tokenInfo);
     if (sym) syms.push(sym);
   }
-  return syms.length ? syms.join(' / ') : '';
+  return syms.length ? syms.join(" / ") : "";
 }
 
 function isStableSymbol_(sym) {
-  return /^(USDC|USDT|USD1|PYUSD|USDS|DAI|CASH|USDC\.e|UXD)$/i.test(String(sym || '').trim());
+  return /^(USDC|USDT|USD1|PYUSD|USDS|DAI|CASH|USDC\.e|UXD)$/i.test(String(sym || "").trim());
 }
 
 function tokenValueUsd_(asset) {
   if (!asset) return 0;
   if (asset.value != null && !isNaN(Number(asset.value))) return Number(asset.value);
-  if (asset.type === 'token' && asset.data) {
+  if (asset.type === "token" && asset.data) {
     var amt = Number(asset.data.amount) || 0;
     var pr = Number(asset.data.price) || 0;
     return amt * pr;
@@ -464,15 +508,17 @@ function tokenValueUsd_(asset) {
 function splitRewardAssets_(liq, tokenInfo) {
   var stableUsd = 0;
   var assetAmt = 0;
-  var assetSym = '';
+  var assetSym = "";
   var assetUsd = 0;
-  var rewards = (liq && liq.rewardAssets) ? liq.rewardAssets : [];
+  var rewards = liq && liq.rewardAssets ? liq.rewardAssets : [];
   var i;
   for (i = 0; i < rewards.length; i++) {
     var sym = tokenSymbolFromAsset_(rewards[i], tokenInfo);
     var val = tokenValueUsd_(rewards[i]);
-    var amt = (rewards[i] && rewards[i].data && rewards[i].data.amount != null)
-      ? Number(rewards[i].data.amount) : 0;
+    var amt =
+      rewards[i] && rewards[i].data && rewards[i].data.amount != null
+        ? Number(rewards[i].data.amount)
+        : 0;
     if (isStableSymbol_(sym)) {
       stableUsd += val;
     } else if (sym) {
@@ -486,26 +532,28 @@ function splitRewardAssets_(liq, tokenInfo) {
     assetAmount: assetAmt,
     assetSymbol: assetSym,
     assetUsd: assetUsd,
-    totalUsd: stableUsd + assetUsd
+    totalUsd: stableUsd + assetUsd,
   };
 }
 
 function parseRangeFromPoolName_(text) {
-  var s = String(text || '');
+  var s = String(text || "");
   var m = s.match(/(\d[\d\s.,]*)\s*[-–—]\s*(\d[\d\s.,]*)/);
-  if (!m) return { min: '', max: '' };
+  if (!m) return { min: "", max: "" };
   return {
-    min: String(m[1]).replace(/\s/g, '').replace(',', '.'),
-    max: String(m[2]).replace(/\s/g, '').replace(',', '.')
+    min: String(m[1]).replace(/\s/g, "").replace(",", "."),
+    max: String(m[2]).replace(/\s/g, "").replace(",", "."),
   };
 }
 
 function enrichRangeFromLiquidity_(liq) {
-  var r = parseRangeFromPoolName_((liq && liq.name) || '');
+  var r = parseRangeFromPoolName_((liq && liq.name) || "");
   if (r.min && r.max) return r;
   if (!liq) return r;
-  var low = liq.priceMin != null ? liq.priceMin : (liq.priceLower != null ? liq.priceLower : liq.lowerPrice);
-  var high = liq.priceMax != null ? liq.priceMax : (liq.priceUpper != null ? liq.priceUpper : liq.upperPrice);
+  var low =
+    liq.priceMin != null ? liq.priceMin : liq.priceLower != null ? liq.priceLower : liq.lowerPrice;
+  var high =
+    liq.priceMax != null ? liq.priceMax : liq.priceUpper != null ? liq.priceUpper : liq.upperPrice;
   if (low != null && high != null && !isNaN(Number(low)) && !isNaN(Number(high))) {
     return { min: String(low), max: String(high) };
   }
@@ -519,7 +567,15 @@ function extractFeeIncomeUsd_(liq, tokenInfo) {
   var rew = splitRewardAssets_(liq, tokenInfo);
   var total = rew.totalUsd;
   if (!liq) return total;
-  var keys = ['feesUsd', 'feeValue', 'unclaimedFees', 'claimableFees', 'pendingFees', 'totalFees', 'accruedFees'];
+  var keys = [
+    "feesUsd",
+    "feeValue",
+    "unclaimedFees",
+    "claimableFees",
+    "pendingFees",
+    "totalFees",
+    "accruedFees",
+  ];
   var i;
   for (i = 0; i < keys.length; i++) {
     if (liq[keys[i]] != null && !isNaN(Number(liq[keys[i]]))) {
@@ -536,16 +592,16 @@ function extractFeeIncomeUsd_(liq, tokenInfo) {
 }
 
 function formatSheetNumber_(n, decimals) {
-  if (n == null || isNaN(Number(n))) return '';
+  if (n == null || isNaN(Number(n))) return "";
   var d = decimals == null ? 6 : decimals;
   return String(Math.round(Number(n) * Math.pow(10, d)) / Math.pow(10, d));
 }
 
 /** USD/кол-во с мелкими значениями (не округлять до 0,01). */
 function formatPreciseAmount_(n, decimals) {
-  if (n == null || isNaN(Number(n))) return '';
+  if (n == null || isNaN(Number(n))) return "";
   var v = Number(n);
-  if (v === 0) return '0';
+  if (v === 0) return "0";
   var d = decimals == null ? 8 : decimals;
   if (Math.abs(v) < Math.pow(10, -d)) return v.toExponential(3);
   return String(Math.round(v * Math.pow(10, d)) / Math.pow(10, d));
@@ -555,27 +611,28 @@ function openTimestampMsFromElement_(el, liq) {
   var ms = null;
   if (liq && liq.createdAt != null) ms = Number(liq.createdAt);
   if ((!ms || isNaN(ms)) && liq && liq.openedAt != null) ms = Number(liq.openedAt);
-  if ((!ms || isNaN(ms)) && el && el.data && el.data.createdAt != null) ms = Number(el.data.createdAt);
+  if ((!ms || isNaN(ms)) && el && el.data && el.data.createdAt != null)
+    ms = Number(el.data.createdAt);
   if ((!ms || isNaN(ms)) && el && el.updatedAt != null) ms = Number(el.updatedAt);
-  return (!ms || isNaN(ms)) ? null : ms;
+  return !ms || isNaN(ms) ? null : ms;
 }
 
 function periodFromTimestampMs_(ms) {
-  if (!ms || isNaN(Number(ms))) return '0 ч';
+  if (!ms || isNaN(Number(ms))) return "0 ч";
   var hours = Math.max(0, Math.floor((Date.now() - Number(ms)) / 3600000));
-  if (hours < 72) return hours + ' ч';
-  return Math.floor(hours / 24) + ' дн';
+  if (hours < 72) return hours + " ч";
+  return Math.floor(hours / 24) + " дн";
 }
 
 function periodFromOpenDateString_(dateStr) {
-  var s = String(dateStr || '').trim();
+  var s = String(dateStr || "").trim();
   var m = s.match(/(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})/);
-  if (!m) return '';
+  if (!m) return "";
   var y = parseInt(m[3], 10);
   if (y < 100) y += 2000;
   var opened = new Date(y, parseInt(m[2], 10) - 1, parseInt(m[1], 10));
-  if (isNaN(opened.getTime())) return '';
-  return Math.max(0, Math.floor((Date.now() - opened.getTime()) / 86400000)) + ' дн';
+  if (isNaN(opened.getTime())) return "";
+  return Math.max(0, Math.floor((Date.now() - opened.getTime()) / 86400000)) + " дн";
 }
 
 /** Период из ячейки «Дата открытия»: display dd.mm.yyyy или serial Google Sheets. */
@@ -583,16 +640,16 @@ function periodFromOpenDateCell_(rawVal, displayVal) {
   var fromDisp = periodFromOpenDateString_(displayVal);
   if (fromDisp) return fromDisp;
   if (rawVal instanceof Date && !isNaN(rawVal.getTime())) {
-    return Math.max(0, Math.floor((Date.now() - rawVal.getTime()) / 86400000)) + ' дн';
+    return Math.max(0, Math.floor((Date.now() - rawVal.getTime()) / 86400000)) + " дн";
   }
-  if (typeof rawVal === 'number' && !isNaN(rawVal) && rawVal > 20000 && rawVal < 80000) {
+  if (typeof rawVal === "number" && !isNaN(rawVal) && rawVal > 20000 && rawVal < 80000) {
     var base = new Date(Date.UTC(1899, 11, 30));
     var opened = new Date(base.getTime() + Math.round(rawVal) * 86400000);
     if (!isNaN(opened.getTime())) {
-      return Math.max(0, Math.floor((Date.now() - opened.getTime()) / 86400000)) + ' дн';
+      return Math.max(0, Math.floor((Date.now() - opened.getTime()) / 86400000)) + " дн";
     }
   }
-  return periodFromOpenDateString_(String(rawVal || ''));
+  return periodFromOpenDateString_(String(rawVal || ""));
 }
 
 function openDateFromElement_(el, liq) {
@@ -601,31 +658,36 @@ function openDateFromElement_(el, liq) {
   if (!ms && el && el.data && el.data.createdAt) ms = Number(el.data.createdAt);
   if (!ms && liq && liq.createdAt) ms = Number(liq.createdAt);
   if (!ms || isNaN(ms)) {
-    return Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy');
+    return Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "GMT", "dd.MM.yyyy");
   }
-  return Utilities.formatDate(new Date(ms), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy');
+  return Utilities.formatDate(new Date(ms), Session.getScriptTimeZone() || "GMT", "dd.MM.yyyy");
 }
 
 function mapLiquidityToRow_(el, liq, tokenInfo, wallet) {
   var platform = formatPlatformDisplay_(el.platformId, el.name);
-  var poolName = (liq && liq.name) ? String(liq.name).trim() : '';
+  var poolName = liq && liq.name ? String(liq.name).trim() : "";
   var pair = pairFromLiquidityAssets_(liq, tokenInfo);
-  if (!pair && poolName && poolName.indexOf('/') !== -1) pair = poolName;
-  var link = (liq && liq.link) ? String(liq.link).trim() : '';
+  if (!pair && poolName && poolName.indexOf("/") !== -1) pair = poolName;
+  var link = liq && liq.link ? String(liq.link).trim() : "";
   if (!link && el.data && el.data.link) link = String(el.data.link).trim();
   if (!link && wallet) {
-    var slug = (platform + '-' + (pair || poolName)).toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    link = 'https://jup.ag/portfolio/' + wallet + '#' + slug;
+    var slug = (platform + "-" + (pair || poolName)).toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    link = "https://jup.ag/portfolio/" + wallet + "#" + slug;
   }
-  var fee = extractFeePercent_(poolName) || extractFeePercent_(el.name) || '';
-  var chain = 'solana';
+  var fee = extractFeePercent_(poolName) || extractFeePercent_(el.name) || "";
+  var chain = "solana";
   var rewards = splitRewardAssets_(liq, tokenInfo);
   var feeTotalUsd = extractFeeIncomeUsd_(liq, tokenInfo);
-  var invested = (liq && liq.value != null) ? Number(liq.value) : ((liq && liq.assetsValue != null) ? Number(liq.assetsValue) : 0);
+  var invested =
+    liq && liq.value != null
+      ? Number(liq.value)
+      : liq && liq.assetsValue != null
+        ? Number(liq.assetsValue)
+        : 0;
   if (isNaN(invested)) invested = 0;
   var openMs = openTimestampMsFromElement_(el, liq);
   var openDate = openMs
-    ? Utilities.formatDate(new Date(openMs), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy')
+    ? Utilities.formatDate(new Date(openMs), Session.getScriptTimeZone() || "GMT", "dd.MM.yyyy")
     : openDateFromElement_(el, liq);
   var period = openMs ? periodFromTimestampMs_(openMs) : periodFromOpenDateString_(openDate);
   var apr = aprPercentFromElement_(el, liq);
@@ -635,35 +697,35 @@ function mapLiquidityToRow_(el, liq, tokenInfo, wallet) {
     apr: apr,
     apy: apy,
     period: period,
-    status: 'active',
-    link: link || '#',
+    status: "active",
+    link: link || "#",
     desc: buildSolanaDesc_(chain, fee),
     pair: pair,
     platform: platform,
     fee: fee,
     chain: chain,
-    type: 'Liquidity Pool',
-    priceMin: '',
-    priceMax: '',
+    type: "Liquidity Pool",
+    priceMin: "",
+    priceMax: "",
     openDate: openDate,
     earnedStables: rewards.stableUsd,
     earnedAsset: rewards.assetAmount,
     earnedAssetSymbol: rewards.assetSymbol,
     totalFeeIncome: feeTotalUsd,
-    investedUsd: invested
+    investedUsd: invested,
   };
 }
 
 function jupiterElementsToRows_(payload, wallet) {
-  var elements = (payload && payload.elements) ? payload.elements : [];
-  var tokenInfo = (payload && payload.tokenInfo) ? payload.tokenInfo : {};
+  var elements = payload && payload.elements ? payload.elements : [];
+  var tokenInfo = payload && payload.tokenInfo ? payload.tokenInfo : {};
   var rows = [];
   var seen = {};
   for (var e = 0; e < elements.length; e++) {
     var el = elements[e];
     if (!isNavigatorLiquidityElement_(el)) continue;
     var chunk = [];
-    if (el.type === 'liquidity' && el.data && el.data.liquidities && el.data.liquidities.length) {
+    if (el.type === "liquidity" && el.data && el.data.liquidities && el.data.liquidities.length) {
       for (var l = 0; l < el.data.liquidities.length; l++) {
         chunk.push(mapLiquidityToRow_(el, el.data.liquidities[l], tokenInfo, wallet));
       }
@@ -673,13 +735,13 @@ function jupiterElementsToRows_(payload, wallet) {
     for (var c = 0; c < chunk.length; c++) {
       var row = chunk[c];
       if (pairContainsEthOrBtc_(row.pair, row.name, row.platform)) continue;
-      var key = normalizeLinkKey(row.link) + '|' + String(row.name).toLowerCase();
+      var key = normalizeLinkKey(row.link) + "|" + String(row.name).toLowerCase();
       if (seen[key]) continue;
       seen[key] = true;
       rows.push(row);
     }
   }
-  rows.sort(function(a, b) {
+  rows.sort(function (a, b) {
     return parseFloat(b.apy) - parseFloat(a.apy);
   });
   return rows;
@@ -687,7 +749,7 @@ function jupiterElementsToRows_(payload, wallet) {
 
 function fetchJupiterPositions_(wallet, fastMode) {
   var apiKey = getJupiterApiKey_();
-  var suffixes = ['', '?platforms=raydium,orca,meteora'];
+  var suffixes = ["", "?platforms=raydium,orca,meteora"];
   var attempts = fastMode ? 1 : 2;
   var bestPayload = null;
   var bestN = -1;
@@ -701,14 +763,16 @@ function fetchJupiterPositions_(wallet, fastMode) {
       if (!fastMode && (attempt > 0 || s > 0)) Utilities.sleep(2200);
       var res = fetchJupiterPositionsOnce_(wallet, suffixes[s], apiKey);
       if (res.code === 401) {
-        throw new Error('Jupiter API 401: проверьте JUPITER_API_KEY (portal.jup.ag → Free, без пробелов).');
+        throw new Error(
+          "Jupiter API 401: проверьте JUPITER_API_KEY (portal.jup.ag → Free, без пробелов).",
+        );
       }
       if (res.code < 200 || res.code >= 300) {
-        throw new Error('Jupiter API HTTP ' + res.code + ': ' + res.text.slice(0, 280));
+        throw new Error("Jupiter API HTTP " + res.code + ": " + res.text.slice(0, 280));
       }
       var payload = JSON.parse(res.text);
       lastPayload = payload;
-      var n = (payload.elements && payload.elements.length) ? payload.elements.length : 0;
+      var n = payload.elements && payload.elements.length ? payload.elements.length : 0;
       if (n > bestN) {
         bestN = n;
         bestPayload = payload;
@@ -718,30 +782,32 @@ function fetchJupiterPositions_(wallet, fastMode) {
   }
 
   if (!apiKey) {
-    throw new Error('Jupiter вернул 0 позиций без API-ключа. Добавьте JUPITER_API_KEY в свойства скрипта.');
+    throw new Error(
+      "Jupiter вернул 0 позиций без API-ключа. Добавьте JUPITER_API_KEY в свойства скрипта.",
+    );
   }
   return lastPayload || bestPayload || { elements: [], fetcherReports: [], tokenInfo: {} };
 }
 
 function rwaRowToUnifiedLine_(row) {
-  var feeLabel = row.fee ? (String(row.fee).indexOf('%') !== -1 ? row.fee : row.fee + '%') : '';
+  var feeLabel = row.fee ? (String(row.fee).indexOf("%") !== -1 ? row.fee : row.fee + "%") : "";
   return [
     row.platform || row.name,
-    '',
-    '',
-    row.openDate || '',
+    "",
+    "",
+    row.openDate || "",
     formatPreciseAmount_(row.earnedStables, 8),
     formatPreciseAmount_(row.earnedAsset, 12),
-    row.earnedAssetSymbol || '',
-    '',
+    row.earnedAssetSymbol || "",
+    "",
     formatPreciseAmount_(row.totalFeeIncome, 8),
     row.pair,
-    row.chain || 'solana',
+    row.chain || "solana",
     feeLabel,
     formatApyForSheet_(row.apr || row.apy),
     formatApyForSheet_(row.apy),
     row.link,
-    formatPreciseAmount_(row.investedUsd, 4)
+    formatPreciseAmount_(row.investedUsd, 4),
   ];
 }
 
@@ -749,13 +815,13 @@ function writeRwaPoolBattleSheet_(sh, rows) {
   if (!rows || !rows.length) return 0;
   var cols = POOL_BATTLE_UNIFIED_LABELS.length;
   var wallet = getRwaWalletFromSheet_(sh);
-  sh.getRange('A1:W120').clearContent();
+  sh.getRange("A1:W120").clearContent();
   sh.getRange(1, 1, 1, cols).setValues([POOL_BATTLE_UNIFIED_LABELS]);
   var lines = rows.map(rwaRowToUnifiedLine_);
   sh.getRange(2, 1, lines.length, cols).setValues(lines);
-  sh.getRange('Z1').setValue('Кошелёк Jupiter');
+  sh.getRange("Z1").setValue("Кошелёк Jupiter");
   if (wallet) {
-    sh.getRange('Z2').setValue('https://jup.ag/portfolio/' + wallet);
+    sh.getRange("Z2").setValue("https://jup.ag/portfolio/" + wallet);
   }
   return rows.length;
 }
@@ -764,18 +830,28 @@ function ensureRwaDailyLogSheet_(ss) {
   var sh = ss.getSheetByName(RWA_DAILY_LOG_SHEET);
   if (sh) return sh;
   sh = ss.insertSheet(RWA_DAILY_LOG_SHEET);
-  sh.getRange(1, 1, 1, 10).setValues([[
-    'Дата', 'Платформа', 'Пара', 'Ссылка', 'Заработано стейблов USD',
-    'Заработано актива', 'Символ', 'Итого комс USD', 'Инвестировано USD', 'APY'
-  ]]);
+  sh.getRange(1, 1, 1, 10).setValues([
+    [
+      "Дата",
+      "Платформа",
+      "Пара",
+      "Ссылка",
+      "Заработано стейблов USD",
+      "Заработано актива",
+      "Символ",
+      "Итого комс USD",
+      "Инвестировано USD",
+      "APY",
+    ],
+  ]);
   return sh;
 }
 
 function appendRwaDailyLog_(ss, rows) {
   if (!rows || !rows.length) return;
   var logSh = ensureRwaDailyLogSheet_(ss);
-  var day = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy');
-  var out = rows.map(function(row) {
+  var day = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "GMT", "dd.MM.yyyy");
+  var out = rows.map(function (row) {
     return [
       day,
       row.platform,
@@ -786,7 +862,7 @@ function appendRwaDailyLog_(ss, rows) {
       row.earnedAssetSymbol,
       row.totalFeeIncome,
       row.investedUsd,
-      row.apy
+      row.apy,
     ];
   });
   var start = logSh.getLastRow() + 1;
@@ -805,52 +881,68 @@ function copyRwaDataToSiteSpreadsheet_() {
 function syncRwaJupiterPositions() {
   var ss = openRwaSourceSpreadsheet_();
   var sh = findRwaSheet_(ss);
-  if (!sh) throw new Error('На таблице битвы пуллов нет листа «БИТВА ПУЛОВ RWA»');
+  if (!sh) throw new Error("На таблице битвы пуллов нет листа «БИТВА ПУЛОВ RWA»");
 
   var wallet = getRwaWalletForSync_(sh);
   if (!wallet) {
-    throw new Error('Укажите кошелёк в Z2 (или B6): jup.ag/portfolio/… или Solana-адрес');
+    throw new Error("Укажите кошелёк в Z2 (или B6): jup.ag/portfolio/… или Solana-адрес");
   }
-  PropertiesService.getScriptProperties().setProperty('RWA_WALLET', wallet);
+  PropertiesService.getScriptProperties().setProperty("RWA_WALLET", wallet);
 
   var payload = fetchJupiterPositions_(wallet, false);
   var rows = jupiterElementsToRows_(payload, wallet);
   var diag = jupiterPortfolioSummary_(payload);
-  var ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy HH:mm');
+  var ts = Utilities.formatDate(
+    new Date(),
+    Session.getScriptTimeZone() || "GMT",
+    "dd.MM.yyyy HH:mm",
+  );
 
   if (!rows.length) {
     var kept = countRwaDataRowsOnSheet_(sh);
-    var msg = 'Jupiter API: 0 LP (elements=' + diag.elements + '). ' +
-      (kept ? ('Таблица A1 не очищена (' + kept + '). ') : '') +
-      'Проверьте verifyRwaSpreadsheetTarget — ID файла.';
+    var msg =
+      "Jupiter API: 0 LP (elements=" +
+      diag.elements +
+      "). " +
+      (kept ? "Таблица A1 не очищена (" + kept + "). " : "") +
+      "Проверьте verifyRwaSpreadsheetTarget — ID файла.";
     writeRwaSyncStatus_(sh, msg.slice(0, 240));
-    return { wallet: wallet, count: 0, syncedAt: new Date().toISOString(), skippedWrite: true, diag: diag, keptRows: kept };
+    return {
+      wallet: wallet,
+      count: 0,
+      syncedAt: new Date().toISOString(),
+      skippedWrite: true,
+      diag: diag,
+      keptRows: kept,
+    };
   }
 
   writeRwaPoolBattleSheet_(sh, rows);
   appendRwaDailyLog_(ss, rows);
 
-  PropertiesService.getScriptProperties().setProperty('RWA_LAST_SYNC_MS', String(Date.now()));
-  PropertiesService.getScriptProperties().setProperty('RWA_LAST_SYNC_COUNT', String(rows.length));
-  writeRwaSyncStatus_(sh, 'OK · ' + rows.length + ' LP · A1 · ' + ts);
+  PropertiesService.getScriptProperties().setProperty("RWA_LAST_SYNC_MS", String(Date.now()));
+  PropertiesService.getScriptProperties().setProperty("RWA_LAST_SYNC_COUNT", String(rows.length));
+  writeRwaSyncStatus_(sh, "OK · " + rows.length + " LP · A1 · " + ts);
   return { wallet: wallet, count: rows.length, syncedAt: new Date().toISOString(), diag: diag };
 }
 
 /** Журнал → View → Logs: проверка Jupiter API (ключ, elements, fetcherReports). */
 function diagnoseRwaJupiterApi() {
   var sh = findRwaSheet_(openRwaSourceSpreadsheet_());
-  if (!sh) throw new Error('Нет листа «' + RWA_SHEET_TITLE_CANONICAL + '»');
+  if (!sh) throw new Error("Нет листа «" + RWA_SHEET_TITLE_CANONICAL + "»");
   var wallet = getRwaWalletForSync_(sh);
-  if (!wallet) throw new Error('Нет кошелька в Z2/B6');
+  if (!wallet) throw new Error("Нет кошелька в Z2/B6");
   var hasKey = !!getJupiterApiKey_();
-  Logger.log('JUPITER_API_KEY: ' + (hasKey ? 'есть (' + getJupiterApiKey_().length + ' симв.)' : 'НЕТ'));
-  Logger.log('wallet: ' + wallet);
+  Logger.log(
+    "JUPITER_API_KEY: " + (hasKey ? "есть (" + getJupiterApiKey_().length + " симв.)" : "НЕТ"),
+  );
+  Logger.log("wallet: " + wallet);
   var payload = fetchJupiterPositions_(wallet, false);
   var diag = jupiterPortfolioSummary_(payload);
   var rows = jupiterElementsToRows_(payload, wallet);
-  Logger.log('elements: ' + diag.elements + ' → LP-строк навигатора: ' + rows.length);
-  Logger.log('fetcherReports: ' + diag.fetcherReports);
-  Logger.log('ответ (начало): ' + JSON.stringify(payload).slice(0, 2500));
+  Logger.log("elements: " + diag.elements + " → LP-строк навигатора: " + rows.length);
+  Logger.log("fetcherReports: " + diag.fetcherReports);
+  Logger.log("ответ (начало): " + JSON.stringify(payload).slice(0, 2500));
   return { wallet: wallet, diag: diag, lpRows: rows.length };
 }
 
@@ -859,34 +951,40 @@ function syncRwaJupiterPositionsIfDue_() {
     var ss = openRwaSourceSpreadsheet_();
     var sh = findRwaSheet_(ss);
     if (!sh) {
-      Logger.log('RWA: лист «' + RWA_SHEET_TITLE_CANONICAL + '» не найден');
+      Logger.log("RWA: лист «" + RWA_SHEET_TITLE_CANONICAL + "» не найден");
       return;
     }
     if (!getRwaWalletForSync_(sh)) {
-      writeRwaSyncStatus_(sh, 'Нет кошелька в Z2/B6 (jup.ag/portfolio/…)');
+      writeRwaSyncStatus_(sh, "Нет кошелька в Z2/B6 (jup.ag/portfolio/…)");
       return;
     }
-    var last = Number(PropertiesService.getScriptProperties().getProperty('RWA_LAST_SYNC_MS') || '0');
+    var last = Number(
+      PropertiesService.getScriptProperties().getProperty("RWA_LAST_SYNC_MS") || "0",
+    );
     if (rwaSheetHasDataRows_(sh) && Date.now() - last < RWA_SYNC_MIN_INTERVAL_MS) return;
     var wallet = getRwaWalletForSync_(sh);
     var payload = fetchJupiterPositions_(wallet, true);
     var rows = jupiterElementsToRows_(payload, wallet);
-    var ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT', 'dd.MM.yyyy HH:mm');
+    var ts = Utilities.formatDate(
+      new Date(),
+      Session.getScriptTimeZone() || "GMT",
+      "dd.MM.yyyy HH:mm",
+    );
     if (!rows.length) {
-      writeRwaSyncStatus_(sh, '0 LP · A1 не очищена · ' + ts);
+      writeRwaSyncStatus_(sh, "0 LP · A1 не очищена · " + ts);
       return;
     }
     writeRwaPoolBattleSheet_(sh, rows);
     appendRwaDailyLog_(ss, rows);
-    PropertiesService.getScriptProperties().setProperty('RWA_LAST_SYNC_MS', String(Date.now()));
-    PropertiesService.getScriptProperties().setProperty('RWA_LAST_SYNC_COUNT', String(rows.length));
-    PropertiesService.getScriptProperties().setProperty('RWA_WALLET', wallet);
-    writeRwaSyncStatus_(sh, 'OK · ' + rows.length + ' LP · ' + ts);
+    PropertiesService.getScriptProperties().setProperty("RWA_LAST_SYNC_MS", String(Date.now()));
+    PropertiesService.getScriptProperties().setProperty("RWA_LAST_SYNC_COUNT", String(rows.length));
+    PropertiesService.getScriptProperties().setProperty("RWA_WALLET", wallet);
+    writeRwaSyncStatus_(sh, "OK · " + rows.length + " LP · " + ts);
   } catch (err) {
-    Logger.log('RWA sync: ' + err);
+    Logger.log("RWA sync: " + err);
     try {
       var sh2 = findRwaSheet_(openRwaSourceSpreadsheet_());
-      if (sh2) writeRwaSyncStatus_(sh2, 'Ошибка: ' + String(err.message || err).slice(0, 200));
+      if (sh2) writeRwaSyncStatus_(sh2, "Ошибка: " + String(err.message || err).slice(0, 200));
     } catch (e2) {}
   }
 }
@@ -894,17 +992,17 @@ function syncRwaJupiterPositionsIfDue_() {
 function installRwaHourlyTrigger() {
   var triggers = ScriptApp.getProjectTriggers();
   for (var i = 0; i < triggers.length; i++) {
-    if (triggers[i].getHandlerFunction() === 'syncRwaJupiterPositions') {
+    if (triggers[i].getHandlerFunction() === "syncRwaJupiterPositions") {
       ScriptApp.deleteTrigger(triggers[i]);
     }
   }
-  ScriptApp.newTrigger('syncRwaJupiterPositions').timeBased().everyHours(1).create();
+  ScriptApp.newTrigger("syncRwaJupiterPositions").timeBased().everyHours(1).create();
 }
 
 function removeRwaHourlyTrigger() {
   var triggers = ScriptApp.getProjectTriggers();
   for (var i = 0; i < triggers.length; i++) {
-    if (triggers[i].getHandlerFunction() === 'syncRwaJupiterPositions') {
+    if (triggers[i].getHandlerFunction() === "syncRwaJupiterPositions") {
       ScriptApp.deleteTrigger(triggers[i]);
     }
   }
@@ -912,13 +1010,13 @@ function removeRwaHourlyTrigger() {
 
 function onOpen() {
   SpreadsheetApp.getUi()
-    .createMenu('DeFi Navigator')
-    .addItem('Проверить файл RWA (статус Z3)', 'verifyRwaSpreadsheetTarget')
-    .addItem('Перенести RWA в A1 (из H30)', 'relayoutRwaSheetToA1')
-    .addItem('Синхронизировать RWA (Jupiter)', 'syncRwaJupiterPositions')
-    .addItem('Диагностика Jupiter API (журнал)', 'diagnoseRwaJupiterApi')
-    .addItem('Авто-синх RWA каждый час', 'installRwaHourlyTrigger')
-    .addItem('Отключить авто-синх RWA', 'removeRwaHourlyTrigger')
+    .createMenu("DeFi Navigator")
+    .addItem("Проверить файл RWA (статус Z3)", "verifyRwaSpreadsheetTarget")
+    .addItem("Перенести RWA в A1 (из H30)", "relayoutRwaSheetToA1")
+    .addItem("Синхронизировать RWA (Jupiter)", "syncRwaJupiterPositions")
+    .addItem("Диагностика Jupiter API (журнал)", "diagnoseRwaJupiterApi")
+    .addItem("Авто-синх RWA каждый час", "installRwaHourlyTrigger")
+    .addItem("Отключить авто-синх RWA", "removeRwaHourlyTrigger")
     .addToUi();
 }
 
@@ -927,29 +1025,37 @@ function findCol(row, names) {
   for (var n = 0; n < names.length; n++) {
     var name = names[n].toLowerCase();
     for (var i = 0; i < r.length; i++) {
-      if (String(r[i] || '').toLowerCase().trim() === name) return i;
+      if (
+        String(r[i] || "")
+          .toLowerCase()
+          .trim() === name
+      )
+        return i;
     }
   }
   return -1;
 }
 
 function normalizeHeaderCell(h) {
-  return String(h || '')
-    .replace(/^\uFEFF/, '')
-    .replace(/\u200b/g, '')
+  return String(h || "")
+    .replace(/^\uFEFF/, "")
+    .replace(/\u200b/g, "")
     .trim()
     .toLowerCase()
-    .replace(/\u00a0/g, ' ')
-    .replace(/\s+/g, ' ');
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ");
 }
 
 function normalizeFeeValue(value) {
-  return String(value || '').replace(',', '.').replace(/%/g, '').trim();
+  return String(value || "")
+    .replace(",", ".")
+    .replace(/%/g, "")
+    .trim();
 }
 
 /** Убирает случайный суффикс «дн» в колонках мин/макс (ошибка вставки периода в цену). */
 function sanitizeRangeCell_(val) {
-  var s = String(val || '').trim();
+  var s = String(val || "").trim();
   var m = s.match(/^([\d\s\u00a0.,]+)\s*дн\s*$/i);
   if (m) return m[1].trim();
   return s;
@@ -957,25 +1063,25 @@ function sanitizeRangeCell_(val) {
 
 /** APY для API: только колонка APY. Из «18,65%» или доли 0,1865. */
 function formatApyForApi_(rawVal, displayVal) {
-  var disp = displayVal != null ? String(displayVal).trim() : '';
-  if (disp && disp.indexOf('%') !== -1) return normalizeApyFromCell_(disp);
-  if (typeof rawVal === 'number' && !isNaN(rawVal)) {
+  var disp = displayVal != null ? String(displayVal).trim() : "";
+  if (disp && disp.indexOf("%") !== -1) return normalizeApyFromCell_(disp);
+  if (typeof rawVal === "number" && !isNaN(rawVal)) {
     if (rawVal > 0 && rawVal <= 1.5) return String(Math.round(rawVal * 1000) / 10);
     if (rawVal > 1.5) return String(Math.round(rawVal * 10) / 10);
   }
   var s = normalizeApyFromCell_(rawVal) || normalizeApyFromCell_(disp);
   if (s) {
-    var n = parseFloat(String(s).replace(',', '.'));
+    var n = parseFloat(String(s).replace(",", "."));
     if (!isNaN(n) && n > 0 && n <= 1.5) return String(Math.round(n * 1000) / 10);
   }
-  return s || '0';
+  return s || "0";
 }
 
 /** fee_tier: из «0,30%» или доли 0,003 → 0,3 */
 function formatFeeForApi_(rawVal, displayVal) {
-  var disp = displayVal != null ? String(displayVal).trim() : '';
-  if (disp && disp.indexOf('%') !== -1) return normalizeFeeValue(disp);
-  if (typeof rawVal === 'number' && !isNaN(rawVal)) {
+  var disp = displayVal != null ? String(displayVal).trim() : "";
+  if (disp && disp.indexOf("%") !== -1) return normalizeFeeValue(disp);
+  if (typeof rawVal === "number" && !isNaN(rawVal)) {
     if (rawVal > 0 && rawVal < 0.5) return String(Math.round(rawVal * 10000) / 100);
   }
   return normalizeFeeValue(rawVal || disp);
@@ -989,42 +1095,45 @@ function findApyColumnIndex_(headers) {
 
 /** Мин/макс: число из value, не display (иначе Sheets портит как «2505 дн»). */
 function pickRangeValue_(r, idx, rw, displayRows) {
-  if (idx < 0) return '';
+  if (idx < 0) return "";
   var raw = rw[idx];
-  if (typeof raw === 'number' && !isNaN(raw)) return formatSheetNumber_(raw, 4);
-  var disp = displayRows && displayRows[r] ? displayRows[r][idx] : '';
-  if (disp !== undefined && disp !== null && disp !== '') return sanitizeRangeCell_(String(disp).trim());
-  return sanitizeRangeCell_(String(raw || '').trim());
+  if (typeof raw === "number" && !isNaN(raw)) return formatSheetNumber_(raw, 4);
+  var disp = displayRows && displayRows[r] ? displayRows[r][idx] : "";
+  if (disp !== undefined && disp !== null && disp !== "")
+    return sanitizeRangeCell_(String(disp).trim());
+  return sanitizeRangeCell_(String(raw || "").trim());
 }
 
 function parsePoolMetaFromDesc(desc) {
-  var text = String(desc || '').trim();
-  if (!text) return { chain: '', fee: '' };
+  var text = String(desc || "").trim();
+  if (!text) return { chain: "", fee: "" };
   var withFee = text.match(/^([A-Za-z0-9]+)\s+([\d.,]+)\s*%$/);
   if (withFee) {
     return {
       chain: withFee[1],
-      fee: normalizeFeeValue(withFee[2])
+      fee: normalizeFeeValue(withFee[2]),
     };
   }
-  if (/^[A-Za-z0-9]+$/.test(text)) return { chain: text, fee: '' };
-  return { chain: '', fee: '' };
+  if (/^[A-Za-z0-9]+$/.test(text)) return { chain: text, fee: "" };
+  return { chain: "", fee: "" };
 }
 
 function enrichPoolBattleFields(name, desc, platform, chain, fee) {
   if (!platform && name) platform = String(name).trim();
   var meta = parsePoolMetaFromDesc(desc);
   if (!chain && meta.chain) chain = meta.chain;
-  if (!fee && meta.fee !== '') fee = meta.fee;
+  if (!fee && meta.fee !== "") fee = meta.fee;
   return {
-    platform: platform || '',
-    chain: chain || '',
-    fee: fee || ''
+    platform: platform || "",
+    chain: chain || "",
+    fee: fee || "",
   };
 }
 
 function normalizeLinkKey(link) {
-  return String(link || '').trim().toLowerCase();
+  return String(link || "")
+    .trim()
+    .toLowerCase();
 }
 
 function findHeaderColumn(headers, startIdx, patterns, fallbackIdx) {
@@ -1054,30 +1163,55 @@ function buildAuxiliaryDetailIndex(rows, displayRows) {
     }
     if (!hasPlatform) continue;
 
-    var platformCol = findHeaderColumn(headers, 7, [/^(платформа|platform|dex|protocol|протокол)$/], 7);
-    var minPriceCol = findHeaderColumn(headers, 7, [/мин.*диапаз|min.*range|min_price|price_min/], 8);
-    var maxPriceCol = findHeaderColumn(headers, 7, [/макс.*диапаз|max.*range|max_price|price_max/], 9);
+    var platformCol = findHeaderColumn(
+      headers,
+      7,
+      [/^(платформа|platform|dex|protocol|протокол)$/],
+      7,
+    );
+    var minPriceCol = findHeaderColumn(
+      headers,
+      7,
+      [/мин.*диапаз|min.*range|min_price|price_min/],
+      8,
+    );
+    var maxPriceCol = findHeaderColumn(
+      headers,
+      7,
+      [/макс.*диапаз|max.*range|max_price|price_max/],
+      9,
+    );
     var pairCol = findHeaderColumn(headers, 7, [/^(пара|pair)$/], 15);
     var chainCol = findHeaderColumn(headers, 7, [/^(блокчейн|chain|blockchain|network|сеть)$/], 16);
-    var feeCol = findHeaderColumn(headers, 7, [/^(fee_tier|fitier|fi tier|fee tier|fee|комиссия|tier|уровень)$/], 17);
+    var feeCol = findHeaderColumn(
+      headers,
+      7,
+      [/^(fee_tier|fitier|fi tier|fee tier|fee|комиссия|tier|уровень)$/],
+      17,
+    );
     var aprCol = findHeaderColumn(headers, 7, [/^(apr)$/], 19);
     var apyCol = findHeaderColumn(headers, 7, [/^(apy|доходность|доход)$/], 20);
     var linkCol = findHeaderColumn(headers, 7, [/ссылка|link|url/], 20);
 
     function pickAux(rowVals, dispVals, idx) {
-      if (idx < 0) return '';
-      if (dispVals && dispVals[idx] !== undefined && dispVals[idx] !== null && dispVals[idx] !== '') {
+      if (idx < 0) return "";
+      if (
+        dispVals &&
+        dispVals[idx] !== undefined &&
+        dispVals[idx] !== null &&
+        dispVals[idx] !== ""
+      ) {
         return String(dispVals[idx]).trim();
       }
-      if (rowVals[idx] !== undefined && rowVals[idx] !== null && rowVals[idx] !== '') {
+      if (rowVals[idx] !== undefined && rowVals[idx] !== null && rowVals[idx] !== "") {
         return String(rowVals[idx]).trim();
       }
-      return '';
+      return "";
     }
 
     for (var rr = r + 1; rr < rows.length; rr++) {
       var rw = rows[rr] || [];
-      var disp = displayRows ? (displayRows[rr] || []) : rw;
+      var disp = displayRows ? displayRows[rr] || [] : rw;
       var platform = pickAux(rw, disp, platformCol);
       if (!platform) continue;
       var link = pickAux(rw, disp, linkCol);
@@ -1090,7 +1224,7 @@ function buildAuxiliaryDetailIndex(rows, displayRows) {
         chain: pickAux(rw, disp, chainCol),
         fee: pickAux(rw, disp, feeCol),
         apr: pickAux(rw, disp, aprCol),
-        apy: pickAux(rw, disp, apyCol)
+        apy: pickAux(rw, disp, apyCol),
       };
     }
     break;
@@ -1106,14 +1240,19 @@ function mapUnifiedToolColumns_(headers) {
     openDateCol: findHeaderColumn(headers, 0, [/дата.*открыт|open.*date/], 3),
     pairCol: findHeaderColumn(headers, 0, [/^(пара|pair)$/], -1),
     chainCol: findHeaderColumn(headers, 0, [/^(блокчейн|chain|blockchain|network|сеть)$/], -1),
-    feeCol: findHeaderColumn(headers, 0, [/^(fee_tier|fitier|fi tier|fee tier|fee|комиссия|tier|уровень)$/], -1),
+    feeCol: findHeaderColumn(
+      headers,
+      0,
+      [/^(fee_tier|fitier|fi tier|fee tier|fee|комиссия|tier|уровень)$/],
+      -1,
+    ),
     aprCol: findHeaderColumn(headers, 0, [/^(apr)$/], -1),
     apyCol: findHeaderColumn(headers, 0, [/^(apy)$/], -1),
     linkCol: findHeaderColumn(headers, 0, [/ссылка|link|url/], -1),
     periodCol: findHeaderColumn(headers, 0, [/^(period|период|term|срок)$/], -1),
     statusCol: findHeaderColumn(headers, 0, [/^(status|статус)$/], -1),
     descCol: findHeaderColumn(headers, 0, [/^(description|desc|описание)$/], -1),
-    nameCol: findHeaderColumn(headers, 0, [/^(name|название|instrument|инструмент)$/], -1)
+    nameCol: findHeaderColumn(headers, 0, [/^(name|название|instrument|инструмент)$/], -1),
   };
 }
 
@@ -1124,7 +1263,7 @@ function findPriceColumnIndex(headers, kind) {
     /min/,
     /lower/,
     /нижн/,
-    /мин/
+    /мин/,
   ];
   var maxPatterns = [
     /^(max_price|price_max|max range|range_max|price_max_usd|max price|price upper|price_high|upper price|range high)$/,
@@ -1132,9 +1271,9 @@ function findPriceColumnIndex(headers, kind) {
     /max/,
     /upper/,
     /верхн/,
-    /макс/
+    /макс/,
   ];
-  var patterns = kind === 'min' ? minPatterns : maxPatterns;
+  var patterns = kind === "min" ? minPatterns : maxPatterns;
   var i;
   for (i = 0; i < headers.length; i++) {
     var h = headers[i];
@@ -1144,7 +1283,7 @@ function findPriceColumnIndex(headers, kind) {
       if (patterns[p].test(h)) return i;
     }
   }
-  var letterFallback = kind === 'min' ? [4, 8] : [5];
+  var letterFallback = kind === "min" ? [4, 8] : [5];
   var f;
   for (f = 0; f < letterFallback.length; f++) {
     var idx = letterFallback[f];
@@ -1190,26 +1329,28 @@ function getData() {
   var first = sheets[0];
   var firstData = first.getDataRange().getValues();
   var catHeaders = firstData[0] || [];
-  var idI = findCol(catHeaders, ['id']) >= 0 ? findCol(catHeaders, ['id']) : 0;
-  var nameI = findCol(catHeaders, ['name']) >= 0 ? findCol(catHeaders, ['name']) : 1;
-  var iconI = findCol(catHeaders, ['icon']) >= 0 ? findCol(catHeaders, ['icon']) : 2;
-  var descI = findCol(catHeaders, ['description']) >= 0 ? findCol(catHeaders, ['description']) : 3;
-  var colorI = findCol(catHeaders, ['color']) >= 0 ? findCol(catHeaders, ['color']) : 4;
+  var idI = findCol(catHeaders, ["id"]) >= 0 ? findCol(catHeaders, ["id"]) : 0;
+  var nameI = findCol(catHeaders, ["name"]) >= 0 ? findCol(catHeaders, ["name"]) : 1;
+  var iconI = findCol(catHeaders, ["icon"]) >= 0 ? findCol(catHeaders, ["icon"]) : 2;
+  var descI = findCol(catHeaders, ["description"]) >= 0 ? findCol(catHeaders, ["description"]) : 3;
+  var colorI = findCol(catHeaders, ["color"]) >= 0 ? findCol(catHeaders, ["color"]) : 4;
 
   for (var i = 1; i < firstData.length; i++) {
     var row = firstData[i];
-    var id = String(row[idI] || '').trim();
+    var id = String(row[idI] || "").trim();
     if (!id) continue;
     categories.push({
       id: id,
-      name: String(row[nameI] || '').trim() || id,
-      icon: String(row[iconI] || '').trim(),
-      description: String(row[descI] || '').trim(),
-      color: String(row[colorI] || '').trim()
+      name: String(row[nameI] || "").trim() || id,
+      icon: String(row[iconI] || "").trim(),
+      description: String(row[descI] || "").trim(),
+      color: String(row[colorI] || "").trim(),
     });
   }
 
-  var categoryIds = categories.map(function(c) { return c.id; });
+  var categoryIds = categories.map(function (c) {
+    return c.id;
+  });
   var categoryIdSet = {};
   for (var ci = 0; ci < categoryIds.length; ci++) categoryIdSet[categoryIds[ci]] = true;
 
@@ -1218,10 +1359,10 @@ function getData() {
     var sh = sheets[s];
     var title = sh.getName();
     var fromSheetName = sheetNameToCategoryId(title);
-    var fromOrder = categoryIds[s - 1] || '';
-    var catId = '';
+    var fromOrder = categoryIds[s - 1] || "";
+    var catId = "";
     if (isRwaPoolBattleSheet_(title)) {
-      catId = 'rwa';
+      catId = "rwa";
     } else if (fromSheetName && categoryIdSet[fromSheetName]) {
       catId = fromSheetName;
     } else if (fromOrder) {
@@ -1237,7 +1378,7 @@ function getData() {
     var rows = dataSh.getDataRange().getValues();
     var displayRows = dataSh.getDataRange().getDisplayValues();
     var headerRow = detectToolHeaderRow(rows);
-    var headers = (rows[headerRow] || []).map(function(h) {
+    var headers = (rows[headerRow] || []).map(function (h) {
       return normalizeHeaderCell(h);
     });
 
@@ -1252,27 +1393,37 @@ function getData() {
     var umap = unified ? mapUnifiedToolColumns_(headers) : null;
 
     var nameCol = unified
-      ? (umap.nameCol >= 0 ? umap.nameCol : umap.platformCol)
-      : colIndex(['name', 'название', 'instrument', 'инструмент']);
+      ? umap.nameCol >= 0
+        ? umap.nameCol
+        : umap.platformCol
+      : colIndex(["name", "название", "instrument", "инструмент"]);
     if (nameCol < 0) nameCol = unified ? umap.platformCol : 0;
     var apyCol = unified
-      ? (umap.apyCol >= 0 ? umap.apyCol : findApyColumnIndex_(headers))
+      ? umap.apyCol >= 0
+        ? umap.apyCol
+        : findApyColumnIndex_(headers)
       : findApyColumnIndex_(headers);
-    if (apyCol < 0) apyCol = colIndex(['apy', 'доходность', 'доход', 'yield']);
+    if (apyCol < 0) apyCol = colIndex(["apy", "доходность", "доход", "yield"]);
     if (apyCol < 0) apyCol = unified ? 13 : 1;
-    var periodCol = unified ? umap.periodCol : colIndex(['period', 'период', 'term']);
+    var periodCol = unified ? umap.periodCol : colIndex(["period", "период", "term"]);
     if (periodCol < 0) periodCol = unified ? -1 : 2;
-    var statusCol = unified ? umap.statusCol : colIndex(['status', 'статус']);
+    var statusCol = unified ? umap.statusCol : colIndex(["status", "статус"]);
     if (statusCol < 0) statusCol = unified ? -1 : 3;
-    var linkCol = unified ? umap.linkCol : colIndex(['link', 'url', 'ссылка']);
+    var linkCol = unified ? umap.linkCol : colIndex(["link", "url", "ссылка"]);
     if (linkCol < 0) linkCol = unified ? 14 : 4;
-    var descCol = unified ? umap.descCol : colIndex(['description', 'desc', 'описание']);
+    var descCol = unified ? umap.descCol : colIndex(["description", "desc", "описание"]);
     if (!unified && descCol < 0) {
       var di;
       for (di = 0; di < headers.length; di++) {
         var dh = headers[di];
-        if (dh.indexOf('описание') !== -1) { descCol = di; break; }
-        if (dh === 'description' || dh.indexOf('description') === 0) { descCol = di; break; }
+        if (dh.indexOf("описание") !== -1) {
+          descCol = di;
+          break;
+        }
+        if (dh === "description" || dh.indexOf("description") === 0) {
+          descCol = di;
+          break;
+        }
       }
     }
     if (descCol < 0) descCol = -1;
@@ -1280,79 +1431,117 @@ function getData() {
     if (!unified) {
       var pci;
       for (pci = 0; pci < headers.length; pci++) {
-        if (headers[pci] === 'pair' || headers[pci] === 'пара') { pairCol = pci; break; }
+        if (headers[pci] === "pair" || headers[pci] === "пара") {
+          pairCol = pci;
+          break;
+        }
       }
     }
-    var platformCol = unified ? umap.platformCol : colIndex(['platform', 'платформа', 'dex', 'protocol', 'протокол']);
+    var platformCol = unified
+      ? umap.platformCol
+      : colIndex(["platform", "платформа", "dex", "protocol", "протокол"]);
     if (platformCol < 0) platformCol = -1;
-    var feeCol = unified ? umap.feeCol : colIndex(['fee', 'fee tier', 'fee_tier', 'fitier', 'fi tier', 'комиссия', 'tier', 'уровень']);
+    var feeCol = unified
+      ? umap.feeCol
+      : colIndex([
+          "fee",
+          "fee tier",
+          "fee_tier",
+          "fitier",
+          "fi tier",
+          "комиссия",
+          "tier",
+          "уровень",
+        ]);
     if (feeCol < 0) feeCol = -1;
-    var chainCol = unified ? umap.chainCol : colIndex(['chain', 'blockchain', 'network', 'сеть', 'блокчейн']);
+    var chainCol = unified
+      ? umap.chainCol
+      : colIndex(["chain", "blockchain", "network", "сеть", "блокчейн"]);
     if (chainCol < 0) chainCol = -1;
-    var typeCol = colIndex(['type', 'тип', 'position type', 'pool type', 'тип позиции']);
+    var typeCol = colIndex(["type", "тип", "position type", "pool type", "тип позиции"]);
     if (typeCol < 0) typeCol = -1;
-    var minPriceCol = unified ? umap.minPriceCol : findPriceColumnIndex(headers, 'min');
-    var maxPriceCol = unified ? umap.maxPriceCol : findPriceColumnIndex(headers, 'max');
+    var minPriceCol = unified ? umap.minPriceCol : findPriceColumnIndex(headers, "min");
+    var maxPriceCol = unified ? umap.maxPriceCol : findPriceColumnIndex(headers, "max");
     var openDateCol = unified ? umap.openDateCol : -1;
     var detailIndex = unified ? {} : buildAuxiliaryDetailIndex(rows, displayRows);
 
     function pick(row, idx, def) {
-      def = def || '';
-      if (idx >= 0 && row[idx] !== undefined && row[idx] !== null && row[idx] !== '') return String(row[idx]).trim();
+      def = def || "";
+      if (idx >= 0 && row[idx] !== undefined && row[idx] !== null && row[idx] !== "")
+        return String(row[idx]).trim();
       return def;
     }
 
     function pickDisplay(r, idx, rowVals) {
-      if (idx < 0) return '';
-      if (displayRows[r] && displayRows[r][idx] !== undefined && displayRows[r][idx] !== null && displayRows[r][idx] !== '') {
+      if (idx < 0) return "";
+      if (
+        displayRows[r] &&
+        displayRows[r][idx] !== undefined &&
+        displayRows[r][idx] !== null &&
+        displayRows[r][idx] !== ""
+      ) {
         return String(displayRows[r][idx]).trim();
       }
-      return pick(rowVals, idx, '');
+      return pick(rowVals, idx, "");
     }
 
     for (var r = headerRow + 1; r < rows.length; r++) {
       var rw = rows[r];
       var name = pickDisplay(r, nameCol, rw) || pick(rw, nameCol);
-      if (!name && unified && platformCol >= 0) name = pickDisplay(r, platformCol, rw) || pick(rw, platformCol);
+      if (!name && unified && platformCol >= 0)
+        name = pickDisplay(r, platformCol, rw) || pick(rw, platformCol);
       if (!name) continue;
-      var apyDisp = apyCol >= 0 && displayRows[r] ? displayRows[r][apyCol] : '';
-      var apyRaw = apyCol >= 0 ? rw[apyCol] : '';
-      var apy = unified || apyCol >= 0
-        ? formatApyForApi_(apyRaw, apyDisp)
-        : (normalizeApyFromCell_(pickDisplay(r, apyCol, rw) || pick(rw, apyCol)) || '0');
-      var period = '';
+      var apyDisp = apyCol >= 0 && displayRows[r] ? displayRows[r][apyCol] : "";
+      var apyRaw = apyCol >= 0 ? rw[apyCol] : "";
+      var apy =
+        unified || apyCol >= 0
+          ? formatApyForApi_(apyRaw, apyDisp)
+          : normalizeApyFromCell_(pickDisplay(r, apyCol, rw) || pick(rw, apyCol)) || "0";
+      var period = "";
       if (periodCol >= 0 && !unified) {
-        period = (displayRows[r] && displayRows[r][periodCol] !== undefined && displayRows[r][periodCol] !== '')
-          ? String(displayRows[r][periodCol]).trim()
-          : pick(rw, periodCol);
+        period =
+          displayRows[r] &&
+          displayRows[r][periodCol] !== undefined &&
+          displayRows[r][periodCol] !== ""
+            ? String(displayRows[r][periodCol]).trim()
+            : pick(rw, periodCol);
       }
       if ((!period || unified) && openDateCol >= 0) {
-        var openRaw = openDateCol >= 0 ? rw[openDateCol] : '';
+        var openRaw = openDateCol >= 0 ? rw[openDateCol] : "";
         var openDisp = pickDisplay(r, openDateCol, rw) || pick(rw, openDateCol);
         period = periodFromOpenDateCell_(openRaw, openDisp);
       }
-      if (!period) period = '7d';
-      var status = statusCol >= 0 ? (pick(rw, statusCol) || 'active').toLowerCase() : 'active';
-      if (status !== 'warning' && status !== 'внимание') status = 'active'; else status = 'warning';
-      var link = pickDisplay(r, linkCol, rw) || pick(rw, linkCol) || '#';
-      var desc = descCol >= 0 ? pick(rw, descCol) : '';
-      var pair = pairCol >= 0 ? (pickDisplay(r, pairCol, rw) || pick(rw, pairCol, '')) : '';
-      var platform = platformCol >= 0 ? (pickDisplay(r, platformCol, rw) || pick(rw, platformCol)) : '';
+      if (!period) period = "7d";
+      var status = statusCol >= 0 ? (pick(rw, statusCol) || "active").toLowerCase() : "active";
+      if (status !== "warning" && status !== "внимание") status = "active";
+      else status = "warning";
+      var link = pickDisplay(r, linkCol, rw) || pick(rw, linkCol) || "#";
+      var desc = descCol >= 0 ? pick(rw, descCol) : "";
+      var pair = pairCol >= 0 ? pickDisplay(r, pairCol, rw) || pick(rw, pairCol, "") : "";
+      var platform =
+        platformCol >= 0 ? pickDisplay(r, platformCol, rw) || pick(rw, platformCol) : "";
       if (!platform) platform = name;
       if (shouldSkipToolRow_(catId, pair, name, platform)) continue;
-      var feeDisp = feeCol >= 0 && displayRows[r] ? displayRows[r][feeCol] : '';
-      var feeRaw = feeCol >= 0 ? rw[feeCol] : '';
-      var fee = (unified || feeCol >= 0)
-        ? formatFeeForApi_(feeRaw, feeDisp)
-        : (feeCol >= 0 ? pick(rw, feeCol) : '');
-      var chain = chainCol >= 0 ? (pickDisplay(r, chainCol, rw) || pick(rw, chainCol)) : '';
-      var type = typeCol >= 0 ? pick(rw, typeCol) : '';
+      var feeDisp = feeCol >= 0 && displayRows[r] ? displayRows[r][feeCol] : "";
+      var feeRaw = feeCol >= 0 ? rw[feeCol] : "";
+      var fee =
+        unified || feeCol >= 0
+          ? formatFeeForApi_(feeRaw, feeDisp)
+          : feeCol >= 0
+            ? pick(rw, feeCol)
+            : "";
+      var chain = chainCol >= 0 ? pickDisplay(r, chainCol, rw) || pick(rw, chainCol) : "";
+      var type = typeCol >= 0 ? pick(rw, typeCol) : "";
       var priceMin = unified
         ? pickRangeValue_(r, minPriceCol, rw, displayRows)
-        : (minPriceCol >= 0 ? (pickDisplay(r, minPriceCol, rw) || pick(rw, minPriceCol)) : '');
+        : minPriceCol >= 0
+          ? pickDisplay(r, minPriceCol, rw) || pick(rw, minPriceCol)
+          : "";
       var priceMax = unified
         ? pickRangeValue_(r, maxPriceCol, rw, displayRows)
-        : (maxPriceCol >= 0 ? (pickDisplay(r, maxPriceCol, rw) || pick(rw, maxPriceCol)) : '');
+        : maxPriceCol >= 0
+          ? pickDisplay(r, maxPriceCol, rw) || pick(rw, maxPriceCol)
+          : "";
       if (!desc && (chain || fee)) desc = buildSolanaDesc_(chain, fee);
       var enriched = enrichPoolBattleFields(name, desc, platform, chain, fee);
       platform = enriched.platform;
@@ -1365,18 +1554,18 @@ function getData() {
           if (detail.pair) pair = detail.pair;
           if (detail.chain) chain = detail.chain;
           if (detail.fee) fee = detail.fee;
-          if (catId !== 'rwa') {
+          if (catId !== "rwa") {
             if (detail.priceMin) priceMin = detail.priceMin;
             if (detail.priceMax) priceMax = detail.priceMax;
           }
           if (detail.apy) {
-            var detailApy = normalizeApyFromCell_(detail.apy).replace(/\s/g, '').replace(',', '.');
-            var primaryApy = normalizeApyFromCell_(apy).replace(/\s/g, '').replace(',', '.');
-            if (!primaryApy || primaryApy === '0' || primaryApy === '0.0') apy = detailApy;
+            var detailApy = normalizeApyFromCell_(detail.apy).replace(/\s/g, "").replace(",", ".");
+            var primaryApy = normalizeApyFromCell_(apy).replace(/\s/g, "").replace(",", ".");
+            if (!primaryApy || primaryApy === "0" || primaryApy === "0.0") apy = detailApy;
           }
         }
       }
-      if (catId === 'rwa') {
+      if (catId === "rwa") {
         priceMin = RWA_RANGE_MIN_LABEL;
         priceMax = RWA_RANGE_MAX_LABEL;
       }
@@ -1394,16 +1583,16 @@ function getData() {
         priceMax: priceMax,
         apy: apy,
         period: period,
-        openDate: (openDateCol >= 0) ? (pickDisplay(r, openDateCol, rw) || pick(rw, openDateCol)) : '',
+        openDate: openDateCol >= 0 ? pickDisplay(r, openDateCol, rw) || pick(rw, openDateCol) : "",
         status: status,
         link: link,
         desc: desc,
-        descEn: desc
+        descEn: desc,
       });
     }
   }
 
-  return { categories: categories, tools: allTools, apiVersion: 4, source: 'apps-script' };
+  return { categories: categories, tools: allTools, apiVersion: 4, source: "apps-script" };
 }
 
 function doGet(e) {
@@ -1418,12 +1607,14 @@ function doGet(e) {
 
   if (callback) {
     var jsonStr = JSON.stringify(data);
-    var safeCallback = String(callback).replace(/[^a-zA-Z0-9_.]/g, '');
-    out = ContentService.createTextOutput(safeCallback + '(' + jsonStr + ')')
-      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+    var safeCallback = String(callback).replace(/[^a-zA-Z0-9_.]/g, "");
+    out = ContentService.createTextOutput(safeCallback + "(" + jsonStr + ")").setMimeType(
+      ContentService.MimeType.JAVASCRIPT,
+    );
   } else {
-    out = ContentService.createTextOutput(JSON.stringify(data))
-      .setMimeType(ContentService.MimeType.JSON);
+    out = ContentService.createTextOutput(JSON.stringify(data)).setMimeType(
+      ContentService.MimeType.JSON,
+    );
   }
 
   return out;
