@@ -5,6 +5,9 @@
     },
     "api/solana-pda.mjs": {
       "maxDuration": 10
+    },
+    "api/sheet-data.js": {
+      "maxDuration": 30
     }
   },
   "rewrites": [{ "source": "/", "destination": "/index.html" }],

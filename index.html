@@ -3163,7 +3163,10 @@
         var needsFix = data.tools.some(function (t) {
           return (
             (t.categoryId === "ethereum" || t.categoryId === "bitcoin" || t.categoryId === "rwa") &&
-            (isAbsurdPeriodValue(t.period) || !String(t.period || "").trim() || !t.openDate)
+            (isAbsurdPeriodValue(t.period) ||
+              !String(t.period || "").trim() ||
+              !t.openDate ||
+              (t.categoryId === "rwa" && !parseApyNumber(t.apy)))
           );
         });
         if (!needsFix) return Promise.resolve(data);
@@ -3171,31 +3174,9 @@
         return fetchGvizSheetByScript("ethereum").then(function (ethRows) {
           return fetchGvizSheetByScript("bitcoin").then(function (btcRows) {
             return fetchRwaToolsFromPublicSheet().then(function (rwaRows) {
-              var index = {};
-              var all = ethRows.concat(btcRows).concat(
-                rwaRows.map(function (t) {
-                  return {
-                    platform: t.platform,
-                    pair: t.pair,
-                    link: t.link,
-                    openDate: t.openDate,
-                    period: t.period,
-                    apy: t.apy,
-                    fee: t.fee,
-                    chain: t.chain,
-                  };
-                }),
-              );
-              var j;
-              for (j = 0; j < all.length; j++) {
-                var row = all[j];
-                if (row.link) index[normalizeLinkKeyForPatch(row.link)] = row;
-                var pk =
-                  poolBattleIdentityPart(row.platform) +
-                  "\u0001" +
-                  poolBattleIdentityPart(row.pair);
-                if (pk !== "\u0001") index[pk] = row;
-              }
+              patchPoolBattleToolsFromRows(data.tools, ethRows, "ethereum");
+              patchPoolBattleToolsFromRows(data.tools, btcRows, "bitcoin");
+              patchPoolBattleToolsFromRows(data.tools, rwaRows, "rwa");
               data.tools.forEach(function (t) {
                 if (
                   t.categoryId !== "ethereum" &&
@@ -3203,18 +3184,6 @@
                   t.categoryId !== "rwa"
                 )
                   return;
-                var patch =
-                  index[normalizeLinkKeyForPatch(t.link)] ||
-                  index[
-                    poolBattleIdentityPart(t.platform) + "\u0001" + poolBattleIdentityPart(t.pair)
-                  ];
-                if (patch) {
-                  if (patch.openDate) t.openDate = patch.openDate;
-                  if (patch.period) t.period = patch.period;
-                  if (patch.apy && (!t.apy || parseApyNumber(t.apy) <= 0)) t.apy = patch.apy;
-                  if (patch.fee && !t.fee) t.fee = patch.fee;
-                  if (patch.chain && !t.chain) t.chain = patch.chain;
-                }
                 if (isAbsurdPeriodValue(t.period) || !String(t.period || "").trim()) {
                   t.period = t.openDate ? periodFromOpenDateString(t.openDate) : "";
                 }
@@ -3272,12 +3241,9 @@
 
       function appendRwaToolsToData(data, rwaTools) {
         if (!data || !Array.isArray(data.tools) || !rwaTools || !rwaTools.length) return data;
-        if (
-          data.tools.some(function (t) {
-            return t.categoryId === "rwa";
-          })
-        )
-          return data;
+        data.tools = data.tools.filter(function (t) {
+          return t.categoryId !== "rwa";
+        });
         var maxId = 0;
         data.tools.forEach(function (t) {
           if (t.id > maxId) maxId = t.id;
@@ -3290,6 +3256,38 @@
         return data;
       }
 
+      function patchPoolBattleToolsFromRows(tools, rows, categoryId) {
+        if (!tools || !rows || !rows.length) return tools;
+        var index = {};
+        var j;
+        for (j = 0; j < rows.length; j++) {
+          var row = rows[j];
+          if (row.link) index[normalizeLinkKeyForPatch(row.link)] = row;
+          var pk =
+            poolBattleIdentityPart(row.platform || row.name) +
+            "\u0001" +
+            poolBattleIdentityPart(row.pair);
+          if (pk !== "\u0001") index[pk] = row;
+        }
+        tools.forEach(function (t) {
+          if (t.categoryId !== categoryId) return;
+          var patch =
+            index[normalizeLinkKeyForPatch(t.link)] ||
+            index[
+              poolBattleIdentityPart(t.platform || t.name) +
+                "\u0001" +
+                poolBattleIdentityPart(t.pair)
+            ];
+          if (!patch) return;
+          if (patch.apy && (!t.apy || !parseApyNumber(t.apy))) t.apy = patch.apy;
+          if (patch.period) t.period = patch.period;
+          if (patch.openDate) t.openDate = patch.openDate;
+          if (patch.fee && !t.fee) t.fee = patch.fee;
+          if (patch.chain && !t.chain) t.chain = patch.chain;
+        });
+        return tools;
+      }
+
       function applyRwaCacheToAllTools() {
         var cache = window.__defilabsRwaCache;
         if (!cache || !cache.length) return false;
@@ -3297,8 +3295,10 @@
           allTools.some(function (t) {
             return t.categoryId === "rwa";
           })
-        )
-          return false;
+        ) {
+          patchPoolBattleToolsFromRows(allTools, cache, "rwa");
+          return true;
+        }
         var maxId = 0;
         allTools.forEach(function (t) {
           if (t.id > maxId) maxId = t.id;
@@ -3403,23 +3403,16 @@
         if (!data || !Array.isArray(data.tools)) {
           return Promise.resolve(data || { categories: [], tools: [] });
         }
-        var existing = data.tools.filter(function (t) {
-          return t.categoryId === "rwa";
-        });
-        if (existing.length > 0 && !rwaToolsNeedGvizRefresh(existing)) {
-          return Promise.resolve(data);
-        }
-        if (existing.length > 0) {
-          data.tools = data.tools.filter(function (t) {
-            return t.categoryId !== "rwa";
-          });
-        }
-        if (window.__defilabsRwaCache && window.__defilabsRwaCache.length) {
-          appendRwaToolsToData(data, window.__defilabsRwaCache);
-          return Promise.resolve(data);
-        }
         return fetchRwaToolsFromPublicSheet().then(function (rwaTools) {
           if (!rwaTools.length) return data;
+          var existing = data.tools.filter(function (t) {
+            return t.categoryId === "rwa";
+          });
+          if (existing.length > 0) {
+            patchPoolBattleToolsFromRows(data.tools, rwaTools, "rwa");
+            console.log("DeFi Navigator: RWA APY/период из таблицы (gviz patch):", rwaTools.length);
+            return data;
+          }
           appendRwaToolsToData(data, rwaTools);
           console.log("DeFi Navigator: RWA подгружено из таблицы (gviz):", rwaTools.length);
           return data;
@@ -4265,7 +4258,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      // ========== DATA STRUCTURE ==========
+      var NAVIGATOR_BUILD = "20260529b";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
@@ -4566,8 +4559,62 @@
         }
       }
 
+      function getSheetDataApiUrl() {
+        try {
+          var h = (window.location.hostname || "").toLowerCase();
+          if (h.indexOf("vercel.app") !== -1 || h === "localhost" || h === "127.0.0.1") {
+            return "/api/sheet-data";
+          }
+        } catch (e) {}
+        return "";
+      }
+
+      function loadDataFromSheetApi() {
+        var url = getSheetDataApiUrl();
+        if (!url) return Promise.resolve(null);
+        return fetch(url, { credentials: "same-origin", cache: "no-store" })
+          .then(function (r) {
+            if (!r.ok) throw new Error("sheet-data HTTP " + r.status);
+            return r.json();
+          })
+          .then(function (data) {
+            if (!data || !Array.isArray(data.tools)) throw new Error("sheet-data empty");
+            return mergeRwaFromSheetIfMissing(data).then(function (merged) {
+              return mergePoolBattlePeriodsFromGviz(merged);
+            });
+          })
+          .then(function (merged) {
+            applyLoadedData(merged);
+            console.log("DeFi Navigator: данные из /api/sheet-data", {
+              tools: allTools.length,
+              rwa: allTools.filter(function (t) {
+                return t.categoryId === "rwa";
+              }).length,
+              apiVersion: merged && merged.apiVersion,
+            });
+            try {
+              setDataBadge("ok", new Date());
+            } catch (e) {}
+            return { apiCallbackReceived: true, source: "sheet-data" };
+          })
+          .catch(function (err) {
+            console.warn("DeFi Navigator: /api/sheet-data", err);
+            return null;
+          });
+      }
+
       /** Данные из Google Таблицы через Apps Script (DATA_API_URL). Vercel env не нужен. */
       function loadDataOnce() {
+        return loadDataFromSheetApi().then(function (sheetMeta) {
+          if (sheetMeta) {
+            finishDataLoad();
+            return sheetMeta;
+          }
+          return loadDataOnceFromGas();
+        });
+      }
+
+      function loadDataOnceFromGas() {
         var g = getGoogleAppsScriptApiUrl();
         if (!g.useApi) {
           try {
