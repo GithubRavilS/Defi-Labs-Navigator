@@ -8,12 +8,12 @@ export default async function middleware(request) {
   }
 
   const fixScript =
-    '<script src="' + new URL("/nav-fix.js?v=2", request.url).toString() + '"></script>';
+    '<script src="https://cdn.jsdelivr.net/gh/GithubRavilS/Defi-Labs-Navigator@main/nav-fix.js"></script>';
 
   try {
     const gh = await fetch(
       "https://raw.githubusercontent.com/GithubRavilS/Defi-Labs-Navigator/main/index.html",
-      { next: { revalidate: 15 } },
+      { headers: { "cache-control": "no-cache" } },
     );
     if (gh.ok) {
       let html = await gh.text();

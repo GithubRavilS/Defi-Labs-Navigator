@@ -4329,6 +4329,7 @@
           if (window.location.protocol === "file:") return false;
           var h = (window.location.hostname || "").toLowerCase();
           if (h.indexOf("defilabsvipnavigator.vercel.app") !== -1) return true;
+          if (h.indexOf("github.io") !== -1) return false;
           if (h === "localhost" || h === "127.0.0.1") return true;
           return false;
         } catch (e) {
