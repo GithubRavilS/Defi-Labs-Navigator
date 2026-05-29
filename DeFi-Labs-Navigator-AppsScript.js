@@ -316,6 +316,9 @@ var POOL_BATTLE_UNIFIED_LABELS = [
   "Инвестировано USD",
 ];
 var RWA_DAILY_LOG_SHEET = "RWA_DAILY_LOG";
+/** Одна строка на позицию в календарный день (для графиков по дням). */
+var RWA_INCOME_DAILY_SHEET = "RWA_INCOME_DAILY";
+var RWA_DISPLAY_TZ = "Europe/Warsaw";
 /** RWA на сайте: фиксированный «диапазон» ±10% (в лист не пишем цены). */
 var RWA_RANGE_MIN_LABEL = "-10%";
 var RWA_RANGE_MAX_LABEL = "+10%";
@@ -431,22 +434,53 @@ function aprPercentNumberFromElement_(el, liq) {
   return frac <= 1 && frac >= -1 ? frac * 100 : frac;
 }
 
-/** APY: реинвест раз в месяц (сложный процент), APR — простая годовая от Jupiter. */
+/** APY: реинвест раз в месяц (сложный процент) от годовой ставки APR. */
 function apyPercentFromAprMonthly_(aprPct) {
   if (!aprPct || isNaN(aprPct)) return 0;
   var r = aprPct / 100 / 12;
   return (Math.pow(1 + r, 12) - 1) * 100;
 }
 
-function apyPercentFromElement_(el, liq) {
-  var apr = aprPercentNumberFromElement_(el, liq);
-  var apy = apyPercentFromAprMonthly_(apr);
-  return String(Math.round(apy * 10) / 10) + "%";
+function formatDateTimeWarsaw_(ms) {
+  if (!ms || isNaN(ms)) return "";
+  return Utilities.formatDate(new Date(ms), RWA_DISPLAY_TZ, "dd.MM.yyyy HH:mm");
 }
 
-function aprPercentFromElement_(el, liq) {
-  var apr = aprPercentNumberFromElement_(el, liq);
-  return String(Math.round(apr * 10) / 10) + "%";
+function hoursElapsedSinceMs_(ms) {
+  if (!ms || isNaN(ms)) return 24;
+  return Math.max(1, (Date.now() - Number(ms)) / 3600000);
+}
+
+/** Суммарный доход комиссий в USD: стейблы + RWA-токен (как в Jupiter, без ручного пересчёта). */
+function rwaTotalFeeIncomeUsd_(rewards, liq, tokenInfo) {
+  var rew = rewards || splitRewardAssets_(liq, tokenInfo);
+  var sum = (Number(rew.stableUsd) || 0) + (Number(rew.assetUsd) || 0);
+  if (sum > 0) return sum;
+  return extractFeeIncomeUsd_(liq, tokenInfo);
+}
+
+/**
+ * Текущая годовая доходность от накопленных комиссий за фактическое время позиции.
+ * feeUsd / invested → за период; × (365×24/часов) → простой APR; APY — с реинвестом раз в месяц.
+ */
+function apyAprFromFeeIncome_(feeUsd, investedUsd, openMs) {
+  var inv = Number(investedUsd);
+  var fee = Number(feeUsd);
+  if (!inv || inv <= 0 || fee < 0 || isNaN(fee)) {
+    return { apr: "0%", apy: "0%", aprNum: 0, apyNum: 0, hours: hoursElapsedSinceMs_(openMs) };
+  }
+  var hours = hoursElapsedSinceMs_(openMs);
+  var periodReturn = fee / inv;
+  var aprNum = periodReturn * ((365 * 24) / hours) * 100;
+  if (!isFinite(aprNum) || aprNum < 0) aprNum = 0;
+  var apyNum = apyPercentFromAprMonthly_(aprNum);
+  return {
+    apr: String(Math.round(aprNum * 10) / 10) + "%",
+    apy: String(Math.round(apyNum * 10) / 10) + "%",
+    aprNum: aprNum,
+    apyNum: apyNum,
+    hours: hours,
+  };
 }
 
 /** Строка APY для ячеек таблицы — без авто-даты (20.07 → 20 июля). */
@@ -617,6 +651,63 @@ function openTimestampMsFromElement_(el, liq) {
   return !ms || isNaN(ms) ? null : ms;
 }
 
+function parseOpenDateWarsawToMs_(dateStr) {
+  var s = String(dateStr || "").trim();
+  if (!s) return null;
+  try {
+    if (/\d{1,2}:\d{2}/.test(s)) {
+      return Utilities.parseDate(s, RWA_DISPLAY_TZ, "dd.MM.yyyy HH:mm").getTime();
+    }
+    return Utilities.parseDate(s, RWA_DISPLAY_TZ, "dd.MM.yyyy").getTime();
+  } catch (e) {
+    return null;
+  }
+}
+
+function persistRwaOpenMs_(linkKey, ms) {
+  if (!linkKey || !ms || isNaN(ms)) return;
+  var props = PropertiesService.getScriptProperties();
+  var k = "RWA_OPEN_MS_" + linkKey;
+  var stored = props.getProperty(k);
+  if (!stored || Number(stored) > ms) props.setProperty(k, String(ms));
+}
+
+function resolveRwaOpenMs_(link, el, liq) {
+  var linkKey = normalizeLinkKey(link);
+  var apiMs = openTimestampMsFromElement_(el, liq);
+  if (!linkKey) return apiMs;
+  var props = PropertiesService.getScriptProperties();
+  var k = "RWA_OPEN_MS_" + linkKey;
+  var stored = props.getProperty(k);
+  if (stored) {
+    var sMs = Number(stored);
+    if (apiMs && apiMs < sMs) {
+      props.setProperty(k, String(apiMs));
+      return apiMs;
+    }
+    return sMs;
+  }
+  if (apiMs) {
+    props.setProperty(k, String(apiMs));
+    return apiMs;
+  }
+  return null;
+}
+
+/** Перед перезаписью листа — сохранить дату открытия из ячеек (с часами). */
+function harvestRwaOpenDatesFromSheet_(sh) {
+  var last = sh.getLastRow();
+  if (last < 2) return;
+  var openDisp = sh.getRange(2, 4, last, 4).getDisplayValues();
+  var links = sh.getRange(2, 15, last, 15).getDisplayValues();
+  var i;
+  for (i = 0; i < openDisp.length; i++) {
+    var ms = parseOpenDateWarsawToMs_(openDisp[i][0]);
+    var lk = normalizeLinkKey(links[i][0]);
+    if (ms && lk) persistRwaOpenMs_(lk, ms);
+  }
+}
+
 function periodFromTimestampMs_(ms) {
   if (!ms || isNaN(Number(ms))) return "0 ч";
   var hours = Math.max(0, Math.floor((Date.now() - Number(ms)) / 3600000));
@@ -626,28 +717,30 @@ function periodFromTimestampMs_(ms) {
 
 function periodFromOpenDateString_(dateStr) {
   var s = String(dateStr || "").trim();
-  var m = s.match(/(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})/);
+  var m = s.match(/(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
   if (!m) return "";
   var y = parseInt(m[3], 10);
   if (y < 100) y += 2000;
-  var opened = new Date(y, parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+  var hh = m[4] != null ? parseInt(m[4], 10) : 0;
+  var mm = m[5] != null ? parseInt(m[5], 10) : 0;
+  var opened = new Date(y, parseInt(m[2], 10) - 1, parseInt(m[1], 10), hh, mm);
   if (isNaN(opened.getTime())) return "";
-  return Math.max(0, Math.floor((Date.now() - opened.getTime()) / 86400000)) + " дн";
+  var hours = Math.max(0, Math.floor((Date.now() - opened.getTime()) / 3600000));
+  if (hours < 72) return hours + " ч";
+  return Math.floor(hours / 24) + " дн";
 }
 
-/** Период из ячейки «Дата открытия»: display dd.mm.yyyy или serial Google Sheets. */
+/** Период из ячейки «Дата открытия»: display dd.mm.yyyy HH:mm (Варшава) или serial Sheets. */
 function periodFromOpenDateCell_(rawVal, displayVal) {
   var fromDisp = periodFromOpenDateString_(displayVal);
   if (fromDisp) return fromDisp;
   if (rawVal instanceof Date && !isNaN(rawVal.getTime())) {
-    return Math.max(0, Math.floor((Date.now() - rawVal.getTime()) / 86400000)) + " дн";
+    return periodFromTimestampMs_(rawVal.getTime());
   }
   if (typeof rawVal === "number" && !isNaN(rawVal) && rawVal > 20000 && rawVal < 80000) {
     var base = new Date(Date.UTC(1899, 11, 30));
     var opened = new Date(base.getTime() + Math.round(rawVal) * 86400000);
-    if (!isNaN(opened.getTime())) {
-      return Math.max(0, Math.floor((Date.now() - opened.getTime()) / 86400000)) + " дн";
-    }
+    if (!isNaN(opened.getTime())) return periodFromTimestampMs_(opened.getTime());
   }
   return periodFromOpenDateString_(String(rawVal || ""));
 }
@@ -677,7 +770,7 @@ function mapLiquidityToRow_(el, liq, tokenInfo, wallet) {
   var fee = extractFeePercent_(poolName) || extractFeePercent_(el.name) || "";
   var chain = "solana";
   var rewards = splitRewardAssets_(liq, tokenInfo);
-  var feeTotalUsd = extractFeeIncomeUsd_(liq, tokenInfo);
+  var feeTotalUsd = rwaTotalFeeIncomeUsd_(rewards, liq, tokenInfo);
   var invested =
     liq && liq.value != null
       ? Number(liq.value)
@@ -685,17 +778,14 @@ function mapLiquidityToRow_(el, liq, tokenInfo, wallet) {
         ? Number(liq.assetsValue)
         : 0;
   if (isNaN(invested)) invested = 0;
-  var openMs = openTimestampMsFromElement_(el, liq);
-  var openDate = openMs
-    ? Utilities.formatDate(new Date(openMs), Session.getScriptTimeZone() || "GMT", "dd.MM.yyyy")
-    : openDateFromElement_(el, liq);
+  var openMs = resolveRwaOpenMs_(link, el, liq);
+  var openDate = openMs ? formatDateTimeWarsaw_(openMs) : openDateFromElement_(el, liq);
   var period = openMs ? periodFromTimestampMs_(openMs) : periodFromOpenDateString_(openDate);
-  var apr = aprPercentFromElement_(el, liq);
-  var apy = apyPercentFromElement_(el, liq);
+  var yields = apyAprFromFeeIncome_(feeTotalUsd, invested, openMs);
   return {
     name: platform,
-    apr: apr,
-    apy: apy,
+    apr: yields.apr,
+    apy: yields.apy,
     period: period,
     status: "active",
     link: link || "#",
@@ -708,11 +798,14 @@ function mapLiquidityToRow_(el, liq, tokenInfo, wallet) {
     priceMin: "",
     priceMax: "",
     openDate: openDate,
+    openMs: openMs || "",
     earnedStables: rewards.stableUsd,
     earnedAsset: rewards.assetAmount,
+    earnedAssetUsd: rewards.assetUsd,
     earnedAssetSymbol: rewards.assetSymbol,
     totalFeeIncome: feeTotalUsd,
     investedUsd: invested,
+    hoursOpen: yields.hours,
   };
 }
 
@@ -742,7 +835,7 @@ function jupiterElementsToRows_(payload, wallet) {
     }
   }
   rows.sort(function (a, b) {
-    return parseFloat(b.apy) - parseFloat(a.apy);
+    return parseFloat(String(b.apy)) - parseFloat(String(a.apy));
   });
   return rows;
 }
@@ -813,6 +906,7 @@ function rwaRowToUnifiedLine_(row) {
 
 function writeRwaPoolBattleSheet_(sh, rows) {
   if (!rows || !rows.length) return 0;
+  harvestRwaOpenDatesFromSheet_(sh);
   var cols = POOL_BATTLE_UNIFIED_LABELS.length;
   var wallet = getRwaWalletFromSheet_(sh);
   sh.getRange("A1:W120").clearContent();
@@ -830,43 +924,110 @@ function ensureRwaDailyLogSheet_(ss) {
   var sh = ss.getSheetByName(RWA_DAILY_LOG_SHEET);
   if (sh) return sh;
   sh = ss.insertSheet(RWA_DAILY_LOG_SHEET);
-  sh.getRange(1, 1, 1, 10).setValues([
+  sh.getRange(1, 1, 1, 12).setValues([
     [
-      "Дата",
+      "Синк (Варшава)",
+      "День",
       "Платформа",
       "Пара",
       "Ссылка",
-      "Заработано стейблов USD",
-      "Заработано актива",
-      "Символ",
+      "Стейблы USD",
+      "Актив USD",
+      "Символ актива",
       "Итого комс USD",
       "Инвестировано USD",
-      "APY",
+      "APY расчётный",
+      "Часов с открытия",
     ],
   ]);
   return sh;
 }
 
-function appendRwaDailyLog_(ss, rows) {
+function ensureRwaIncomeDailySheet_(ss) {
+  var sh = ss.getSheetByName(RWA_INCOME_DAILY_SHEET);
+  if (sh) return sh;
+  sh = ss.insertSheet(RWA_INCOME_DAILY_SHEET);
+  sh.getRange(1, 1, 1, 11).setValues([
+    [
+      "День",
+      "Платформа",
+      "Пара",
+      "Ссылка",
+      "Стейблы USD",
+      "Актив USD",
+      "Итого комс USD",
+      "Инвестировано USD",
+      "APY %",
+      "Часов",
+      "Обновлено",
+    ],
+  ]);
+  return sh;
+}
+
+function upsertRwaIncomeDailySnapshot_(ss, rows) {
   if (!rows || !rows.length) return;
-  var logSh = ensureRwaDailyLogSheet_(ss);
-  var day = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "GMT", "dd.MM.yyyy");
-  var out = rows.map(function (row) {
-    return [
+  var sh = ensureRwaIncomeDailySheet_(ss);
+  var day = Utilities.formatDate(new Date(), RWA_DISPLAY_TZ, "yyyy-MM-dd");
+  var updatedAt = Utilities.formatDate(new Date(), RWA_DISPLAY_TZ, "dd.MM.yyyy HH:mm");
+  var last = sh.getLastRow();
+  var existing = last > 1 ? sh.getRange(2, 1, last, 11).getValues() : [];
+  var index = {};
+  var i;
+  for (i = 0; i < existing.length; i++) {
+    var key = String(existing[i][0]) + "|" + normalizeLinkKey(String(existing[i][3] || ""));
+    index[key] = i + 2;
+  }
+  for (i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    var linkKey = normalizeLinkKey(row.link);
+    var dayKey = day + "|" + linkKey;
+    var line = [
       day,
       row.platform,
       row.pair,
       row.link,
       row.earnedStables,
-      row.earnedAsset,
+      row.earnedAssetUsd != null ? row.earnedAssetUsd : "",
+      row.totalFeeIncome,
+      row.investedUsd,
+      row.apy,
+      row.hoursOpen != null ? row.hoursOpen : "",
+      updatedAt,
+    ];
+    if (index[dayKey]) {
+      sh.getRange(index[dayKey], 1, 1, 11).setValues([line]);
+    } else {
+      sh.appendRow(line);
+      index[dayKey] = sh.getLastRow();
+    }
+  }
+}
+
+function appendRwaDailyLog_(ss, rows) {
+  if (!rows || !rows.length) return;
+  var logSh = ensureRwaDailyLogSheet_(ss);
+  var syncAt = Utilities.formatDate(new Date(), RWA_DISPLAY_TZ, "dd.MM.yyyy HH:mm");
+  var day = Utilities.formatDate(new Date(), RWA_DISPLAY_TZ, "dd.MM.yyyy");
+  var out = rows.map(function (row) {
+    return [
+      syncAt,
+      day,
+      row.platform,
+      row.pair,
+      row.link,
+      row.earnedStables,
+      row.earnedAssetUsd != null ? row.earnedAssetUsd : row.earnedAsset,
       row.earnedAssetSymbol,
       row.totalFeeIncome,
       row.investedUsd,
       row.apy,
+      row.hoursOpen != null ? row.hoursOpen : "",
     ];
   });
   var start = logSh.getLastRow() + 1;
-  logSh.getRange(start, 1, out.length, 10).setValues(out);
+  logSh.getRange(start, 1, out.length, 12).setValues(out);
+  upsertRwaIncomeDailySnapshot_(ss, rows);
 }
 
 /** VIP Navigator Data для RWA не используем — только таблица DeFi Labs Navigator. */
@@ -1017,7 +1178,36 @@ function onOpen() {
     .addItem("Диагностика Jupiter API (журнал)", "diagnoseRwaJupiterApi")
     .addItem("Авто-синх RWA каждый час", "installRwaHourlyTrigger")
     .addItem("Отключить авто-синх RWA", "removeRwaHourlyTrigger")
+    .addItem("Открытие RWA: вчера 16:00 (Варшава)", "anchorAllRwaOpenYesterday16Warsaw_")
     .addToUi();
+}
+
+/** Разовая фиксация времени открытия (~вчера 16:00 по Варшаве), если Jupiter отдаёт неверную дату. */
+function anchorAllRwaOpenYesterday16Warsaw_() {
+  var sh = findRwaSheet_(openRwaSourceSpreadsheet_());
+  if (!sh) throw new Error("Нет листа «" + RWA_SHEET_TITLE_CANONICAL + "»");
+  var last = sh.getLastRow();
+  if (last < 2) throw new Error("Сначала синхронизируйте RWA или заполните таблицу");
+  var links = sh.getRange(2, 15, last, 15).getDisplayValues();
+  var yesterdayStr = Utilities.formatDate(
+    new Date(Date.now() - 86400000),
+    RWA_DISPLAY_TZ,
+    "dd.MM.yyyy",
+  );
+  var ms = parseOpenDateWarsawToMs_(yesterdayStr + " 16:00");
+  if (!ms) throw new Error("Не удалось разобрать дату " + yesterdayStr + " 16:00");
+  var n = 0;
+  for (var i = 0; i < links.length; i++) {
+    var lk = normalizeLinkKey(links[i][0]);
+    if (!lk) continue;
+    persistRwaOpenMs_(lk, ms);
+    n++;
+  }
+  SpreadsheetApp.getActiveSpreadsheet().toast(
+    "Зафиксировано открытие " + yesterdayStr + " 16:00 для " + n + " поз. → «Синхронизировать RWA»",
+    "DeFi Navigator",
+    10,
+  );
 }
 
 function findCol(row, names) {
