@@ -9,7 +9,8 @@
     "lint": "nano-staged --unstaged --quiet --bail",
     "prepare": "husky",
     "test:pair": "node scripts/test-pair-resolution.mjs",
-    "test:rwa": "node scripts/test-jupiter-rwa-map.mjs"
+    "test:rwa": "node scripts/test-jupiter-rwa-map.mjs",
+    "push:rwa": "node scripts/push-rwa-jupiter-a1.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

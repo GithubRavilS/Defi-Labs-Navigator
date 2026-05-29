@@ -6,6 +6,7 @@
  * 1. Открой https://script.google.com
  * 2. Новый проект → удали весь код в редакторе и вставь сюда ВЕСЬ этот файл.
  * 3. Сохрани (Ctrl+S). SPREADSHEET_ID — сайт; ETH/BTC/RWA — одна таблица с A1 (без блоков H30).
+ *    RWA: в «Свойства скрипта» задай JUPITER_API_KEY (portal.jup.ag, Free) — без ключа Jupiter отдаёт 0 позиций.
  * 4. Меню «Развёртывание» → «Новое развёртывание» → тип «Веб-приложение».
  * 5. Описание: например «DeFi Navigator API». Выполнять от имени: «Я». Доступ: «Все».
  * 6. Нажми «Развернуть», скопируй URL (он вида …/exec).
@@ -146,9 +147,20 @@ function verifyRwaSpreadsheetTarget() {
   var sh = findRwaSheet_(ss);
   if (!sh) throw new Error("Нет листа «" + RWA_SHEET_TITLE_CANONICAL + "»");
   var id = ss.getId();
-  var msg = "OK · «" + ss.getName() + "» · ID " + id;
+  var keyOk = !!getJupiterApiKey_();
+  var msg =
+    "OK · «" +
+    ss.getName() +
+    "» · ID " +
+    id +
+    (keyOk ? " · Jupiter key ✓" : " · НЕТ JUPITER_API_KEY в свойствах скрипта!");
   writeRwaSyncStatus_(sh, msg.slice(0, 240));
-  return { spreadsheetTitle: ss.getName(), spreadsheetId: id, sheet: sh.getName() };
+  return {
+    spreadsheetTitle: ss.getName(),
+    spreadsheetId: id,
+    sheet: sh.getName(),
+    jupiterApiKey: keyOk,
+  };
 }
 
 function isUnifiedPoolBattleHeaderRow_(headers) {
@@ -310,7 +322,6 @@ var POOL_BATTLE_UNIFIED_LABELS = [
   "Пара",
   "Блокчейн",
   "fee_tier",
-  "APR",
   "APY",
   "Ссылка",
   "Инвестировано USD",
@@ -421,24 +432,28 @@ function extractFeePercent_(text) {
   return String(m[1]).replace(",", ".");
 }
 
-function aprPercentNumberFromElement_(el, liq) {
+/** APY с Jupiter (как в UI): только apy / netApy, без пересчёта APR→APY. */
+function apyPercentNumberFromJupiter_(el, liq) {
   var frac = null;
   if (liq && liq.yields && liq.yields.length) {
     var y0 = liq.yields[0];
-    if (y0 && y0.apr != null && !isNaN(Number(y0.apr))) frac = Number(y0.apr);
-    else if (y0 && y0.apy != null && !isNaN(Number(y0.apy))) frac = Number(y0.apy);
+    if (y0 && y0.apy != null && !isNaN(Number(y0.apy))) frac = Number(y0.apy);
   }
+  if (frac == null && liq && liq.netApy != null && !isNaN(Number(liq.netApy)))
+    frac = Number(liq.netApy);
   if (frac == null && el && el.netApy != null && !isNaN(Number(el.netApy)))
     frac = Number(el.netApy);
+  if (frac == null && liq && liq.yields && liq.yields.length) {
+    var y1 = liq.yields[0];
+    if (y1 && y1.apr != null && !isNaN(Number(y1.apr))) frac = Number(y1.apr);
+  }
   if (frac == null) return 0;
   return frac <= 1 && frac >= -1 ? frac * 100 : frac;
 }
 
-/** APY: реинвест раз в месяц (сложный процент) от годовой ставки APR. */
-function apyPercentFromAprMonthly_(aprPct) {
-  if (!aprPct || isNaN(aprPct)) return 0;
-  var r = aprPct / 100 / 12;
-  return (Math.pow(1 + r, 12) - 1) * 100;
+function apyPercentFromJupiter_(el, liq) {
+  var n = apyPercentNumberFromJupiter_(el, liq);
+  return String(Math.round(n * 100) / 100) + "%";
 }
 
 function formatDateTimeWarsaw_(ms) {
@@ -457,30 +472,6 @@ function rwaTotalFeeIncomeUsd_(rewards, liq, tokenInfo) {
   var sum = (Number(rew.stableUsd) || 0) + (Number(rew.assetUsd) || 0);
   if (sum > 0) return sum;
   return extractFeeIncomeUsd_(liq, tokenInfo);
-}
-
-/**
- * Текущая годовая доходность от накопленных комиссий за фактическое время позиции.
- * feeUsd / invested → за период; × (365×24/часов) → простой APR; APY — с реинвестом раз в месяц.
- */
-function apyAprFromFeeIncome_(feeUsd, investedUsd, openMs) {
-  var inv = Number(investedUsd);
-  var fee = Number(feeUsd);
-  if (!inv || inv <= 0 || fee < 0 || isNaN(fee)) {
-    return { apr: "0%", apy: "0%", aprNum: 0, apyNum: 0, hours: hoursElapsedSinceMs_(openMs) };
-  }
-  var hours = hoursElapsedSinceMs_(openMs);
-  var periodReturn = fee / inv;
-  var aprNum = periodReturn * ((365 * 24) / hours) * 100;
-  if (!isFinite(aprNum) || aprNum < 0) aprNum = 0;
-  var apyNum = apyPercentFromAprMonthly_(aprNum);
-  return {
-    apr: String(Math.round(aprNum * 10) / 10) + "%",
-    apy: String(Math.round(apyNum * 10) / 10) + "%",
-    aprNum: aprNum,
-    apyNum: apyNum,
-    hours: hours,
-  };
 }
 
 /** Строка APY для ячеек таблицы — без авто-даты (20.07 → 20 июля). */
@@ -699,7 +690,7 @@ function harvestRwaOpenDatesFromSheet_(sh) {
   var last = sh.getLastRow();
   if (last < 2) return;
   var openDisp = sh.getRange(2, 4, last, 4).getDisplayValues();
-  var links = sh.getRange(2, 15, last, 15).getDisplayValues();
+  var links = sh.getRange(2, 13, last, 13).getDisplayValues();
   var i;
   for (i = 0; i < openDisp.length; i++) {
     var ms = parseOpenDateWarsawToMs_(openDisp[i][0]);
@@ -781,11 +772,11 @@ function mapLiquidityToRow_(el, liq, tokenInfo, wallet) {
   var openMs = resolveRwaOpenMs_(link, el, liq);
   var openDate = openMs ? formatDateTimeWarsaw_(openMs) : openDateFromElement_(el, liq);
   var period = openMs ? periodFromTimestampMs_(openMs) : periodFromOpenDateString_(openDate);
-  var yields = apyAprFromFeeIncome_(feeTotalUsd, invested, openMs);
+  var apy = apyPercentFromJupiter_(el, liq);
+  var hours = hoursElapsedSinceMs_(openMs);
   return {
     name: platform,
-    apr: yields.apr,
-    apy: yields.apy,
+    apy: apy,
     period: period,
     status: "active",
     link: link || "#",
@@ -805,7 +796,7 @@ function mapLiquidityToRow_(el, liq, tokenInfo, wallet) {
     earnedAssetSymbol: rewards.assetSymbol,
     totalFeeIncome: feeTotalUsd,
     investedUsd: invested,
-    hoursOpen: yields.hours,
+    hoursOpen: hours,
   };
 }
 
@@ -897,7 +888,6 @@ function rwaRowToUnifiedLine_(row) {
     row.pair,
     row.chain || "solana",
     feeLabel,
-    formatApyForSheet_(row.apr || row.apy),
     formatApyForSheet_(row.apy),
     row.link,
     formatPreciseAmount_(row.investedUsd, 4),
@@ -936,7 +926,7 @@ function ensureRwaDailyLogSheet_(ss) {
       "Символ актива",
       "Итого комс USD",
       "Инвестировано USD",
-      "APY расчётный",
+      "APY Jupiter",
       "Часов с открытия",
     ],
   ]);
@@ -1061,21 +1051,17 @@ function syncRwaJupiterPositions() {
 
   if (!rows.length) {
     var kept = countRwaDataRowsOnSheet_(sh);
+    var keyHint = getJupiterApiKey_()
+      ? ""
+      : " Нет JUPITER_API_KEY в свойствах скрипта (Файл→Свойства проекта→Свойства скрипта).";
     var msg =
-      "Jupiter API: 0 LP (elements=" +
+      "ОШИБКА: Jupiter 0 LP (elements=" +
       diag.elements +
-      "). " +
-      (kept ? "Таблица A1 не очищена (" + kept + "). " : "") +
-      "Проверьте verifyRwaSpreadsheetTarget — ID файла.";
+      ")." +
+      keyHint +
+      (kept ? " Старые " + kept + " строк в таблице НЕ обновлены." : "");
     writeRwaSyncStatus_(sh, msg.slice(0, 240));
-    return {
-      wallet: wallet,
-      count: 0,
-      syncedAt: new Date().toISOString(),
-      skippedWrite: true,
-      diag: diag,
-      keptRows: kept,
-    };
+    throw new Error(msg.slice(0, 500));
   }
 
   writeRwaPoolBattleSheet_(sh, rows);
@@ -1188,7 +1174,7 @@ function anchorAllRwaOpenYesterday16Warsaw_() {
   if (!sh) throw new Error("Нет листа «" + RWA_SHEET_TITLE_CANONICAL + "»");
   var last = sh.getLastRow();
   if (last < 2) throw new Error("Сначала синхронизируйте RWA или заполните таблицу");
-  var links = sh.getRange(2, 15, last, 15).getDisplayValues();
+  var links = sh.getRange(2, 13, last, 13).getDisplayValues();
   var yesterdayStr = Utilities.formatDate(
     new Date(Date.now() - 86400000),
     RWA_DISPLAY_TZ,

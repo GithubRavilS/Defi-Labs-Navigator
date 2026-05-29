@@ -3169,8 +3169,17 @@
               pair: pairStr,
               chain: String(gvizCellValue(cells[10]) || "solana"),
               fee: String(gvizCellValue(cells[11]) || ""),
-              apy: String(gvizCellValue(cells[13]) || ""),
-              link: String(gvizCellValue(cells[14]) || "#"),
+              apy: String(
+                (cells.length >= 16 ? gvizCellValue(cells[13]) : gvizCellValue(cells[12])) ||
+                  gvizCellValue(cells[13]) ||
+                  gvizCellValue(cells[12]) ||
+                  "",
+              ),
+              link: String(
+                (cells.length >= 16 ? gvizCellValue(cells[14]) : gvizCellValue(cells[13])) ||
+                  gvizCellValue(cells[14]) ||
+                  "#",
+              ),
               period: "",
               status: "active",
               desc: "solana",
