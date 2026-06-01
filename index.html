@@ -3257,6 +3257,7 @@
                 pool.push(normalizeTool(rwaCopy));
               }
 
+              pool = dedupePoolBattleToolsList(pool);
               data.tools = other.concat(pool);
               console.log("DeFi Navigator: пулы из таблицы (1 строка = 1 позиция)", {
                 ethereum: ethRows.length,
@@ -3728,6 +3729,35 @@
           .toLowerCase();
       }
 
+      /** Одна позиция в таблице (дубли строк с той же ссылкой — одна запись). */
+      function poolBattlePositionFingerprint(tool) {
+        var lk = normalizeLinkKeyForPatch(tool.link);
+        if (lk && lk !== "#") return "link:" + lk;
+        var range = getOrderedPriceRangeNumbers(tool);
+        var rangeKey = range ? range.min + "-" + range.max : "";
+        return [
+          poolBattlePlatformKey(tool.platform || tool.name),
+          poolBattlePairKey(tool.pair),
+          poolBattleIdentityKeyChain_(tool.chain),
+          normalizeFeeKeyForPatch(tool.fee),
+          rangeKey,
+          String(parseApyNumber(tool.apy)),
+        ].join("\u0001");
+      }
+
+      function dedupePoolBattleToolsList(tools) {
+        var seen = Object.create(null);
+        var out = [];
+        var i;
+        for (i = 0; i < tools.length; i++) {
+          var fp = poolBattlePositionFingerprint(tools[i]);
+          if (seen[fp]) continue;
+          seen[fp] = true;
+          out.push(tools[i]);
+        }
+        return out;
+      }
+
       function formatRwaPercentRangeLabel() {
         return "−10% / +10%";
       }
@@ -3879,6 +3909,7 @@
       }
 
       function buildPoolBattleGroups(tools, categoryId) {
+        tools = dedupePoolBattleToolsList(tools || []);
         if (!categoryUsesPoolBattleGrouping(categoryId)) {
           return tools.map(function (tool) {
             return {
@@ -3900,13 +3931,16 @@
         });
 
         return Object.keys(groupsMap).map(function (key) {
-          var members = groupsMap[key].slice().sort(compareByNarrowestRangeThenApy);
+          var members = dedupePoolBattleToolsList(groupsMap[key]).sort(
+            compareByNarrowestRangeThenApy,
+          );
+          var hasVariants = members.length > 1;
           return {
             groupKey: key,
             primary: members[0],
-            alternates: members.slice(1),
+            alternates: hasVariants ? members.slice(1) : [],
             rangeLabel: formatPoolBattleRangeOrMeta(members[0]),
-            hasVariants: members.length > 1,
+            hasVariants: hasVariants,
           };
         });
       }
@@ -4467,7 +4501,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260601c";
+      var NAVIGATOR_BUILD = "20260601d";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
