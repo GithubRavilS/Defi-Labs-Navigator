@@ -3321,9 +3321,17 @@
           .replace(/%/g, "");
         var n = parseFloat(s);
         if (!Number.isFinite(n)) return poolBattleIdentityPart(fee);
-        if (n > 0 && n < 0.5) return String(Math.round(n * 10000) / 10000);
-        if (n >= 1) return String(Math.round(n * 100) / 100);
-        return String(n);
+        /** Лист: 0.0005 = 0.05%; UI/GAS: «0.05» — одна и та же комиссия. */
+        if (n > 0 && n < 0.02) return String(Math.round(n * 10000) / 100);
+        return String(Math.round(n * 100) / 100);
+      }
+
+      function poolBattlePairKey(value) {
+        return String(value || "")
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, "")
+          .replace(/[·•]/g, "/");
       }
 
       function patchKeyPlatformChainFee(row) {
@@ -3333,6 +3341,22 @@
           poolBattleIdentityPart(row.chain) +
           "\u0001" +
           normalizeFeeKeyForPatch(row.fee)
+        );
+      }
+
+      /** Уникальный ключ позиции (несколько пулов с одной ссылкой — разный fee). */
+      function patchKeyFull(row) {
+        var platform = poolBattleIdentityPart(row.platform || row.name);
+        var pair = poolBattlePairKey(row.pair);
+        if (!platform || !pair) return "";
+        return (
+          platform +
+          "\u0001" +
+          poolBattleIdentityPart(row.chain) +
+          "\u0001" +
+          normalizeFeeKeyForPatch(row.fee) +
+          "\u0001" +
+          pair
         );
       }
 
@@ -3348,28 +3372,22 @@
         var j;
         for (j = 0; j < rows.length; j++) {
           var row = rows[j];
-          if (row.link) index[normalizeLinkKeyForPatch(row.link)] = row;
-          var posId = extractPositionIdFromLink(row.link);
-          if (posId) index["pos:" + posId] = row;
-          var pk =
-            poolBattleIdentityPart(row.platform || row.name) +
-            "\u0001" +
-            poolBattleIdentityPart(row.pair);
-          if (pk !== "\u0001") index[pk] = row;
+          var full = patchKeyFull(row);
+          if (full) index[full] = row;
           var pcf = patchKeyPlatformChainFee(row);
-          if (pcf !== "\u0001\u0001") index[pcf] = row;
+          if (pcf !== "\u0001\u0001\u0001") index[pcf] = row;
+          var lk = normalizeLinkKeyForPatch(row.link);
+          if (lk && !index[lk]) index[lk] = row;
+          var posId = extractPositionIdFromLink(row.link);
+          if (posId && !index["pos:" + posId]) index["pos:" + posId] = row;
         }
         tools.forEach(function (t) {
           if (t.categoryId !== categoryId) return;
           var patch =
+            index[patchKeyFull(t)] ||
+            index[patchKeyPlatformChainFee(t)] ||
             index[normalizeLinkKeyForPatch(t.link)] ||
-            index["pos:" + extractPositionIdFromLink(t.link)] ||
-            index[
-              poolBattleIdentityPart(t.platform || t.name) +
-                "\u0001" +
-                poolBattleIdentityPart(t.pair)
-            ] ||
-            index[patchKeyPlatformChainFee(t)];
+            index["pos:" + extractPositionIdFromLink(t.link)];
           if (!patch) return;
           if (
             patch.apy &&
@@ -3540,8 +3558,8 @@
       function poolBattleIdentityKey(tool) {
         var platform = poolBattleIdentityPart(tool.platform);
         var chain = poolBattleIdentityPart(tool.chain);
-        var fee = poolBattleIdentityPart(tool.fee);
-        var pair = poolBattleIdentityPart(tool.pair);
+        var fee = normalizeFeeKeyForPatch(tool.fee);
+        var pair = poolBattlePairKey(tool.pair);
         if (!platform || !chain || !fee || !pair) return "";
         return [platform, chain, fee, pair].join("\u0001");
       }
@@ -4362,7 +4380,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260529d";
+      var NAVIGATOR_BUILD = "20260601a";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";

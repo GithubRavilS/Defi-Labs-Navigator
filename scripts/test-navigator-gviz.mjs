@@ -138,5 +138,17 @@ for (const r of eth.slice(0, 3)) {
     failed = true;
   }
 }
+// PancakeSwap Base: две строки, одна ссылка — APY разный (0.05% vs 0.01% fee)
+const pancake = eth.filter((r) => /pancake/i.test(r.platform) && /base/i.test(String(r.chain)));
+const fee005 = pancake.find((r) => Math.abs(Number(r.apy) - 0.22386401073923556) < 0.001);
+const fee001 = pancake.find((r) => Math.abs(Number(r.apy) - 0.25618399614418097) < 0.001);
+if (!fee005 || !fee001) {
+  console.error("Expected two PancakeSwap Base rows with distinct APY from column M");
+  failed = true;
+} else if (Math.abs(Number(fee005.apy) - Number(fee001.apy)) < 0.01) {
+  console.error("PancakeSwap rows must not share the same APY");
+  failed = true;
+}
+
 if (failed) process.exit(1);
 console.log("\nAll gviz checks passed");
