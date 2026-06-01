@@ -3617,8 +3617,7 @@
       var POOL_BATTLE_CATEGORY_IDS = ["ethereum", "bitcoin", "rwa"];
 
       function categoryUsesPoolBattleGrouping(categoryId) {
-        /** Каждая строка таблицы — отдельная позиция (без склейки по паре/fee). */
-        return false;
+        return POOL_BATTLE_CATEGORY_IDS.indexOf(categoryId) !== -1;
       }
 
       function poolBattleIdentityPart(value) {
@@ -3628,13 +3627,28 @@
           .replace(/\s+/g, " ");
       }
 
+      function poolBattlePlatformKey(value) {
+        return String(value || "")
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, "");
+      }
+
+      /** Группа: платформа + пара + блокчейн + fee tier (все четыре совпали). */
       function poolBattleIdentityKey(tool) {
-        var platform = poolBattleIdentityPart(tool.platform);
-        var chain = poolBattleIdentityPart(tool.chain);
-        var fee = normalizeFeeKeyForPatch(tool.fee);
+        var platform = poolBattlePlatformKey(tool.platform || tool.name);
         var pair = poolBattlePairKey(tool.pair);
-        if (!platform || !chain || !fee || !pair) return "";
-        return [platform, chain, fee, pair].join("\u0001");
+        var chain = poolBattleIdentityKeyChain_(tool.chain);
+        var fee = normalizeFeeKeyForPatch(tool.fee);
+        if (!platform || !pair || !chain || !fee) return "";
+        return [platform, pair, chain, fee].join("\u0001");
+      }
+
+      function poolBattleIdentityKeyChain_(chain) {
+        return String(chain || "")
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, "");
       }
 
       function parsePriceBoundary(value) {
@@ -4453,7 +4467,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260601b";
+      var NAVIGATOR_BUILD = "20260601c";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
