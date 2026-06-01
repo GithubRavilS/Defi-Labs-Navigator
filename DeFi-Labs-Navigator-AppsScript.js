@@ -2011,11 +2011,28 @@ function normalizeHeaderCell(h) {
     .replace(/\s+/g, " ");
 }
 
+/** fee_tier: доля 0.003 → 0.3% или уже «0,3» / «0,3%». */
+function feeToPercentNumber_(value) {
+  var raw = String(value == null ? "" : value).trim();
+  if (!raw) return NaN;
+  var hadPct = raw.indexOf("%") !== -1;
+  var n = parseFloat(raw.replace(",", ".").replace(/%/g, "").trim());
+  if (!isFinite(n)) return NaN;
+  if (hadPct) return Math.round(n * 1000) / 1000;
+  if (n > 0 && n < 0.02) return Math.round(n * 10000) / 100;
+  if (n >= 0.02 && n <= 5) return Math.round(n * 1000) / 1000;
+  return NaN;
+}
+
 function normalizeFeeValue(value) {
-  return String(value || "")
-    .replace(",", ".")
-    .replace(/%/g, "")
-    .trim();
+  var n = feeToPercentNumber_(value);
+  if (!isFinite(n)) {
+    return String(value || "")
+      .replace(",", ".")
+      .replace(/%/g, "")
+      .trim();
+  }
+  return String(n);
 }
 
 /** Убирает случайный суффикс «дн» в колонках мин/макс (ошибка вставки периода в цену). */
@@ -2045,10 +2062,8 @@ function formatApyForApi_(rawVal, displayVal) {
 /** fee_tier: из «0,30%» или доли 0,003 → 0,3 */
 function formatFeeForApi_(rawVal, displayVal) {
   var disp = displayVal != null ? String(displayVal).trim() : "";
-  if (disp && disp.indexOf("%") !== -1) return normalizeFeeValue(disp);
-  if (typeof rawVal === "number" && !isNaN(rawVal)) {
-    if (rawVal > 0 && rawVal < 0.5) return String(Math.round(rawVal * 10000) / 100);
-  }
+  var n = feeToPercentNumber_(disp && disp.indexOf("%") !== -1 ? disp : rawVal);
+  if (isFinite(n)) return String(n);
   return normalizeFeeValue(rawVal || disp);
 }
 

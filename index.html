@@ -2942,20 +2942,26 @@
         return disp.replace(",", ".");
       }
 
-      function normalizeFeeValue(value) {
-        var raw = String(value || "").trim();
-        if (!raw) return "";
+      /**
+       * fee_tier в листе: доля (0.003 = 0.3%) или уже проценты (0.3, «0,05%»).
+       * Типичный LP fee 0.01–1% — значения >5% после конвертации считаем ошибкой ввода.
+       */
+      function feeToPercentNumber_(value) {
+        var raw = String(value == null ? "" : value).trim();
+        if (!raw) return NaN;
         var hadPct = raw.indexOf("%") !== -1;
-        var s = raw.replace(",", ".").replace(/%/g, "").trim();
-        if (!s) return s;
-        var n = parseFloat(s);
-        if (!Number.isFinite(n)) return s;
-        if (hadPct || n >= 1) return String(Math.round(n * 100) / 100);
-        if (n > 0 && n < 0.5) {
-          n = Math.round(n * 10000) / 100;
-          return String(n);
-        }
-        return s;
+        var n = parseFloat(raw.replace(",", ".").replace(/%/g, ""));
+        if (!Number.isFinite(n)) return NaN;
+        if (hadPct) return Math.round(n * 1000) / 1000;
+        if (n > 0 && n < 0.02) return Math.round(n * 10000) / 100;
+        if (n >= 0.02 && n <= 5) return Math.round(n * 1000) / 1000;
+        return NaN;
+      }
+
+      function normalizeFeeValue(value) {
+        var n = feeToPercentNumber_(value);
+        if (!Number.isFinite(n)) return String(value || "").trim();
+        return String(n);
       }
 
       function isLikelySyncStampOpenDate(dateStr) {
@@ -3388,15 +3394,9 @@
       }
 
       function normalizeFeeKeyForPatch(fee) {
-        var s = String(fee || "")
-          .trim()
-          .replace(",", ".")
-          .replace(/%/g, "");
-        var n = parseFloat(s);
+        var n = feeToPercentNumber_(fee);
         if (!Number.isFinite(n)) return poolBattleIdentityPart(fee);
-        /** Лист: 0.0005 = 0.05%; UI/GAS: «0.05» — одна и та же комиссия. */
-        if (n > 0 && n < 0.02) return String(Math.round(n * 10000) / 100);
-        return String(Math.round(n * 100) / 100);
+        return String(n);
       }
 
       function poolBattlePairKey(value) {
@@ -3811,9 +3811,10 @@
       function formatFeeLabel(fee) {
         var f = String(fee || "").trim();
         if (!f) return "";
-        var n = parseFloat(f.replace(",", "."));
-        if (Number.isFinite(n) && n < 10) f = String(Math.round(n * 100) / 100);
-        return f.indexOf("%") !== -1 ? f : f + "%";
+        if (f.indexOf("%") !== -1) return f;
+        var n = feeToPercentNumber_(f);
+        if (Number.isFinite(n)) f = String(n);
+        return f + "%";
       }
 
       function formatPoolMetaLabel(tool) {
@@ -4501,7 +4502,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260601d";
+      var NAVIGATOR_BUILD = "20260601e";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
