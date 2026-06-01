@@ -3035,9 +3035,14 @@
       }
 
       /** Индексы колонок (0-based) — у листов ETH и RWA разная ширина блока «доходов». */
+      var POOL_BATTLE_SHEET_CATEGORIES = ["ethereum", "bitcoin", "rwa"];
+
+      /** Индексы колонок листа (0-based): одна строка → одна позиция на сайте. */
       var POOL_BATTLE_COL_BY_CAT = {
         rwa: {
           platform: 0,
+          minPrice: 1,
+          maxPrice: 2,
           openDate: 3,
           pair: 9,
           chain: 10,
@@ -3048,22 +3053,24 @@
         },
         ethereum: {
           platform: 0,
+          minPrice: 1,
+          maxPrice: 2,
           openDate: 3,
           pair: 8,
           chain: 9,
           fee: 10,
-          apr: 11,
           apy: 12,
           link: 13,
           invested: 14,
         },
         bitcoin: {
           platform: 0,
+          minPrice: 1,
+          maxPrice: 2,
           openDate: 3,
           pair: 9,
           chain: 10,
           fee: 11,
-          apr: 12,
           apy: 13,
           link: 14,
           invested: 15,
@@ -3135,6 +3142,15 @@
       var SHEET_GVIZ_BASE =
         "https://docs.google.com/spreadsheets/d/1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg/gviz/tq?tqx=out:json&sheet=";
 
+      function gvizNumericCell(cells, colIdx) {
+        if (colIdx == null || colIdx < 0) return "";
+        var v = gvizCellAt(cells, colIdx);
+        if (v == null || v === "") return "";
+        if (typeof v === "number" && !isNaN(v)) return String(v);
+        return String(v).trim();
+      }
+
+      /** Одна строка листа → один объект (без слияния с GAS). */
       function parsePoolBattleGvizPayload(payload, categoryId) {
         var cols = poolBattleCols(categoryId);
         var tableRows = payload && payload.table && payload.table.rows ? payload.table.rows : [];
@@ -3144,24 +3160,113 @@
           var cells = tableRows[i].c || [];
           var platform = String(gvizCellAt(cells, cols.platform) || "").trim();
           if (!platform || /^платформа$/i.test(platform)) continue;
+          if (
+            categoryId === "rwa" &&
+            pairContainsEthOrBtc(gvizCellAt(cells, cols.pair), platform, platform)
+          )
+            continue;
           var openDate = parseGvizDateTimeValue(gvizCellAt(cells, cols.openDate));
           var period = openDate ? periodFromOpenDateString(openDate) : "";
           var pair = String(gvizCellAt(cells, cols.pair) || "").trim();
+          var chain = String(gvizCellAt(cells, cols.chain) || "").trim();
+          var feeRaw = String(gvizCellAt(cells, cols.fee) || "").trim();
           var apyRaw = normalizeApyValue(parseApyFromGvizCell(cells, cols));
-          var link = parseLinkFromGvizCell(cells, cols);
+          var link = parseLinkFromGvizCell(cells, cols) || "#";
+          var priceMin = categoryId === "rwa" ? "-10%" : gvizNumericCell(cells, cols.minPrice);
+          var priceMax = categoryId === "rwa" ? "+10%" : gvizNumericCell(cells, cols.maxPrice);
           out.push({
             categoryId: categoryId,
+            name: platform,
             platform: platform,
             pair: pair,
             link: link,
             openDate: openDate,
             period: period,
             apy: apyRaw,
-            fee: String(gvizCellAt(cells, cols.fee) || ""),
-            chain: String(gvizCellAt(cells, cols.chain) || ""),
+            fee: feeRaw,
+            chain: chain || (categoryId === "rwa" ? "solana" : ""),
+            priceMin: priceMin,
+            priceMax: priceMax,
+            status: "active",
+            desc: chain,
+            descEn: chain,
           });
         }
         return out;
+      }
+
+      function poolBattleToolFromSheetRow(row, toolId) {
+        var fee = row.fee ? normalizeFeeValue(row.fee) : "";
+        var chain = String(row.chain || "").trim();
+        var desc = chain;
+        if (chain && fee) desc = chain + " " + fee;
+        return normalizeTool({
+          id: toolId,
+          categoryId: row.categoryId,
+          name: row.name || row.platform,
+          platform: row.platform,
+          pair: row.pair,
+          apy: row.apy,
+          period: row.period,
+          openDate: row.openDate,
+          link: row.link || "#",
+          chain: chain,
+          fee: fee,
+          priceMin: row.priceMin,
+          priceMax: row.priceMax,
+          status: row.status || "active",
+          desc: desc,
+          descEn: desc,
+        });
+      }
+
+      /**
+       * ETH / BTC / RWA: только Google-таблица, 1 строка = 1 позиция.
+       * Без patch/merge с GAS (иначе путались APY у одинаковых пар).
+       */
+      function replacePoolBattleCategoriesFromSheetGviz(data) {
+        if (!data || !Array.isArray(data.tools)) return Promise.resolve(data);
+
+        return fetchGvizSheetByScript("ethereum").then(function (ethRows) {
+          return fetchGvizSheetByScript("bitcoin").then(function (btcRows) {
+            return fetchRwaToolsFromPublicSheet().then(function (rwaTools) {
+              var other = data.tools.filter(function (t) {
+                return POOL_BATTLE_SHEET_CATEGORIES.indexOf(t.categoryId) === -1;
+              });
+              var maxId = 0;
+              other.forEach(function (t) {
+                if (t.id > maxId) maxId = t.id;
+              });
+              var pool = [];
+
+              function appendRows(rows, categoryId) {
+                var j;
+                for (j = 0; j < rows.length; j++) {
+                  maxId++;
+                  pool.push(poolBattleToolFromSheetRow(rows[j], maxId));
+                }
+              }
+
+              appendRows(ethRows, "ethereum");
+              appendRows(btcRows, "bitcoin");
+
+              var k;
+              for (k = 0; k < rwaTools.length; k++) {
+                maxId++;
+                var rwaCopy = Object.assign({}, rwaTools[k], { id: maxId });
+                pool.push(normalizeTool(rwaCopy));
+              }
+
+              data.tools = other.concat(pool);
+              console.log("DeFi Navigator: пулы из таблицы (1 строка = 1 позиция)", {
+                ethereum: ethRows.length,
+                bitcoin: btcRows.length,
+                rwa: rwaTools.length,
+              });
+              return data;
+            });
+          });
+        });
       }
 
       function fetchGvizSheetByScript(sheetName) {
@@ -3214,42 +3319,9 @@
         });
       }
 
+      /** @deprecated используй replacePoolBattleCategoriesFromSheetGviz */
       function mergePoolBattlePeriodsFromGviz(data) {
-        if (!data || !Array.isArray(data.tools)) return Promise.resolve(data);
-        var needsFix = data.tools.some(function (t) {
-          if (t.categoryId === "ethereum" || t.categoryId === "bitcoin") return true;
-          if (t.categoryId !== "rwa") return false;
-          return (
-            isAbsurdPeriodValue(t.period) ||
-            !String(t.period || "").trim() ||
-            !t.openDate ||
-            !parseApyNumber(t.apy)
-          );
-        });
-        if (!needsFix) return Promise.resolve(data);
-
-        return fetchGvizSheetByScript("ethereum").then(function (ethRows) {
-          return fetchGvizSheetByScript("bitcoin").then(function (btcRows) {
-            return fetchRwaToolsFromPublicSheet().then(function (rwaRows) {
-              patchPoolBattleToolsFromRows(data.tools, ethRows, "ethereum");
-              patchPoolBattleToolsFromRows(data.tools, btcRows, "bitcoin");
-              patchPoolBattleToolsFromRows(data.tools, rwaRows, "rwa");
-              data.tools.forEach(function (t) {
-                if (
-                  t.categoryId !== "ethereum" &&
-                  t.categoryId !== "bitcoin" &&
-                  t.categoryId !== "rwa"
-                )
-                  return;
-                if (isAbsurdPeriodValue(t.period) || !String(t.period || "").trim()) {
-                  t.period = t.openDate ? periodFromOpenDateString(t.openDate) : "";
-                }
-              });
-              console.log("DeFi Navigator: период/APY из gviz (ETH/BTC/RWA)");
-              return data;
-            });
-          });
-        });
+        return replacePoolBattleCategoriesFromSheetGviz(data);
       }
 
       function parseRwaGvizPayload(payload) {
@@ -3545,7 +3617,8 @@
       var POOL_BATTLE_CATEGORY_IDS = ["ethereum", "bitcoin", "rwa"];
 
       function categoryUsesPoolBattleGrouping(categoryId) {
-        return POOL_BATTLE_CATEGORY_IDS.indexOf(categoryId) !== -1;
+        /** Каждая строка таблицы — отдельная позиция (без склейки по паре/fee). */
+        return false;
       }
 
       function poolBattleIdentityPart(value) {
@@ -4380,7 +4453,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260601a";
+      var NAVIGATOR_BUILD = "20260601b";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
@@ -4703,7 +4776,7 @@
           .then(function (data) {
             if (!data || !Array.isArray(data.tools)) throw new Error("sheet-data empty");
             return mergeRwaFromSheetIfMissing(data).then(function (merged) {
-              return mergePoolBattlePeriodsFromGviz(merged);
+              return replacePoolBattleCategoriesFromSheetGviz(merged);
             });
           })
           .then(function (merged) {
@@ -4766,7 +4839,7 @@
           window[cbName] = function (data) {
             mergeRwaFromSheetIfMissing(data)
               .then(function (merged) {
-                return mergePoolBattlePeriodsFromGviz(merged);
+                return replacePoolBattleCategoriesFromSheetGviz(merged);
               })
               .then(function (merged) {
                 applyLoadedData(merged);

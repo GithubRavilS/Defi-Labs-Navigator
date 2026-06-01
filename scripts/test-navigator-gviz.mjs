@@ -5,9 +5,39 @@
 const SPREADSHEET_ID = "1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg";
 
 const POOL_BATTLE_COL_BY_CAT = {
-  rwa: { platform: 0, openDate: 3, pair: 9, chain: 10, fee: 11, apy: 12, link: 13 },
-  ethereum: { platform: 0, openDate: 3, pair: 8, chain: 9, fee: 10, apr: 11, apy: 12, link: 13 },
-  bitcoin: { platform: 0, openDate: 3, pair: 9, chain: 10, fee: 11, apr: 12, apy: 13, link: 14 },
+  rwa: {
+    platform: 0,
+    minPrice: 1,
+    maxPrice: 2,
+    openDate: 3,
+    pair: 9,
+    chain: 10,
+    fee: 11,
+    apy: 12,
+    link: 13,
+  },
+  ethereum: {
+    platform: 0,
+    minPrice: 1,
+    maxPrice: 2,
+    openDate: 3,
+    pair: 8,
+    chain: 9,
+    fee: 10,
+    apy: 12,
+    link: 13,
+  },
+  bitcoin: {
+    platform: 0,
+    minPrice: 1,
+    maxPrice: 2,
+    openDate: 3,
+    pair: 9,
+    chain: 10,
+    fee: 11,
+    apy: 13,
+    link: 14,
+  },
 };
 
 function gvizCellValue(cell) {
@@ -138,6 +168,14 @@ for (const r of eth.slice(0, 3)) {
     failed = true;
   }
 }
+const opt = eth.filter((r) => /optimism/i.test(String(r.chain)));
+const optApys = opt.map((r) => Number(r.apy)).filter((n) => Number.isFinite(n));
+const uniqueOpt = new Set(optApys.map((n) => n.toFixed(4)));
+if (opt.length >= 2 && uniqueOpt.size < 2) {
+  console.error("Optimism rows must have distinct APY from column M:", optApys);
+  failed = true;
+}
+
 // PancakeSwap Base: две строки, одна ссылка — APY разный (0.05% vs 0.01% fee)
 const pancake = eth.filter((r) => /pancake/i.test(r.platform) && /base/i.test(String(r.chain)));
 const fee005 = pancake.find((r) => Math.abs(Number(r.apy) - 0.22386401073923556) < 0.001);
