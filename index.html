@@ -2942,25 +2942,47 @@
         return disp.replace(",", ".");
       }
 
+      function feeDecimalPlaces_(n) {
+        var s = String(n);
+        var dot = s.indexOf(".");
+        if (dot < 0) return 0;
+        return s.length - dot - 1;
+      }
+
       /**
-       * fee_tier в листе: доля (0.003 = 0.3%) или уже проценты (0.3, «0,05%»).
-       * Типичный LP fee 0.01–1% — значения >5% после конвертации считаем ошибкой ввода.
+       * fee_tier → проценты. Сначала «0,01%» из листа; доли 0.003 / 0.0001 / 0.034; 0.01 → 1%.
        */
       function feeToPercentNumber_(value) {
         var raw = String(value == null ? "" : value).trim();
         if (!raw) return NaN;
         var hadPct = raw.indexOf("%") !== -1;
-        var n = parseFloat(raw.replace(",", ".").replace(/%/g, ""));
+        var compact = raw.replace(",", ".").replace(/%/g, "");
+        var n = parseFloat(compact);
         if (!Number.isFinite(n)) return NaN;
         if (hadPct) return Math.round(n * 1000) / 1000;
-        if (n > 0 && n < 0.02) return Math.round(n * 10000) / 100;
-        if (n >= 0.02 && n <= 5) return Math.round(n * 1000) / 1000;
+        if (n >= 1 && n <= 100) return Math.round(n * 1000) / 1000;
+        if (n > 0 && n < 1) {
+          if (/^0\.0{2,}\d/.test(compact) || n <= 0.001) {
+            return Math.round(n * 10000) / 100;
+          }
+          if (n === 0.01 && /^0\.01$/.test(compact)) return 1;
+          if (n >= 0.02 && feeDecimalPlaces_(n) >= 3) {
+            return Math.round(n * 10000) / 100;
+          }
+          if (n < 0.02 && feeDecimalPlaces_(n) >= 3) {
+            return Math.round(n * 10000) / 100;
+          }
+          return Math.round(n * 1000) / 1000;
+        }
         return NaN;
       }
 
       function normalizeFeeValue(value) {
+        var raw = String(value == null ? "" : value).trim();
+        if (!raw) return "";
         var n = feeToPercentNumber_(value);
-        if (!Number.isFinite(n)) return String(value || "").trim();
+        if (!Number.isFinite(n)) return raw.replace(/%/g, "");
+        if (n > 0 && n < 0.1) return n.toFixed(3);
         return String(n);
       }
 
@@ -3112,6 +3134,15 @@
         return "";
       }
 
+      /** fee_tier: как в Excel — сначала отображаемое (0,30%), иначе сырое 0.003. */
+      function gvizCellFeeValue(cell) {
+        if (!cell) return "";
+        var f = cell.f != null && String(cell.f).trim() !== "" ? String(cell.f).trim() : "";
+        if (f) return f;
+        if (cell.v != null && cell.v !== "") return cell.v;
+        return "";
+      }
+
       function parseGvizDateTimeValue(v) {
         if (v == null || v === "") return "";
         var s = String(v);
@@ -3175,7 +3206,7 @@
           var period = openDate ? periodFromOpenDateString(openDate) : "";
           var pair = String(gvizCellAt(cells, cols.pair) || "").trim();
           var chain = String(gvizCellAt(cells, cols.chain) || "").trim();
-          var feeRaw = String(gvizCellAt(cells, cols.fee) || "").trim();
+          var feeRaw = String(gvizCellFeeValue(cells[cols.fee]) || "").trim();
           var apyRaw = normalizeApyValue(parseApyFromGvizCell(cells, cols));
           var link = parseLinkFromGvizCell(cells, cols) || "#";
           var priceMin = categoryId === "rwa" ? "-10%" : gvizNumericCell(cells, cols.minPrice);
@@ -3205,7 +3236,7 @@
         var fee = row.fee ? normalizeFeeValue(row.fee) : "";
         var chain = String(row.chain || "").trim();
         var desc = chain;
-        if (chain && fee) desc = chain + " " + fee;
+        if (chain && fee) desc = chain + " " + formatFeeLabel(fee);
         return normalizeTool({
           id: toolId,
           categoryId: row.categoryId,
@@ -3353,7 +3384,7 @@
               openDate: openDate,
               pair: pairStr,
               chain: String(gvizCellAt(cells, cols.chain) || "solana"),
-              fee: String(gvizCellAt(cells, cols.fee) || ""),
+              fee: String(gvizCellFeeValue(cells[cols.fee]) || ""),
               apy: String(parseApyFromGvizCell(cells, cols) || ""),
               link: parseLinkFromGvizCell(cells, cols) || "#",
               period: openDate ? periodFromOpenDateString(openDate) : "",
@@ -3812,8 +3843,10 @@
         var f = String(fee || "").trim();
         if (!f) return "";
         if (f.indexOf("%") !== -1) return f;
-        var n = feeToPercentNumber_(f);
-        if (Number.isFinite(n)) f = String(n);
+        var n = parseFloat(f.replace(",", "."));
+        if (Number.isFinite(n) && n > 0 && n < 0.1) {
+          f = String(n.toFixed(3)).replace(/\.?0+$/, "");
+        }
         return f + "%";
       }
 
@@ -4502,7 +4535,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260601e";
+      var NAVIGATOR_BUILD = "20260601f";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";

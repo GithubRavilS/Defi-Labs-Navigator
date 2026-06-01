@@ -47,6 +47,76 @@ function gvizCellValue(cell) {
   return "";
 }
 
+function gvizCellFeeValue(cell) {
+  if (!cell) return "";
+  const f = cell.f != null && String(cell.f).trim() !== "" ? String(cell.f).trim() : "";
+  if (f) return f;
+  if (cell.v != null && cell.v !== "") return cell.v;
+  return "";
+}
+
+function feeDecimalPlaces(n) {
+  const s = String(n);
+  const dot = s.indexOf(".");
+  if (dot < 0) return 0;
+  return s.length - dot - 1;
+}
+
+function feeToPercentNumber(value) {
+  const raw = String(value == null ? "" : value).trim();
+  if (!raw) return NaN;
+  const hadPct = raw.includes("%");
+  const compact = raw.replace(",", ".").replace(/%/g, "");
+  const n = parseFloat(compact);
+  if (!Number.isFinite(n)) return NaN;
+  if (hadPct) return Math.round(n * 1000) / 1000;
+  if (n >= 1 && n <= 100) return Math.round(n * 1000) / 1000;
+  if (n > 0 && n < 1) {
+    if (/^0\.0{2,}\d/.test(compact) || n <= 0.001) {
+      return Math.round(n * 10000) / 100;
+    }
+    if (n === 0.01 && /^0\.01$/.test(compact)) return 1;
+    if (n >= 0.02 && feeDecimalPlaces(n) >= 3) {
+      return Math.round(n * 10000) / 100;
+    }
+    if (n < 0.02 && feeDecimalPlaces(n) >= 3) {
+      return Math.round(n * 10000) / 100;
+    }
+    return Math.round(n * 1000) / 1000;
+  }
+  return NaN;
+}
+
+function normalizeFeeValue(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const n = feeToPercentNumber(value);
+  if (!Number.isFinite(n)) return raw.replace(/%/g, "");
+  if (n > 0 && n < 0.1) return n.toFixed(3);
+  return String(n);
+}
+
+function formatFeeLabel(fee) {
+  const f = String(fee || "").trim();
+  if (!f) return "";
+  if (f.includes("%")) return f;
+  const n = parseFloat(f.replace(",", "."));
+  let label = f;
+  if (Number.isFinite(n) && n > 0 && n < 0.1) {
+    label = String(n.toFixed(3)).replace(/\.?0+$/, "");
+  }
+  return `${label}%`;
+}
+
+function expectedFeeLabel(cell) {
+  const disp = cell?.f != null ? String(cell.f).trim() : "";
+  if (disp && disp.includes("%")) {
+    return disp.replace(",", ".");
+  }
+  const norm = normalizeFeeValue(gvizCellFeeValue(cell));
+  return formatFeeLabel(norm);
+}
+
 function parseGvizDateTimeValue(v) {
   if (v == null || v === "") return "";
   const s = String(v);
@@ -120,7 +190,8 @@ function parseRows(payload, categoryId) {
       pair: String(gvizCellValue(cells[cols.pair]) || ""),
       apy: String(gvizCellValue(cells[cols.apy]) || ""),
       link: String(gvizCellValue(cells[cols.link]) || ""),
-      fee: String(gvizCellValue(cells[cols.fee]) || ""),
+      fee: normalizeFeeValue(gvizCellFeeValue(cells[cols.fee])),
+      feeLabel: formatFeeLabel(normalizeFeeValue(gvizCellFeeValue(cells[cols.fee]))),
       chain: String(gvizCellValue(cells[cols.chain]) || ""),
       openDate,
       period: openDate ? periodFromOpenDateString(openDate) : "",
@@ -129,11 +200,13 @@ function parseRows(payload, categoryId) {
   return out;
 }
 
-const rwa = parseRows(await fetchGviz("БИТВА ПУЛОВ RWA"), "rwa");
+const rwaPayload = await fetchGviz("БИТВА ПУЛОВ RWA");
+const rwa = parseRows(rwaPayload, "rwa");
 console.log(`\n=== БИТВА ПУЛОВ RWA (${rwa.length}) ===`);
 rwa.slice(0, 3).forEach((r) => console.log(JSON.stringify(r)));
 
-const eth = parseRows(await fetchGviz("ethereum"), "ethereum");
+const ethPayload = await fetchGviz("ethereum");
+const eth = parseRows(ethPayload, "ethereum");
 console.log(`\n=== ethereum (${eth.length}) ===`);
 eth.slice(0, 3).forEach((r) => console.log(JSON.stringify(r)));
 
@@ -144,7 +217,6 @@ for (const r of rwa.slice(0, 3)) {
     failed = true;
   }
 }
-const ethPayload = await fetchGviz("ethereum");
 const ethCells = ethPayload?.table?.rows?.[0]?.c || [];
 const ethApr = Number(gvizCellValue(ethCells[11]));
 const ethApy = Number(gvizCellValue(ethCells[12]));
@@ -187,6 +259,67 @@ if (!fee005 || !fee001) {
   console.error("PancakeSwap rows must not share the same APY");
   failed = true;
 }
+
+function assertFeeMatchesSheet(rows, payload, categoryId) {
+  const cols = POOL_BATTLE_COL_BY_CAT[categoryId];
+  const tableRows = payload?.table?.rows || [];
+  let rowIdx = 0;
+  for (const row of tableRows) {
+    const cells = row.c || [];
+    const platform = String(gvizCellValue(cells[cols.platform]) || "").trim();
+    if (!platform || /^платформа$/i.test(platform)) continue;
+    const wantN = feeToPercentNumber(gvizCellFeeValue(cells[cols.fee]));
+    const storedFee = rows[rowIdx]?.fee || "";
+    const gotN = parseFloat(String(storedFee).replace(",", "."));
+    rowIdx++;
+    if (!Number.isFinite(wantN) || !Number.isFinite(gotN)) continue;
+    if (Math.abs(wantN - gotN) > 1e-6) {
+      console.error(`[${categoryId}] fee mismatch ${platform}: sheet=${wantN}% ui=${gotN}%`, {
+        raw: cells[cols.fee]?.v,
+        f: cells[cols.fee]?.f,
+      });
+      return false;
+    }
+  }
+  return true;
+}
+
+const btcPayload = await fetchGviz("bitcoin");
+const btc = parseRows(btcPayload, "bitcoin");
+console.log(`\n=== bitcoin (${btc.length}) ===`);
+btc.slice(0, 3).forEach((r) => console.log(JSON.stringify(r)));
+
+const feeCases = [
+  [0.003, "0.3%"],
+  [0.0001, "0.01%"],
+  [0.01, "1%"],
+  [0.034, "3.4%"],
+  ["0,30%", "0.3%"],
+  ["0.25%", "0.25%"],
+];
+for (const [input, label] of feeCases) {
+  const norm = normalizeFeeValue(input);
+  if (formatFeeLabel(norm) !== label) {
+    console.error("fee unit test failed:", input, "→", formatFeeLabel(norm), "expected", label);
+    failed = true;
+  }
+}
+for (const [input, label] of feeCases) {
+  const once = normalizeFeeValue(input);
+  const twice = normalizeFeeValue(once);
+  if (twice !== once) {
+    console.error("fee idempotent failed:", input, once, "→", twice);
+    failed = true;
+  }
+  if (formatFeeLabel(twice) !== label) {
+    console.error("fee idempotent label failed:", input, formatFeeLabel(twice), label);
+    failed = true;
+  }
+}
+
+if (!assertFeeMatchesSheet(eth, ethPayload, "ethereum")) failed = true;
+if (!assertFeeMatchesSheet(btc, btcPayload, "bitcoin")) failed = true;
+if (!assertFeeMatchesSheet(rwa, rwaPayload, "rwa")) failed = true;
 
 if (failed) process.exit(1);
 console.log("\nAll gviz checks passed");

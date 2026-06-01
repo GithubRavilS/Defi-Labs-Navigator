@@ -2011,20 +2011,42 @@ function normalizeHeaderCell(h) {
     .replace(/\s+/g, " ");
 }
 
-/** fee_tier: доля 0.003 → 0.3% или уже «0,3» / «0,3%». */
+function feeDecimalPlaces_(n) {
+  var s = String(n);
+  var dot = s.indexOf(".");
+  if (dot < 0) return 0;
+  return s.length - dot - 1;
+}
+
+/** fee_tier → проценты; идемпотентно. */
 function feeToPercentNumber_(value) {
   var raw = String(value == null ? "" : value).trim();
   if (!raw) return NaN;
   var hadPct = raw.indexOf("%") !== -1;
-  var n = parseFloat(raw.replace(",", ".").replace(/%/g, "").trim());
+  var compact = raw.replace(",", ".").replace(/%/g, "").trim();
+  var n = parseFloat(compact);
   if (!isFinite(n)) return NaN;
   if (hadPct) return Math.round(n * 1000) / 1000;
-  if (n > 0 && n < 0.02) return Math.round(n * 10000) / 100;
-  if (n >= 0.02 && n <= 5) return Math.round(n * 1000) / 1000;
+  if (n >= 1 && n <= 100) return Math.round(n * 1000) / 1000;
+  if (n > 0 && n < 1) {
+    if (/^0\.0{2,}\d/.test(compact) || n <= 0.001) {
+      return Math.round(n * 10000) / 100;
+    }
+    if (n === 0.01 && /^0\.01$/.test(compact)) return 1;
+    if (n >= 0.02 && feeDecimalPlaces_(n) >= 3) {
+      return Math.round(n * 10000) / 100;
+    }
+    if (n < 0.02 && feeDecimalPlaces_(n) >= 3) {
+      return Math.round(n * 10000) / 100;
+    }
+    return Math.round(n * 1000) / 1000;
+  }
   return NaN;
 }
 
 function normalizeFeeValue(value) {
+  var raw = String(value == null ? "" : value).trim();
+  if (!raw) return "";
   var n = feeToPercentNumber_(value);
   if (!isFinite(n)) {
     return String(value || "")
@@ -2032,6 +2054,7 @@ function normalizeFeeValue(value) {
       .replace(/%/g, "")
       .trim();
   }
+  if (n > 0 && n < 0.1) return n.toFixed(3);
   return String(n);
 }
 
@@ -2059,12 +2082,14 @@ function formatApyForApi_(rawVal, displayVal) {
   return s || "0";
 }
 
-/** fee_tier: из «0,30%» или доли 0,003 → 0,3 */
+/** fee_tier: display из листа приоритетнее raw (как колонка K/L). */
 function formatFeeForApi_(rawVal, displayVal) {
   var disp = displayVal != null ? String(displayVal).trim() : "";
-  var n = feeToPercentNumber_(disp && disp.indexOf("%") !== -1 ? disp : rawVal);
+  var raw = rawVal != null && rawVal !== "" ? String(rawVal).trim() : "";
+  var src = disp || raw;
+  var n = feeToPercentNumber_(src);
   if (isFinite(n)) return String(n);
-  return normalizeFeeValue(rawVal || disp);
+  return normalizeFeeValue(src);
 }
 
 function findApyColumnIndex_(headers) {
