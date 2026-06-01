@@ -3052,6 +3052,7 @@
           pair: 8,
           chain: 9,
           fee: 10,
+          apr: 11,
           apy: 12,
           link: 13,
           invested: 14,
@@ -3062,6 +3063,7 @@
           pair: 9,
           chain: 10,
           fee: 11,
+          apr: 12,
           apy: 13,
           link: 14,
           invested: 15,
@@ -3145,7 +3147,7 @@
           var openDate = parseGvizDateTimeValue(gvizCellAt(cells, cols.openDate));
           var period = openDate ? periodFromOpenDateString(openDate) : "";
           var pair = String(gvizCellAt(cells, cols.pair) || "").trim();
-          var apyRaw = parseApyFromGvizCell(cells, cols);
+          var apyRaw = normalizeApyValue(parseApyFromGvizCell(cells, cols));
           var link = parseLinkFromGvizCell(cells, cols);
           out.push({
             categoryId: categoryId,
@@ -3215,12 +3217,13 @@
       function mergePoolBattlePeriodsFromGviz(data) {
         if (!data || !Array.isArray(data.tools)) return Promise.resolve(data);
         var needsFix = data.tools.some(function (t) {
+          if (t.categoryId === "ethereum" || t.categoryId === "bitcoin") return true;
+          if (t.categoryId !== "rwa") return false;
           return (
-            (t.categoryId === "ethereum" || t.categoryId === "bitcoin" || t.categoryId === "rwa") &&
-            (isAbsurdPeriodValue(t.period) ||
-              !String(t.period || "").trim() ||
-              !t.openDate ||
-              (t.categoryId === "rwa" && !parseApyNumber(t.apy)))
+            isAbsurdPeriodValue(t.period) ||
+            !String(t.period || "").trim() ||
+            !t.openDate ||
+            !parseApyNumber(t.apy)
           );
         });
         if (!needsFix) return Promise.resolve(data);
@@ -3368,7 +3371,15 @@
             ] ||
             index[patchKeyPlatformChainFee(t)];
           if (!patch) return;
-          if (patch.apy && (!t.apy || !parseApyNumber(t.apy))) t.apy = patch.apy;
+          if (
+            patch.apy &&
+            (categoryId === "ethereum" ||
+              categoryId === "bitcoin" ||
+              !t.apy ||
+              !parseApyNumber(t.apy))
+          ) {
+            t.apy = patch.apy;
+          }
           if (patch.openDate) t.openDate = patch.openDate;
           if (patch.period || patch.openDate) {
             t.period = patch.period || periodFromOpenDateString(patch.openDate);
@@ -4351,7 +4362,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260529c";
+      var NAVIGATOR_BUILD = "20260529d";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";

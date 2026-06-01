@@ -6,8 +6,8 @@ const SPREADSHEET_ID = "1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg";
 
 const POOL_BATTLE_COL_BY_CAT = {
   rwa: { platform: 0, openDate: 3, pair: 9, chain: 10, fee: 11, apy: 12, link: 13 },
-  ethereum: { platform: 0, openDate: 3, pair: 8, chain: 9, fee: 10, apy: 12, link: 13 },
-  bitcoin: { platform: 0, openDate: 3, pair: 9, chain: 10, fee: 11, apy: 13, link: 14 },
+  ethereum: { platform: 0, openDate: 3, pair: 8, chain: 9, fee: 10, apr: 11, apy: 12, link: 13 },
+  bitcoin: { platform: 0, openDate: 3, pair: 9, chain: 10, fee: 11, apr: 12, apy: 13, link: 14 },
 };
 
 function gvizCellValue(cell) {
@@ -114,6 +114,15 @@ for (const r of rwa.slice(0, 3)) {
     failed = true;
   }
 }
+const ethPayload = await fetchGviz("ethereum");
+const ethCells = ethPayload?.table?.rows?.[0]?.c || [];
+const ethApr = Number(gvizCellValue(ethCells[11]));
+const ethApy = Number(gvizCellValue(ethCells[12]));
+if (!(ethApy > ethApr && ethApy > 0)) {
+  console.error("ETH sheet: APY (M) should be > APR (L)", { ethApr, ethApy });
+  failed = true;
+}
+
 for (const r of eth.slice(0, 3)) {
   if (!r.period || r.period === "0 ч") {
     console.error("ETH missing period:", r);
@@ -121,6 +130,11 @@ for (const r of eth.slice(0, 3)) {
   }
   if (r.pair === r.chain) {
     console.error("ETH pair should not equal chain:", r);
+    failed = true;
+  }
+  const parsedApy = parseFloat(String(r.apy).replace("%", ""));
+  if (Math.abs(parsedApy - ethApr) < 1e-6 && Math.abs(parsedApy - ethApy) > 1e-4) {
+    console.error("ETH gviz must use APY column (M), not APR (L):", r);
     failed = true;
   }
 }

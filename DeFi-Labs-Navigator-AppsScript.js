@@ -7,6 +7,7 @@
  * 2. Новый проект → удали весь код в редакторе и вставь сюда ВЕСЬ этот файл.
  * 3. Сохрани (Ctrl+S). SPREADSHEET_ID — сайт; ETH/BTC/RWA — одна таблица с A1 (без блоков H30).
  *    RWA: в «Свойства скрипта» задай JUPITER_API_KEY (portal.jup.ag, Free) — без ключа Jupiter отдаёт 0 позиций.
+ *    LABS LEND: лист «lending», триггер syncLendingSheetHourly (см. installLendingHourlyTrigger).
  * 4. Меню «Развёртывание» → «Новое развёртывание» → тип «Веб-приложение».
  * 5. Описание: например «DeFi Navigator API». Выполнять от имени: «Я». Доступ: «Все».
  * 6. Нажми «Развернуть», скопируй URL (он вида …/exec).
@@ -263,7 +264,7 @@ function jupiterSyncFailureMessage_(payload, wallet, apiKey) {
     String(wallet || "").slice(0, 8) +
     "…";
   if (keyLen && fr === 0) {
-    msg += " Jupiter Portfolio API (#828) пустой — используется on-chain Raydium/Orca.";
+    msg += " Jupiter Portfolio API пустой — пробуем on-chain Raydium/Orca.";
   } else if (!keyLen) {
     msg += " Нет JUPITER_API_KEY в свойствах скрипта.";
   }
@@ -1474,9 +1475,14 @@ function fetchRwaPositionsViaVercelProxy_(wallet) {
 
 /** Jupiter REST пустой → on-chain в GAS (Vercel proxy только если явно настроен). */
 function fetchRwaPositionsOnchainFallback_(wallet) {
-  var viaVercel = fetchRwaPositionsViaVercelProxy_(wallet);
-  if (viaVercel && viaVercel.length) return viaVercel;
-  return fetchRwaPositionsOnchainGas_(wallet);
+  try {
+    var viaVercel = fetchRwaPositionsViaVercelProxy_(wallet);
+    if (viaVercel && viaVercel.length) return viaVercel;
+    return fetchRwaPositionsOnchainGas_(wallet) || [];
+  } catch (e) {
+    Logger.log("RWA on-chain fallback: " + e);
+    return [];
+  }
 }
 
 function fetchRwaPositionsViaUiProxy_(wallet) {
@@ -1678,10 +1684,14 @@ function copyRwaDataToSiteSpreadsheet_() {
 }
 
 /**
- * Синхронизация листа RWA: Jupiter Portfolio → строки инструментов (только liquidity pool).
- * Кошелёк / ссылка jup.ag/portfolio/… — ячейка Z2 (или B6) на листе RWA.
+ * Синхронизация листа RWA: Jupiter Portfolio → on-chain fallback → строки инструментов.
+ * throwIfEmpty: true — ручной запуск (ошибка, если нет данных); false — авто-синх каждый час.
  */
-function syncRwaJupiterPositions() {
+function runRwaJupiterSyncCore_(opts) {
+  opts = opts || {};
+  var throwIfEmpty = opts.throwIfEmpty !== false;
+  var fastJupiter = !!opts.fastJupiter;
+
   var ss = openRwaSourceSpreadsheet_();
   var sh = findRwaSheet_(ss);
   if (!sh) throw new Error("На таблице битвы пуллов нет листа «БИТВА ПУЛОВ RWA»");
@@ -1694,7 +1704,7 @@ function syncRwaJupiterPositions() {
   }
   PropertiesService.getScriptProperties().setProperty("RWA_WALLET", wallet);
 
-  var payload = fetchJupiterPositions_(wallet, true);
+  var payload = fetchJupiterPositions_(wallet, fastJupiter);
   var rows = jupiterElementsToRows_(payload, wallet);
   var diag = jupiterPortfolioSummary_(payload);
   var source = "jupiter-api";
@@ -1715,16 +1725,20 @@ function syncRwaJupiterPositions() {
       jupiterSyncFailureMessage_(payload, wallet, apiKey) +
       " On-chain fallback не вернул LP." +
       (kept ? " Старые " + kept + " строк не обновлены." : "");
-    writeRwaSyncStatus_(sh, msg.slice(0, 240));
-    if (kept) {
-      Logger.log(msg);
+    if (kept && !throwIfEmpty) {
+      writeRwaSyncStatus_(sh, "⚠ Сохранено " + kept + " строк · " + msg.slice(0, 160));
+    } else {
+      writeRwaSyncStatus_(sh, msg.slice(0, 240));
+    }
+    Logger.log(msg);
+    if (kept || !throwIfEmpty) {
       return {
         wallet: wallet,
-        count: kept,
-        kept: true,
+        count: kept || 0,
+        kept: !!kept,
         syncedAt: new Date().toISOString(),
         diag: diag,
-        source: "kept-existing",
+        source: kept ? "kept-existing" : "empty-no-throw",
         warning: msg.slice(0, 500),
       };
     }
@@ -1744,6 +1758,40 @@ function syncRwaJupiterPositions() {
     diag: diag,
     source: source,
   };
+}
+
+/**
+ * Синхронизация листа RWA: Jupiter Portfolio → строки инструментов (только liquidity pool).
+ * Кошелёк / ссылка jup.ag/portfolio/… — ячейка Z2 (или B6) на листе RWA.
+ */
+function syncRwaJupiterPositions() {
+  ensureRwaHourlyTriggerMigration_();
+  return runRwaJupiterSyncCore_({ throwIfEmpty: true, fastJupiter: true });
+}
+
+/** Триггер «каждый час» — без красной ошибки, если строки в таблице уже есть. */
+function syncRwaJupiterPositionsHourly_() {
+  ensureRwaHourlyTriggerMigration_();
+  try {
+    var last = Number(
+      PropertiesService.getScriptProperties().getProperty("RWA_LAST_SYNC_MS") || "0",
+    );
+    var ss = openRwaSourceSpreadsheet_();
+    var sh = findRwaSheet_(ss);
+    if (sh && rwaSheetHasDataRows_(sh) && Date.now() - last < RWA_SYNC_MIN_INTERVAL_MS) {
+      return { skipped: true, reason: "interval" };
+    }
+    return runRwaJupiterSyncCore_({ throwIfEmpty: false, fastJupiter: true });
+  } catch (err) {
+    Logger.log("RWA hourly: " + err);
+    try {
+      var sh2 = findRwaSheet_(openRwaSourceSpreadsheet_());
+      if (sh2) {
+        writeRwaSyncStatus_(sh2, "⚠ Авто-синх: " + String(err.message || err).slice(0, 180));
+      }
+    } catch (e2) {}
+    return { error: String(err.message || err) };
+  }
 }
 
 /** Журнал → View → Logs: проверка Jupiter API (ключ, elements, fetcherReports). */
@@ -1798,72 +1846,87 @@ function diagnoseRwaOnchainGas() {
   return { wallet: wallet, count: rows.length, ms: ms };
 }
 
-function syncRwaJupiterPositionsIfDue_() {
-  try {
-    var ss = openRwaSourceSpreadsheet_();
-    var sh = findRwaSheet_(ss);
-    if (!sh) {
-      Logger.log("RWA: лист «" + RWA_SHEET_TITLE_CANONICAL + "» не найден");
-      return;
+var RWA_TRIGGER_MIGRATION_VER = "20260529a";
+
+/** Один раз после обновления кода: старый триггер syncRwaJupiterPositions → syncRwaJupiterPositionsHourly_. */
+function ensureRwaHourlyTriggerMigration_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("RWA_TRIGGER_MIGRATION_VER") === RWA_TRIGGER_MIGRATION_VER) return;
+
+  var triggers = ScriptApp.getProjectTriggers();
+  var hadOldHourly = false;
+  var hadCorrectHourly = false;
+  var i;
+  var fn;
+
+  for (i = 0; i < triggers.length; i++) {
+    if (triggers[i].getTriggerSource() !== ScriptApp.TriggerSource.CLOCK) continue;
+    fn = triggers[i].getHandlerFunction();
+    if (fn === "syncRwaJupiterPositions") {
+      hadOldHourly = true;
+      ScriptApp.deleteTrigger(triggers[i]);
+    } else if (fn === "syncRwaJupiterPositionsHourly_") {
+      hadCorrectHourly = true;
     }
-    if (!getRwaWalletForSync_(sh)) {
-      writeRwaSyncStatus_(sh, "Нет кошелька в Z2/B6 (jup.ag/portfolio/…)");
-      return;
-    }
-    var last = Number(
-      PropertiesService.getScriptProperties().getProperty("RWA_LAST_SYNC_MS") || "0",
-    );
-    if (rwaSheetHasDataRows_(sh) && Date.now() - last < RWA_SYNC_MIN_INTERVAL_MS) return;
-    var wallet = getRwaWalletForSync_(sh);
-    var payload = fetchJupiterPositions_(wallet, true);
-    var rows = jupiterElementsToRows_(payload, wallet);
-    var ts = Utilities.formatDate(
-      new Date(),
-      Session.getScriptTimeZone() || "GMT",
-      "dd.MM.yyyy HH:mm",
-    );
-    if (!rows.length) {
-      rows = fetchRwaPositionsViaUiProxy_(wallet) || [];
-    }
-    if (!rows.length) {
-      writeRwaSyncStatus_(sh, "0 LP · A1 не очищена · " + ts);
-      return;
-    }
-    writeRwaPoolBattleSheet_(sh, rows);
-    appendRwaDailyLog_(ss, rows);
-    PropertiesService.getScriptProperties().setProperty("RWA_LAST_SYNC_MS", String(Date.now()));
-    PropertiesService.getScriptProperties().setProperty("RWA_LAST_SYNC_COUNT", String(rows.length));
-    PropertiesService.getScriptProperties().setProperty("RWA_WALLET", wallet);
-    writeRwaSyncStatus_(sh, "OK · " + rows.length + " LP · " + ts);
-  } catch (err) {
-    Logger.log("RWA sync: " + err);
-    try {
-      var sh2 = findRwaSheet_(openRwaSourceSpreadsheet_());
-      if (sh2) writeRwaSyncStatus_(sh2, "Ошибка: " + String(err.message || err).slice(0, 200));
-    } catch (e2) {}
   }
+
+  var hourlyEnabled = props.getProperty("RWA_HOURLY_ENABLED") === "1";
+  if (hadOldHourly || (hourlyEnabled && !hadCorrectHourly)) {
+    installRwaHourlyTriggerSilent_();
+  }
+
+  props.setProperty("RWA_TRIGGER_MIGRATION_VER", RWA_TRIGGER_MIGRATION_VER);
 }
 
-function installRwaHourlyTrigger() {
+function installRwaHourlyTriggerSilent_() {
   var triggers = ScriptApp.getProjectTriggers();
-  for (var i = 0; i < triggers.length; i++) {
-    if (triggers[i].getHandlerFunction() === "syncRwaJupiterPositions") {
+  var i;
+  var fn;
+  for (i = 0; i < triggers.length; i++) {
+    fn = triggers[i].getHandlerFunction();
+    if (fn === "syncRwaJupiterPositions" || fn === "syncRwaJupiterPositionsHourly_") {
       ScriptApp.deleteTrigger(triggers[i]);
     }
   }
-  ScriptApp.newTrigger("syncRwaJupiterPositions").timeBased().everyHours(1).create();
+  ScriptApp.newTrigger("syncRwaJupiterPositionsHourly_").timeBased().everyHours(1).create();
+  PropertiesService.getScriptProperties().setProperty("RWA_HOURLY_ENABLED", "1");
+}
+
+function syncRwaJupiterPositionsIfDue_() {
+  ensureRwaHourlyTriggerMigration_();
+  syncRwaJupiterPositionsHourly_();
+}
+
+function installRwaHourlyTrigger() {
+  installRwaHourlyTriggerSilent_();
+  try {
+    var sh = findRwaSheet_(openRwaSourceSpreadsheet_());
+    if (sh) writeRwaSyncStatus_(sh, "Авто-синх RWA: каждый час (без красных ошибок)");
+  } catch (e) {}
+  SpreadsheetApp.getActiveSpreadsheet().toast(
+    "Авто-синх RWA включён (каждый час)",
+    "DeFi Navigator",
+    6,
+  );
 }
 
 function removeRwaHourlyTrigger() {
   var triggers = ScriptApp.getProjectTriggers();
   for (var i = 0; i < triggers.length; i++) {
-    if (triggers[i].getHandlerFunction() === "syncRwaJupiterPositions") {
+    var fn = triggers[i].getHandlerFunction();
+    if (fn === "syncRwaJupiterPositions" || fn === "syncRwaJupiterPositionsHourly_") {
       ScriptApp.deleteTrigger(triggers[i]);
     }
   }
+  PropertiesService.getScriptProperties().deleteProperty("RWA_HOURLY_ENABLED");
 }
 
 function onOpen() {
+  try {
+    ensureRwaHourlyTriggerMigration_();
+  } catch (e) {
+    Logger.log("RWA trigger migration: " + e);
+  }
   SpreadsheetApp.getUi()
     .createMenu("DeFi Navigator")
     .addItem("Проверить файл RWA (статус Z3)", "verifyRwaSpreadsheetTarget")
@@ -1993,6 +2056,20 @@ function findApyColumnIndex_(headers) {
   var idx = findHeaderColumn(headers, 0, [/^(apy)$/], -1);
   if (idx >= 0) return idx;
   return findHeaderColumn(headers, 0, [/^(доходность|доход|yield)$/], -1);
+}
+
+/** APY-колонка (не APR): ETH/RWA col M=12, BTC col N=13. */
+function resolveUnifiedApyColumnIndex_(headers, categoryId) {
+  var apyIdx = findHeaderColumn(headers, 0, [/^(apy)$/], -1);
+  var aprIdx = findHeaderColumn(headers, 0, [/^(apr)$/], -1);
+  if (apyIdx >= 0 && apyIdx !== aprIdx) return apyIdx;
+  var fallbacks = { ethereum: 12, bitcoin: 13, rwa: 12 };
+  if (categoryId && fallbacks[categoryId] != null) {
+    var fb = fallbacks[categoryId];
+    if (aprIdx >= 0 && fb === aprIdx && headers[fb + 1] === "apy") return fb + 1;
+    return fb;
+  }
+  return findApyColumnIndex_(headers);
 }
 
 /** Мин/макс: число из value, не display (иначе Sheets портит как «2505 дн»). */
@@ -2260,6 +2337,7 @@ function getData() {
   for (var s = 1; s < sheets.length; s++) {
     var sh = sheets[s];
     var title = sh.getName();
+    if (isLendingDataSheet_(title)) continue;
     var fromSheetName = sheetNameToCategoryId(title);
     var fromOrder = categoryIds[s - 1] || "";
     var catId = "";
@@ -2301,12 +2379,10 @@ function getData() {
       : colIndex(["name", "название", "instrument", "инструмент"]);
     if (nameCol < 0) nameCol = unified ? umap.platformCol : 0;
     var apyCol = unified
-      ? umap.apyCol >= 0
-        ? umap.apyCol
-        : findApyColumnIndex_(headers)
+      ? resolveUnifiedApyColumnIndex_(headers, catId)
       : findApyColumnIndex_(headers);
     if (apyCol < 0) apyCol = colIndex(["apy", "доходность", "доход", "yield"]);
-    if (apyCol < 0) apyCol = unified ? 12 : 1;
+    if (apyCol < 0 && !unified) apyCol = 1;
     var periodCol = unified ? umap.periodCol : colIndex(["period", "период", "term"]);
     if (periodCol < 0) periodCol = unified ? -1 : 2;
     var statusCol = unified ? umap.statusCol : colIndex(["status", "статус"]);
@@ -2506,6 +2582,13 @@ function getData() {
 }
 
 function doGet(e) {
+  var project =
+    e && e.parameter && e.parameter.project ? String(e.parameter.project).trim().toLowerCase() : "";
+
+  if (project === "labs-lend-borrow") {
+    return handleLabsLendBorrowDoGet_(e);
+  }
+
   var callback = e && e.parameter && e.parameter.callback;
   var data;
   try {
@@ -2528,4 +2611,604 @@ function doGet(e) {
   }
 
   return out;
+}
+
+// --- Labs Lend: лист «lending» (синк раз в час → сайт ?project=labs-lend-borrow) ---
+
+var LENDING_SHEET_NAME = "lending";
+var LABS_LEND_GITHUB_ALL_JSON =
+  "https://raw.githubusercontent.com/GithubRavilS/Lendingdepositrates/main/data/embed/borrow-stablecoins-all.json";
+var LABS_LEND_GITHUB_TOP_JSON =
+  "https://raw.githubusercontent.com/GithubRavilS/Lendingdepositrates/main/data/embed/top-borrow-stablecoins.json";
+var LABS_LEND_STABLE_KEYWORDS = [
+  "USD",
+  "USDT",
+  "USDC",
+  "DAI",
+  "TUSD",
+  "USDE",
+  "LUSD",
+  "FDUSD",
+  "USDS",
+];
+var LABS_LEND_AAVE_CHAIN_IDS = [
+  1, 8453, 42161, 10, 137, 100, 43114, 59144, 56, 146, 324, 534352, 5000, 1088, 42220, 1868, 84532,
+];
+var LABS_LEND_CHAIN_DISPLAY = { Optimism: "OP Mainnet", zkSync: "zkSync Era" };
+var LENDING_NAV_HEADERS = ["name", "apy", "period", "status", "link", "description", "pair"];
+
+function formatPlatformDisplayForLending_(slug) {
+  var s = String(slug || "").trim();
+  if (!s) return "";
+  if (/^aave-v3$/i.test(s)) return "Aave V3";
+  if (/^venus/i.test(s)) return "Venus Core Pool";
+  return s.replace(/-/g, " ").replace(/\b\w/g, function (c) {
+    return c.toUpperCase();
+  });
+}
+
+function isLendingDataSheet_(title) {
+  return (
+    String(title || "")
+      .trim()
+      .toLowerCase() === LENDING_SHEET_NAME
+  );
+}
+
+function isStablecoinToken_(symbol) {
+  var s = String(symbol || "").toUpperCase();
+  var i;
+  for (i = 0; i < LABS_LEND_STABLE_KEYWORDS.length; i++) {
+    if (s.indexOf(LABS_LEND_STABLE_KEYWORDS[i]) !== -1) return true;
+  }
+  return false;
+}
+
+function parseAaveApyPercent_(apyObj) {
+  if (!apyObj) return null;
+  if (apyObj.formatted != null && String(apyObj.formatted).trim()) {
+    var n = parseFloat(String(apyObj.formatted).replace("%", ""));
+    if (!isNaN(n)) return n;
+  }
+  if (apyObj.value == null) return null;
+  var v = parseFloat(String(apyObj.value));
+  if (isNaN(v)) return null;
+  if (v > -0.001 && v < 1.5) v *= 100;
+  return v;
+}
+
+function parseBorrowApyCell_(raw) {
+  if (raw == null || raw === "") return null;
+  if (typeof raw === "number" && !isNaN(raw)) {
+    if (raw > 0 && raw <= 1.5) return raw * 100;
+    return raw;
+  }
+  var s = String(raw).replace(/\s/g, "").replace(",", ".").replace("%", "");
+  var n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
+function defillamaPoolPageUrl_(poolId) {
+  return "https://defillama.com/yields/pool/" + String(poolId || "").trim();
+}
+
+function buildAaveV3DefillamaLookup_() {
+  var res = UrlFetchApp.fetch("https://yields.llama.fi/pools", { muteHttpExceptions: true });
+  if (res.getResponseCode() !== 200) return {};
+  var payload = JSON.parse(res.getContentText());
+  var rows = (payload && payload.data) || [];
+  var best = {};
+  var i;
+  for (i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    if (String(row.project || "") !== "aave-v3") continue;
+    var chain = String(row.chain || "").trim();
+    var poolId = String(row.pool || "").trim();
+    var tokens = row.underlyingTokens;
+    if (!chain || !poolId || !tokens || !tokens.length) continue;
+    var tok = String(tokens[0] || "")
+      .trim()
+      .toLowerCase();
+    if (!tok) continue;
+    var tvl = parseFloat(row.tvlUsd);
+    if (isNaN(tvl)) tvl = 0;
+    var key = chain + "\0" + tok;
+    if (!best[key] || tvl > best[key].tvl) {
+      best[key] = { pool: poolId, tvl: tvl };
+    }
+  }
+  return best;
+}
+
+function aaveReserveDefillamaUrl_(lookup, chainGql, chainDisplay, tokenAddr) {
+  var addr = String(tokenAddr || "")
+    .trim()
+    .toLowerCase();
+  if (!addr || !lookup) return "https://defillama.com/protocol/aave-v3";
+  var mapped = LABS_LEND_CHAIN_DISPLAY[chainGql] || chainGql;
+  var chains = [chainDisplay, mapped, chainGql];
+  var i;
+  for (i = 0; i < chains.length; i++) {
+    var ch = String(chains[i] || "").trim();
+    if (!ch) continue;
+    var hit = lookup[ch + "\0" + addr];
+    if (hit && hit.pool) return defillamaPoolPageUrl_(hit.pool);
+  }
+  return "https://defillama.com/protocol/aave-v3";
+}
+
+function mergePositionUrlsFromGithub_(items, githubItems) {
+  if (!items || !items.length || !githubItems || !githubItems.length) return items;
+  var byKey = {};
+  var gi;
+  for (gi = 0; gi < githubItems.length; gi++) {
+    var g = githubItems[gi];
+    var url = String(g.position_url || "").trim();
+    if (!url || url.indexOf("defillama.com/yields/pool/") < 0) continue;
+    var k =
+      String(g.platform || "").toLowerCase() +
+      "|" +
+      String(g.chain || "").toLowerCase() +
+      "|" +
+      String(g.token_symbol || "").toUpperCase();
+    byKey[k] = url;
+  }
+  var out = [];
+  var i;
+  for (i = 0; i < items.length; i++) {
+    var row = items[i];
+    var key =
+      String(row.platform || "").toLowerCase() +
+      "|" +
+      String(row.chain || "").toLowerCase() +
+      "|" +
+      String(row.token_symbol || "").toUpperCase();
+    var ghUrl = byKey[key];
+    var copy = {};
+    var p;
+    for (p in row) {
+      if (Object.prototype.hasOwnProperty.call(row, p)) copy[p] = row[p];
+    }
+    if (ghUrl) copy.position_url = ghUrl;
+    else if (String(copy.position_url || "").indexOf("app.aave.com") >= 0 || !copy.position_url) {
+      /* keep defillama from lookup or protocol page */
+    }
+    out.push(copy);
+  }
+  return out;
+}
+
+function fetchLabsLendJson_(url) {
+  var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  if (res.getResponseCode() !== 200) return null;
+  var payload = JSON.parse(res.getContentText());
+  if (payload && payload.ok && payload.items && payload.items.length) return payload;
+  return null;
+}
+
+function fetchLabsLendFromGithub_() {
+  var payload = fetchLabsLendJson_(LABS_LEND_GITHUB_ALL_JSON);
+  if (payload) {
+    payload.source = "github-borrow-stablecoins-all";
+    return payload;
+  }
+  payload = fetchLabsLendJson_(LABS_LEND_GITHUB_TOP_JSON);
+  if (payload) {
+    payload.source = "github-top-borrow-stablecoins";
+    return payload;
+  }
+  return null;
+}
+
+function fetchLabsLendFromAaveGraphql_() {
+  var poolLookup = buildAaveV3DefillamaLookup_();
+  var query =
+    "query ($chainIds: [ChainId!]!) { markets(request: { chainIds: $chainIds }) { chain { name } reserves { isFrozen isPaused underlyingToken { symbol address } borrowInfo { apy { formatted value } borrowingState borrowCapReached } size { usd } } } }";
+  var res = UrlFetchApp.fetch("https://api.v3.aave.com/graphql", {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify({ query: query, variables: { chainIds: LABS_LEND_AAVE_CHAIN_IDS } }),
+    muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() !== 200) return null;
+  var payload = JSON.parse(res.getContentText());
+  if (!payload || payload.errors) return null;
+
+  var rows = [];
+  var markets = (payload.data && payload.data.markets) || [];
+  var mi;
+  for (mi = 0; mi < markets.length; mi++) {
+    var market = markets[mi];
+    var chainGql = (market.chain && market.chain.name) || "";
+    var chain = LABS_LEND_CHAIN_DISPLAY[chainGql] || chainGql || "-";
+    var reserves = market.reserves || [];
+    var ri;
+    for (ri = 0; ri < reserves.length; ri++) {
+      var resv = reserves[ri];
+      if (resv.isFrozen || resv.isPaused) continue;
+      var token = resv.underlyingToken || {};
+      var sym = token.symbol;
+      var addr = token.address || "";
+      if (!isStablecoinToken_(sym)) continue;
+      var borrowInfo = resv.borrowInfo || {};
+      if (borrowInfo.borrowingState !== "ENABLED" || borrowInfo.borrowCapReached) continue;
+      var apy = parseAaveApyPercent_(borrowInfo.apy);
+      if (apy == null || apy < 0.01) continue;
+      var tvl = null;
+      if (resv.size && resv.size.usd != null) {
+        tvl = parseFloat(String(resv.size.usd));
+        if (isNaN(tvl)) tvl = null;
+      }
+      rows.push({
+        platform: "aave-v3",
+        chain: chain,
+        token_symbol: sym,
+        token_address: String(addr).toLowerCase(),
+        borrow_apy: apy,
+        lend_apy: "",
+        tvl_usd: tvl != null ? tvl : "",
+        token_family: "stablecoin",
+        position_url: aaveReserveDefillamaUrl_(poolLookup, chainGql, chain, addr),
+      });
+    }
+  }
+
+  rows.sort(function (a, b) {
+    return a.borrow_apy - b.borrow_apy;
+  });
+  if (!rows.length) return null;
+
+  var ghPayload = fetchLabsLendJson_(LABS_LEND_GITHUB_TOP_JSON);
+  if (ghPayload && ghPayload.items) {
+    rows = mergePositionUrlsFromGithub_(rows, ghPayload.items);
+  }
+
+  return {
+    ok: true,
+    items: rows,
+    count: rows.length,
+    source: "aave-graphql+defillama",
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function fetchLabsLendBorrowPublic_() {
+  // 1) Полный JSON из репо трекера (если есть) — те же URL, что Labs Lend.
+  var payload = fetchLabsLendJson_(LABS_LEND_GITHUB_ALL_JSON);
+  if (payload) {
+    payload.source = "github-borrow-stablecoins-all";
+    payload.updatedAt = new Date().toISOString();
+    return payload;
+  }
+  // 2) Live Aave + DefiLlama pool links (как aave_sync.py в трекере).
+  payload = fetchLabsLendFromAaveGraphql_();
+  if (payload) return payload;
+  // 3) Запасной top-3 JSON.
+  payload = fetchLabsLendFromGithub_();
+  if (payload) {
+    payload.updatedAt = new Date().toISOString();
+    return payload;
+  }
+  return { ok: false, items: [], error: "public_sources_failed" };
+}
+
+function parsePeriodApyChain_(raw) {
+  var s = String(raw || "").trim();
+  if (!s) return { apy: null, chain: "" };
+  var m = s.match(/^([\d]+(?:[.,]\d+)?)\s+(.+)$/);
+  if (m) {
+    return { apy: parseBorrowApyCell_(m[1]), chain: String(m[2] || "").trim() };
+  }
+  return { apy: null, chain: s };
+}
+
+function ensureLendingNavigatorHeaders_(sh) {
+  sh.getRange(1, 1, 1, LENDING_NAV_HEADERS.length).setValues([LENDING_NAV_HEADERS]);
+  return LENDING_NAV_HEADERS.slice();
+}
+
+function lendingHeaderIndex_(headers, aliases) {
+  var i;
+  var a;
+  for (i = 0; i < headers.length; i++) {
+    for (a = 0; a < aliases.length; a++) {
+      if (headers[i] === aliases[a]) return i;
+    }
+  }
+  return -1;
+}
+
+function mapLendingHeaders_(headers) {
+  return {
+    name: lendingHeaderIndex_(headers, ["name", "название", "instrument", "инструмент"]),
+    apy: lendingHeaderIndex_(headers, ["apy", "доходность", "доход", "yield"]),
+    period: lendingHeaderIndex_(headers, ["period", "период", "term", "срок"]),
+    status: lendingHeaderIndex_(headers, ["status", "статус"]),
+    link: lendingHeaderIndex_(headers, ["link", "url", "ссылка", "position_url"]),
+    description: lendingHeaderIndex_(headers, ["description", "desc", "описание"]),
+    pair: lendingHeaderIndex_(headers, ["pair", "пара"]),
+    platform: lendingHeaderIndex_(headers, ["platform", "платформа", "protocol", "протокол"]),
+    chain: lendingHeaderIndex_(headers, ["chain", "блокчейн", "сеть", "blockchain", "network"]),
+    token: lendingHeaderIndex_(headers, ["token_symbol", "token", "символ", "токен", "symbol"]),
+    family: lendingHeaderIndex_(headers, ["token_family", "family", "семейство"]),
+    borrowApy: lendingHeaderIndex_(headers, [
+      "borrow_apy",
+      "borrow apy",
+      "ставка кредита",
+      "ставка",
+    ]),
+    lendApy: lendingHeaderIndex_(headers, ["lend_apy", "lend apy", "депозит"]),
+    tvl: lendingHeaderIndex_(headers, ["tvl_usd", "tvl", "tvl usd"]),
+    updated: lendingHeaderIndex_(headers, ["updated_at", "updated", "обновлено"]),
+    source: lendingHeaderIndex_(headers, ["source", "источник"]),
+  };
+}
+
+function lendingCellValue_(header, item, updatedAt, source) {
+  if (
+    header === "name" ||
+    header === "название" ||
+    header === "instrument" ||
+    header === "инструмент"
+  ) {
+    return item.token_symbol || "";
+  }
+  if (header === "apy" || header === "доходность" || header === "доход" || header === "yield") {
+    return item.borrow_apy != null ? item.borrow_apy : "";
+  }
+  if (header === "period" || header === "период" || header === "term" || header === "срок") {
+    return item.chain || "";
+  }
+  if (header === "status" || header === "статус") {
+    return item.token_family || "active";
+  }
+  if (header === "link" || header === "url" || header === "ссылка" || header === "position_url") {
+    return item.position_url || "";
+  }
+  if (header === "description" || header === "desc" || header === "описание") {
+    return formatPlatformDisplayForLending_(item.platform);
+  }
+  if (header === "pair" || header === "пара") {
+    return (item.token_symbol || "") + " · " + formatPlatformDisplayForLending_(item.platform);
+  }
+  if (
+    header === "platform" ||
+    header === "платформа" ||
+    header === "protocol" ||
+    header === "протокол"
+  ) {
+    return item.platform || "";
+  }
+  if (
+    header === "chain" ||
+    header === "блокчейн" ||
+    header === "сеть" ||
+    header === "blockchain" ||
+    header === "network"
+  ) {
+    return item.chain || "";
+  }
+  if (
+    header === "token_symbol" ||
+    header === "token" ||
+    header === "symbol" ||
+    header === "символ" ||
+    header === "токен"
+  ) {
+    return item.token_symbol || "";
+  }
+  if (
+    header === "borrow_apy" ||
+    header === "borrow apy" ||
+    header === "ставка кредита" ||
+    header === "ставка"
+  ) {
+    return item.borrow_apy != null ? item.borrow_apy : "";
+  }
+  if (header === "token_family" || header === "family" || header === "семейство") {
+    return item.token_family || "stablecoin";
+  }
+  if (header === "lend_apy" || header === "lend apy" || header === "депозит") {
+    return item.lend_apy != null ? item.lend_apy : "";
+  }
+  if (header === "tvl_usd" || header === "tvl" || header === "tvl usd") {
+    return item.tvl_usd != null ? item.tvl_usd : "";
+  }
+  if (header === "updated_at" || header === "updated" || header === "обновлено") {
+    return updatedAt;
+  }
+  if (header === "source" || header === "источник") {
+    return source;
+  }
+  return "";
+}
+
+function getLendingSheet_() {
+  var ss = openSiteSpreadsheet_();
+  var sh = ss.getSheetByName(LENDING_SHEET_NAME);
+  if (!sh) throw new Error("Нет листа «" + LENDING_SHEET_NAME + "» в таблице Navigator");
+  return sh;
+}
+
+function writeLendingSheet_(payload) {
+  var sh = getLendingSheet_();
+  var items = (payload && payload.items) || [];
+  var updatedAt = (payload && payload.updatedAt) || new Date().toISOString();
+  var source = (payload && payload.source) || "";
+
+  var headers = ensureLendingNavigatorHeaders_(sh);
+  var colCount = headers.length;
+  var out = [];
+  var i;
+  for (i = 0; i < items.length; i++) {
+    var row = items[i];
+    var line = [];
+    var c;
+    for (c = 0; c < colCount; c++) {
+      line.push(lendingCellValue_(headers[c], row, updatedAt, source));
+    }
+    out.push(line);
+  }
+
+  var lastRow = sh.getLastRow();
+  if (lastRow > 1) {
+    sh.getRange(2, 1, lastRow - 1, colCount).clearContent();
+  }
+  if (out.length) {
+    sh.getRange(2, 1, out.length, colCount).setValues(out);
+    var apyCol = headers.indexOf("apy") + 1;
+    if (apyCol > 0) {
+      sh.getRange(2, apyCol, out.length, 1).setNumberFormat("0.00");
+    }
+  }
+  return payload;
+}
+
+function readLendingSheet_() {
+  var sh = getLendingSheet_();
+  var rows = sh.getDataRange().getValues();
+  if (!rows || rows.length < 2) return { ok: false, items: [], error: "lending_sheet_empty" };
+
+  var headers = rows[0].map(function (h) {
+    return normalizeHeaderCell(h);
+  });
+  var map = mapLendingHeaders_(headers);
+
+  function pick(rw, idx) {
+    if (idx < 0) return "";
+    return String(rw[idx] || "").trim();
+  }
+
+  var items = [];
+  var r;
+  for (r = 1; r < rows.length; r++) {
+    var rw = rows[r];
+    var token = pick(rw, map.token);
+    if (!token) token = pick(rw, map.name);
+    if (!token && map.pair >= 0) {
+      token = pick(rw, map.pair).split("·")[0].split("/")[0].trim();
+    }
+    if (!token) continue;
+
+    var apy = null;
+    if (map.borrowApy >= 0) apy = parseBorrowApyCell_(rw[map.borrowApy]);
+    if (apy == null && map.apy >= 0) apy = parseBorrowApyCell_(rw[map.apy]);
+    var chain = pick(rw, map.chain);
+    if (!chain) {
+      var periodRaw = pick(rw, map.period);
+      var split = parsePeriodApyChain_(periodRaw);
+      if (apy == null && split.apy != null) apy = split.apy;
+      if (!chain) chain = split.chain;
+    }
+    if (apy == null) continue;
+
+    var platform = pick(rw, map.platform);
+    if (!platform) platform = pick(rw, map.description);
+    var family = pick(rw, map.family);
+    if (!family) family = pick(rw, map.status) || "stablecoin";
+    var url = pick(rw, map.link);
+
+    items.push({
+      token_symbol: token,
+      platform: platform,
+      chain: chain,
+      borrow_apy: apy,
+      token_family: family,
+      position_url: url,
+    });
+  }
+
+  items.sort(function (a, b) {
+    return (a.borrow_apy || 999) - (b.borrow_apy || 999);
+  });
+
+  var metaUpdated = map.updated >= 0 && rows[1] ? String(rows[1][map.updated] || "") : "";
+  var metaSource = map.source >= 0 && rows[1] ? String(rows[1][map.source] || "") : "";
+
+  return {
+    ok: items.length > 0,
+    items: items,
+    count: items.length,
+    updatedAt: metaUpdated || new Date().toISOString(),
+    source: metaSource || "lending-sheet",
+  };
+}
+
+function syncLendingSheetHourly() {
+  var payload = fetchLabsLendBorrowPublic_();
+  if (payload && payload.ok && payload.items && payload.items.length) {
+    writeLendingSheet_(payload);
+  }
+  return payload;
+}
+
+function runLendingSyncNow() {
+  return syncLendingSheetHourly();
+}
+
+function lendingSheetNeedsRefresh_(fromSheet) {
+  if (!fromSheet || !fromSheet.ok || !fromSheet.items || !fromSheet.items.length) return true;
+  if (fromSheet.items.length <= 3) return true;
+  return false;
+}
+
+function getLabsLendBorrowPayload() {
+  var fromSheet = readLendingSheet_();
+  if (lendingSheetNeedsRefresh_(fromSheet)) {
+    syncLendingSheetHourly();
+    fromSheet = readLendingSheet_();
+  }
+  if (!fromSheet.ok || !fromSheet.items.length) return fromSheet;
+
+  var top = fromSheet.items.slice(0, 3);
+  return {
+    ok: true,
+    items: top,
+    count: top.length,
+    updatedAt: fromSheet.updatedAt,
+    source: fromSheet.source,
+  };
+}
+
+function installLendingHourlyTrigger() {
+  var triggers = ScriptApp.getProjectTriggers();
+  var i;
+  var oldNames = ["syncLendingSheetHourly", "syncLandingSheetFromLabsLend", "runLendingSyncNow"];
+  for (i = 0; i < triggers.length; i++) {
+    var fn = triggers[i].getHandlerFunction();
+    var j;
+    for (j = 0; j < oldNames.length; j++) {
+      if (fn === oldNames[j]) {
+        ScriptApp.deleteTrigger(triggers[i]);
+        break;
+      }
+    }
+  }
+  ScriptApp.newTrigger("syncLendingSheetHourly").timeBased().everyHours(1).create();
+  syncLendingSheetHourly();
+}
+
+/** Если триггер падает «function not found» — вставь весь файл и запусти это. */
+function repairLendingTriggers() {
+  installLendingHourlyTrigger();
+}
+
+/** Старые имена (landing) — алиасы, чтобы не ломать старые триггеры. */
+function syncLandingSheetFromLabsLend() {
+  return syncLendingSheetHourly();
+}
+
+function handleLabsLendBorrowDoGet_(e) {
+  var callback = e && e.parameter && e.parameter.callback;
+  var data = getLabsLendBorrowPayload();
+  if (callback) {
+    var jsonStr = JSON.stringify(data);
+    var safeCallback = String(callback).replace(/[^a-zA-Z0-9_.]/g, "");
+    return ContentService.createTextOutput(safeCallback + "(" + jsonStr + ")").setMimeType(
+      ContentService.MimeType.JAVASCRIPT,
+    );
+  }
+  return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(
+    ContentService.MimeType.JSON,
+  );
 }
