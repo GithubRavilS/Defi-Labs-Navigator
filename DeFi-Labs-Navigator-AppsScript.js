@@ -2067,22 +2067,20 @@ function sanitizeRangeCell_(val) {
 }
 
 /** APY для API: только колонка APY. Из «18,65%» или доли 0,1865. */
+/** APY как в Excel: display «13,91%» / «0,90»; без display — доля в raw. */
 function formatApyForApi_(rawVal, displayVal) {
   var disp = displayVal != null ? String(displayVal).trim() : "";
-  if (disp && disp.indexOf("%") !== -1) return normalizeApyFromCell_(disp);
   if (disp) {
-    var dn = parseFloat(disp.replace(",", ".").replace(/\s/g, ""));
+    var dn = parseFloat(disp.replace(/%/g, "").replace(",", ".").replace(/\s/g, ""));
     if (!isNaN(dn) && dn >= 0) return String(Math.round(dn * 10) / 10);
   }
   if (typeof rawVal === "number" && !isNaN(rawVal)) {
     if (rawVal > 1.5) return String(Math.round(rawVal * 10) / 10);
-    if (rawVal >= 0.2 && rawVal <= 1.5) return String(Math.round(rawVal * 1000) / 10);
-    if (rawVal >= 0 && rawVal < 0.2) return String(Math.round(rawVal * 100) / 100);
+    if (rawVal > 0 && rawVal <= 1.5) return String(Math.round(rawVal * 1000) / 10);
   }
   var s = normalizeApyFromCell_(rawVal) || normalizeApyFromCell_(disp);
   if (s) {
     var n = parseFloat(String(s).replace(",", "."));
-    if (!isNaN(n) && n >= 0.2 && n <= 1.5) return String(Math.round(n * 1000) / 10);
     if (!isNaN(n) && n >= 0) return String(Math.round(n * 10) / 10);
   }
   return s || "0";

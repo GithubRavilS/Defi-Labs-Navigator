@@ -2933,38 +2933,37 @@
         return enrichPoolBattleFields(o);
       }
 
-      /** APY в процентах. Доли 0.182 (пул-баттл) → 18.2; «0,18» / 0.18 (стейблы) → 0.18. */
+      /**
+       * APY уже в процентах (как в Excel: «13,91%», «0,90», «27,03»).
+       * Без ×100 / ÷100 — только округление для отображения.
+       */
       function normalizeApyValue(value) {
         if (value == null || value === "") return "0";
-        var s = String(value).trim();
-        if (s.indexOf("%") !== -1) {
-          var pct = parseFloat(s.replace(/%/g, "").replace(",", "."));
-          return Number.isFinite(pct) ? String(Math.round(pct * 10) / 10) : "0";
-        }
-        var n = parseFloat(s.replace(/\s/g, "").replace(",", "."));
+        var n = parseFloat(
+          String(value).trim().replace(/%/g, "").replace(/\s/g, "").replace(",", "."),
+        );
         if (!Number.isFinite(n)) return "0";
-        if (n > 1.5) return String(Math.round(n * 10) / 10);
-        if (n >= 0.2 && n <= 1.5) return String(Math.round(n * 1000) / 10);
         return String(Math.round(n * 10) / 10);
       }
 
-      /** Колонка apy листа stables: «27,03» и «0,18» — уже проценты, не доли. */
-      function apyFromStablesSheetCell(cell) {
+      /** APY из gviz: сначала отображение ячейки (f), иначе доля в v (0.139 → 13.9). */
+      function apyPercentFromSheetCell(cell) {
         if (!cell) return "0";
-        var disp =
-          cell.f != null && String(cell.f).trim() !== "" ? String(cell.f).trim() : "";
-        if (disp && disp.indexOf("%") !== -1) return normalizeApyValue(disp);
+        var disp = cell.f != null && String(cell.f).trim() !== "" ? String(cell.f).trim() : "";
         if (disp) {
-          var dn = parseFloat(disp.replace(",", ".").replace(/\s/g, ""));
+          var dn = parseFloat(disp.replace(/%/g, "").replace(",", ".").replace(/\s/g, ""));
           if (Number.isFinite(dn)) return String(Math.round(dn * 10) / 10);
         }
         var raw = cell.v;
         if (typeof raw === "number" && Number.isFinite(raw)) {
           if (raw > 1.5) return String(Math.round(raw * 10) / 10);
-          if (raw >= 0.2 && raw <= 1.5) return String(Math.round(raw * 1000) / 10);
-          return String(Math.round(raw * 100) / 100);
+          if (raw > 0 && raw <= 1.5) return String(Math.round(raw * 1000) / 10);
         }
         return normalizeApyValue(raw);
+      }
+
+      function gvizCellApyValue(cell) {
+        return apyPercentFromSheetCell(cell);
       }
 
       function feeDecimalPlaces_(n) {
@@ -3152,9 +3151,7 @@
       }
 
       function parseApyFromGvizCell(cells, cols) {
-        var raw = gvizCellAt(cells, cols.apy);
-        if (raw == null || raw === "") return "";
-        return String(raw);
+        return apyPercentFromSheetCell(cells[cols.apy]);
       }
 
       function parseLinkFromGvizCell(cells, cols) {
@@ -3242,7 +3239,7 @@
           var pair = String(gvizCellAt(cells, cols.pair) || "").trim();
           var chain = String(gvizCellAt(cells, cols.chain) || "").trim();
           var feeRaw = String(gvizCellFeeValue(cells[cols.fee]) || "").trim();
-          var apyRaw = normalizeApyValue(parseApyFromGvizCell(cells, cols));
+          var apyRaw = parseApyFromGvizCell(cells, cols);
           var link = parseLinkFromGvizCell(cells, cols) || "#";
           var priceMin = categoryId === "rwa" ? "-10%" : gvizNumericCell(cells, cols.minPrice);
           var priceMax = categoryId === "rwa" ? "+10%" : gvizNumericCell(cells, cols.maxPrice);
@@ -3279,13 +3276,15 @@
           var platform = name;
           var openDate = "";
           var period = String(gvizCellAt(cells, cols.period) || "").trim();
-          var statusRaw = String(gvizCellAt(cells, cols.status) || "active").trim().toLowerCase();
+          var statusRaw = String(gvizCellAt(cells, cols.status) || "active")
+            .trim()
+            .toLowerCase();
           var status = statusRaw === "warning" || statusRaw === "внимание" ? "warning" : "active";
           if (statusRaw === "closed" || statusRaw === "закрыт") status = "closed";
           var link = String(gvizCellAt(cells, cols.link) || "").trim() || "#";
           var pair = String(gvizCellAt(cells, cols.pair) || "").trim();
           var desc = String(gvizCellAt(cells, cols.description) || "").trim();
-          var apy = apyFromStablesSheetCell(cells[cols.apy]);
+          var apy = apyPercentFromSheetCell(cells[cols.apy]);
           out.push({
             categoryId: "stables",
             name: platform,
@@ -3342,7 +3341,9 @@
             stables.push(stableToolFromSheetRow(rows[j], maxId));
           }
           data.tools = other.concat(stables);
-          console.log("DeFi Navigator: stables из таблицы (колонка apy)", { count: stables.length });
+          console.log("DeFi Navigator: stables из таблицы (колонка apy)", {
+            count: stables.length,
+          });
           return data;
         });
       }
@@ -4654,7 +4655,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260601g";
+      var NAVIGATOR_BUILD = "20260601h";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
