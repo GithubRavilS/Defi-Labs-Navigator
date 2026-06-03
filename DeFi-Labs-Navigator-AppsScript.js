@@ -2070,14 +2070,20 @@ function sanitizeRangeCell_(val) {
 function formatApyForApi_(rawVal, displayVal) {
   var disp = displayVal != null ? String(displayVal).trim() : "";
   if (disp && disp.indexOf("%") !== -1) return normalizeApyFromCell_(disp);
+  if (disp) {
+    var dn = parseFloat(disp.replace(",", ".").replace(/\s/g, ""));
+    if (!isNaN(dn) && dn >= 0) return String(Math.round(dn * 10) / 10);
+  }
   if (typeof rawVal === "number" && !isNaN(rawVal)) {
-    if (rawVal > 0 && rawVal <= 1.5) return String(Math.round(rawVal * 1000) / 10);
     if (rawVal > 1.5) return String(Math.round(rawVal * 10) / 10);
+    if (rawVal >= 0.2 && rawVal <= 1.5) return String(Math.round(rawVal * 1000) / 10);
+    if (rawVal >= 0 && rawVal < 0.2) return String(Math.round(rawVal * 100) / 100);
   }
   var s = normalizeApyFromCell_(rawVal) || normalizeApyFromCell_(disp);
   if (s) {
     var n = parseFloat(String(s).replace(",", "."));
-    if (!isNaN(n) && n > 0 && n <= 1.5) return String(Math.round(n * 1000) / 10);
+    if (!isNaN(n) && n >= 0.2 && n <= 1.5) return String(Math.round(n * 1000) / 10);
+    if (!isNaN(n) && n >= 0) return String(Math.round(n * 10) / 10);
   }
   return s || "0";
 }
@@ -2208,9 +2214,10 @@ function buildAuxiliaryDetailIndex(rows, displayRows) {
       [/^(fee_tier|fitier|fi tier|fee tier|fee|комиссия|tier|уровень)$/],
       17,
     );
-    var aprCol = findHeaderColumn(headers, 7, [/^(apr)$/], 19);
-    var apyCol = findHeaderColumn(headers, 7, [/^(apy|доходность|доход)$/], 20);
-    var linkCol = findHeaderColumn(headers, 7, [/ссылка|link|url/], 20);
+    var aprCol = findHeaderColumn(headers, 7, [/^(apr)$/], -1);
+    var apyCol = findHeaderColumn(headers, 7, [/^(apy)$/], -1);
+    var linkCol = findHeaderColumn(headers, 7, [/ссылка|link|url/], -1);
+    if (apyCol >= 0 && linkCol >= 0 && apyCol === linkCol) apyCol = -1;
 
     function pickAux(rowVals, dispVals, idx) {
       if (idx < 0) return "";
@@ -2481,7 +2488,8 @@ function getData() {
     var minPriceCol = unified ? umap.minPriceCol : findPriceColumnIndex(headers, "min");
     var maxPriceCol = unified ? umap.maxPriceCol : findPriceColumnIndex(headers, "max");
     var openDateCol = unified ? umap.openDateCol : -1;
-    var detailIndex = unified ? {} : buildAuxiliaryDetailIndex(rows, displayRows);
+    var detailIndex =
+      unified || catId === "stables" ? {} : buildAuxiliaryDetailIndex(rows, displayRows);
 
     function pick(row, idx, def) {
       def = def || "";

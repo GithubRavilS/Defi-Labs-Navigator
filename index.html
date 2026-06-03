@@ -2933,13 +2933,38 @@
         return enrichPoolBattleFields(o);
       }
 
+      /** APY в процентах. Доли 0.182 (пул-баттл) → 18.2; «0,18» / 0.18 (стейблы) → 0.18. */
       function normalizeApyValue(value) {
         if (value == null || value === "") return "0";
-        var disp = String(value).replace(/%/g, "").trim();
-        var n = parseFloat(String(value).replace(/\s/g, "").replace(",", "."));
-        if (!Number.isFinite(n)) return disp || "0";
-        if (n > 0 && n <= 1.5) return String(Math.round(n * 1000) / 10);
-        return disp.replace(",", ".");
+        var s = String(value).trim();
+        if (s.indexOf("%") !== -1) {
+          var pct = parseFloat(s.replace(/%/g, "").replace(",", "."));
+          return Number.isFinite(pct) ? String(Math.round(pct * 10) / 10) : "0";
+        }
+        var n = parseFloat(s.replace(/\s/g, "").replace(",", "."));
+        if (!Number.isFinite(n)) return "0";
+        if (n > 1.5) return String(Math.round(n * 10) / 10);
+        if (n >= 0.2 && n <= 1.5) return String(Math.round(n * 1000) / 10);
+        return String(Math.round(n * 10) / 10);
+      }
+
+      /** Колонка apy листа stables: «27,03» и «0,18» — уже проценты, не доли. */
+      function apyFromStablesSheetCell(cell) {
+        if (!cell) return "0";
+        var disp =
+          cell.f != null && String(cell.f).trim() !== "" ? String(cell.f).trim() : "";
+        if (disp && disp.indexOf("%") !== -1) return normalizeApyValue(disp);
+        if (disp) {
+          var dn = parseFloat(disp.replace(",", ".").replace(/\s/g, ""));
+          if (Number.isFinite(dn)) return String(Math.round(dn * 10) / 10);
+        }
+        var raw = cell.v;
+        if (typeof raw === "number" && Number.isFinite(raw)) {
+          if (raw > 1.5) return String(Math.round(raw * 10) / 10);
+          if (raw >= 0.2 && raw <= 1.5) return String(Math.round(raw * 1000) / 10);
+          return String(Math.round(raw * 100) / 100);
+        }
+        return normalizeApyValue(raw);
       }
 
       function feeDecimalPlaces_(n) {
@@ -3064,6 +3089,16 @@
 
       /** Индексы колонок (0-based) — у листов ETH и RWA разная ширина блока «доходов». */
       var POOL_BATTLE_SHEET_CATEGORIES = ["ethereum", "bitcoin", "rwa"];
+      var STABLES_SHEET_NAME = "stables";
+      var STABLES_COL = {
+        name: 0,
+        apy: 1,
+        period: 2,
+        status: 3,
+        link: 4,
+        description: 5,
+        pair: 6,
+      };
 
       /** Индексы колонок листа (0-based): одна строка → одна позиция на сайте. */
       var POOL_BATTLE_COL_BY_CAT = {
@@ -3232,6 +3267,86 @@
         return out;
       }
 
+      function parseStablesGvizPayload(payload) {
+        var cols = STABLES_COL;
+        var tableRows = payload && payload.table && payload.table.rows ? payload.table.rows : [];
+        var out = [];
+        var i;
+        for (i = 0; i < tableRows.length; i++) {
+          var cells = tableRows[i].c || [];
+          var name = String(gvizCellAt(cells, cols.name) || "").trim();
+          if (!name || /^name$/i.test(name) || /^платформа$/i.test(name)) continue;
+          var platform = name;
+          var openDate = "";
+          var period = String(gvizCellAt(cells, cols.period) || "").trim();
+          var statusRaw = String(gvizCellAt(cells, cols.status) || "active").trim().toLowerCase();
+          var status = statusRaw === "warning" || statusRaw === "внимание" ? "warning" : "active";
+          if (statusRaw === "closed" || statusRaw === "закрыт") status = "closed";
+          var link = String(gvizCellAt(cells, cols.link) || "").trim() || "#";
+          var pair = String(gvizCellAt(cells, cols.pair) || "").trim();
+          var desc = String(gvizCellAt(cells, cols.description) || "").trim();
+          var apy = apyFromStablesSheetCell(cells[cols.apy]);
+          out.push({
+            categoryId: "stables",
+            name: platform,
+            platform: platform,
+            pair: pair,
+            apy: apy,
+            period: period,
+            openDate: openDate,
+            link: link,
+            chain: desc,
+            status: status,
+            desc: desc,
+            descEn: desc,
+          });
+        }
+        return out;
+      }
+
+      function stableToolFromSheetRow(row, toolId) {
+        return normalizeTool({
+          id: toolId,
+          categoryId: "stables",
+          name: row.name || row.platform,
+          platform: row.platform,
+          pair: row.pair,
+          apy: row.apy,
+          period: row.period,
+          openDate: row.openDate,
+          link: row.link || "#",
+          chain: row.chain || row.desc || "",
+          status: row.status || "active",
+          desc: row.desc || "",
+          descEn: row.descEn || row.desc || "",
+        });
+      }
+
+      /**
+       * Стейблкоин-стратегии: только лист stables (колонка apy), без legacy-блока H+ из GAS.
+       */
+      function replaceStablesFromSheetGviz(data) {
+        if (!data || !Array.isArray(data.tools)) return Promise.resolve(data);
+        return fetchGvizSheetByScript(STABLES_SHEET_NAME).then(function (rows) {
+          var other = data.tools.filter(function (t) {
+            return t.categoryId !== "stables";
+          });
+          var maxId = 0;
+          other.forEach(function (t) {
+            if (t.id > maxId) maxId = t.id;
+          });
+          var stables = [];
+          var j;
+          for (j = 0; j < rows.length; j++) {
+            maxId++;
+            stables.push(stableToolFromSheetRow(rows[j], maxId));
+          }
+          data.tools = other.concat(stables);
+          console.log("DeFi Navigator: stables из таблицы (колонка apy)", { count: stables.length });
+          return data;
+        });
+      }
+
       function poolBattleToolFromSheetRow(row, toolId) {
         var fee = row.fee ? normalizeFeeValue(row.fee) : "";
         var chain = String(row.chain || "").trim();
@@ -3301,7 +3416,7 @@
                 bitcoin: btcRows.length,
                 rwa: rwaTools.length,
               });
-              return data;
+              return replaceStablesFromSheetGviz(data);
             });
           });
         });
@@ -3332,9 +3447,13 @@
 
           g.visualization.Query.setResponse = function (payload) {
             try {
-              var cat =
-                sheetName === "bitcoin" ? "bitcoin" : sheetName === "ethereum" ? "ethereum" : "";
-              done(parsePoolBattleGvizPayload(payload, cat));
+              if (sheetName === STABLES_SHEET_NAME) {
+                done(parseStablesGvizPayload(payload));
+              } else {
+                var cat =
+                  sheetName === "bitcoin" ? "bitcoin" : sheetName === "ethereum" ? "ethereum" : "";
+                done(parsePoolBattleGvizPayload(payload, cat));
+              }
             } catch (err) {
               console.warn("gviz parse", sheetName, err);
               done([]);
@@ -4535,7 +4654,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260601f";
+      var NAVIGATOR_BUILD = "20260601g";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
@@ -4858,7 +4977,9 @@
           .then(function (data) {
             if (!data || !Array.isArray(data.tools)) throw new Error("sheet-data empty");
             return mergeRwaFromSheetIfMissing(data).then(function (merged) {
-              return replacePoolBattleCategoriesFromSheetGviz(merged);
+              return replacePoolBattleCategoriesFromSheetGviz(merged).then(
+                replaceStablesFromSheetGviz,
+              );
             });
           })
           .then(function (merged) {
@@ -4921,7 +5042,9 @@
           window[cbName] = function (data) {
             mergeRwaFromSheetIfMissing(data)
               .then(function (merged) {
-                return replacePoolBattleCategoriesFromSheetGviz(merged);
+                return replacePoolBattleCategoriesFromSheetGviz(merged).then(
+                  replaceStablesFromSheetGviz,
+                );
               })
               .then(function (merged) {
                 applyLoadedData(merged);
