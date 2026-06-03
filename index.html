@@ -3166,6 +3166,19 @@
         return "";
       }
 
+      /** period: как в Excel — «47 дн», не сырое число 47. */
+      function gvizCellPeriodValue(cell) {
+        if (!cell) return "";
+        var f = cell.f != null && String(cell.f).trim() !== "" ? String(cell.f).trim() : "";
+        if (f) return f;
+        var v = cell.v;
+        if (typeof v === "number" && Number.isFinite(v)) {
+          return String(Math.round(v)) + " дн";
+        }
+        if (v != null && v !== "") return String(v).trim();
+        return "";
+      }
+
       /** fee_tier: как в Excel — сначала отображаемое (0,30%), иначе сырое 0.003. */
       function gvizCellFeeValue(cell) {
         if (!cell) return "";
@@ -3275,7 +3288,7 @@
           if (!name || /^name$/i.test(name) || /^платформа$/i.test(name)) continue;
           var platform = name;
           var openDate = "";
-          var period = String(gvizCellAt(cells, cols.period) || "").trim();
+          var period = gvizCellPeriodValue(cells[cols.period]);
           var statusRaw = String(gvizCellAt(cells, cols.status) || "active")
             .trim()
             .toLowerCase();
@@ -4655,7 +4668,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260601h";
+      var NAVIGATOR_BUILD = "20260601i";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
