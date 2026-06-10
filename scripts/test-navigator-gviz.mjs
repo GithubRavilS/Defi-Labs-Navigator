@@ -26,6 +26,7 @@ const POOL_BATTLE_COL_BY_CAT = {
     fee: 10,
     apy: 12,
     link: 13,
+    liquidityStatus: 15,
   },
   bitcoin: {
     platform: 0,
@@ -175,6 +176,35 @@ async function fetchGviz(sheet) {
   return JSON.parse(text.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/, "$1"));
 }
 
+function isSheetErrorCellValue(val) {
+  const s = String(val == null ? "" : val).trim();
+  return s.length > 0 && s.charAt(0) === "#";
+}
+
+function isEthereumLiquidityStatusOpen(rawVal, displayVal) {
+  if (rawVal === false || rawVal === 0) return false;
+  if (rawVal === true || rawVal === 1) return true;
+  const raw =
+    displayVal != null && String(displayVal).trim() !== ""
+      ? String(displayVal).trim()
+      : rawVal != null && rawVal !== ""
+        ? String(rawVal).trim()
+        : "";
+  if (!raw) return true;
+  const s = raw.toLowerCase();
+  if (s.charAt(0) === "#") return false;
+  if (/error|ошибк|invalid|fail/i.test(s)) return false;
+  if (s === "false" || s === "0" || s === "no" || s === "нет") return false;
+  if (/\b(close|closed|закрыт|закрыта|закрыто)\b/.test(s)) return false;
+  return true;
+}
+
+function isEthereumLiquidityStatusOpenFromGvizCell(cell) {
+  if (!cell) return true;
+  const f = cell.f != null && String(cell.f).trim() !== "" ? String(cell.f).trim() : "";
+  return isEthereumLiquidityStatusOpen(cell.v, f);
+}
+
 function parseRows(payload, categoryId) {
   const cols = POOL_BATTLE_COL_BY_CAT[categoryId];
   const rows = payload?.table?.rows || [];
@@ -183,6 +213,16 @@ function parseRows(payload, categoryId) {
     const cells = row.c || [];
     const platform = String(gvizCellValue(cells[cols.platform]) || "").trim();
     if (!platform || /^платформа$/i.test(platform)) continue;
+    if (categoryId === "ethereum") {
+      if (isSheetErrorCellValue(platform)) continue;
+      const linkProbe = String(gvizCellValue(cells[cols.link]) || "").trim();
+      if (isSheetErrorCellValue(linkProbe)) continue;
+      if (
+        cols.liquidityStatus != null &&
+        !isEthereumLiquidityStatusOpenFromGvizCell(cells[cols.liquidityStatus])
+      )
+        continue;
+    }
     const openDate = parseGvizDateTimeValue(gvizCellValue(cells[cols.openDate]));
     out.push({
       categoryId,
