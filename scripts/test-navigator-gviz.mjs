@@ -243,6 +243,25 @@ function isEthereumLiquidityStatusOpenFromGvizCell(cell) {
   return isEthereumLiquidityStatusOpen(cell.v, f);
 }
 
+function isEthereumLiquidityStatusCellEmpty(cell) {
+  if (!cell) return true;
+  const f = cell.f != null && String(cell.f).trim() !== "" ? String(cell.f).trim() : "";
+  if (f) return false;
+  if (cell.v === false || cell.v === 0) return false;
+  if (cell.v === true || cell.v === 1) return false;
+  return cell.v == null || cell.v === "";
+}
+
+function isEthereumKrystalPositionLink(link) {
+  return /cloud-ui\.krystal\.app/i.test(String(link || ""));
+}
+
+function isEthereumLiquidityStatusVisible(cell, link) {
+  if (isEthereumLiquidityStatusOpenFromGvizCell(cell)) return true;
+  if (!isEthereumLiquidityStatusCellEmpty(cell)) return false;
+  return isEthereumKrystalPositionLink(link);
+}
+
 function parseRows(payload, categoryId) {
   const cols = POOL_BATTLE_COL_BY_CAT[categoryId];
   const rows = payload?.table?.rows || [];
@@ -257,7 +276,7 @@ function parseRows(payload, categoryId) {
       if (isSheetErrorCellValue(linkProbe)) continue;
       if (
         cols.liquidityStatus != null &&
-        !isEthereumLiquidityStatusOpenFromGvizCell(cells[cols.liquidityStatus])
+        !isEthereumLiquidityStatusVisible(cells[cols.liquidityStatus], linkProbe)
       )
         continue;
     }
@@ -422,6 +441,21 @@ for (const [v, wantOpen, f] of statusCases) {
 }
 if (isEthereumLiquidityStatusOpenFromGvizCell(null)) {
   console.error("ETH status: empty/missing cell must stay hidden");
+  failed = true;
+}
+const krystalLink =
+  "https://cloud-ui.krystal.app/positions/8453/0x7c5f5a4bbd8fd63184577525326123b519429bdc-2224594";
+if (!isEthereumLiquidityStatusVisible(null, krystalLink)) {
+  console.error("ETH status: empty P + Krystal link should be visible");
+  failed = true;
+}
+if (isEthereumLiquidityStatusVisible({ v: false, f: "FALSE" }, krystalLink)) {
+  console.error("ETH status: FALSE Krystal row must stay hidden");
+  failed = true;
+}
+const v4 = eth.filter((r) => /uniswap\s*v4/i.test(r.platform));
+if (v4.length < 2) {
+  console.error("ETH: expected 2 Uniswap V4 rows, got", v4.length);
   failed = true;
 }
 if (!isEthereumLiquidityStatusOpenText("inactive")) {
