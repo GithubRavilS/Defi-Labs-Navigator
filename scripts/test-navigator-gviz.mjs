@@ -189,7 +189,10 @@ function isEthereumLiquidityStatusClosedText(text) {
   if (s.charAt(0) === "#") return true;
   if (/error|ошибк|invalid|fail/i.test(s)) return true;
   if (s === "false" || s === "0" || s === "no" || s === "нет") return true;
-  if (/close|closed|закрыт|закрыта|закрыто/i.test(s)) return true;
+  if (s === "inactive" || s === "неактив" || s === "not open" || s === "not_open") return true;
+  if (s === "close" || s === "closed" || s === "закрыт" || s === "закрыта" || s === "закрыто")
+    return true;
+  if (/close|closed|закрыт/i.test(s)) return true;
   return false;
 }
 
@@ -199,7 +202,16 @@ function isEthereumLiquidityStatusOpenText(text) {
     .toLowerCase();
   if (!s) return false;
   if (s === "true" || s === "1" || s === "yes" || s === "да") return true;
-  if (/open|открыт|active|актив/i.test(s)) return true;
+  if (
+    s === "open" ||
+    s === "opened" ||
+    s === "active" ||
+    s === "актив" ||
+    s === "открыт" ||
+    s === "открыта" ||
+    s === "открыто"
+  )
+    return true;
   return false;
 }
 
@@ -209,6 +221,7 @@ function isEthereumLiquidityStatusOpen(rawVal, displayVal) {
   if (disp) {
     if (isEthereumLiquidityStatusClosedText(disp)) return false;
     if (isEthereumLiquidityStatusOpenText(disp)) return true;
+    return false;
   }
   const rawStr =
     rawVal != null && rawVal !== "" && typeof rawVal !== "boolean" && typeof rawVal !== "number"
@@ -217,14 +230,15 @@ function isEthereumLiquidityStatusOpen(rawVal, displayVal) {
   if (rawStr) {
     if (isEthereumLiquidityStatusClosedText(rawStr)) return false;
     if (isEthereumLiquidityStatusOpenText(rawStr)) return true;
+    return false;
   }
   if (rawVal === false || rawVal === 0) return false;
   if (rawVal === true || rawVal === 1) return true;
-  return true;
+  return false;
 }
 
 function isEthereumLiquidityStatusOpenFromGvizCell(cell) {
-  if (!cell) return true;
+  if (!cell) return false;
   const f = cell.f != null && String(cell.f).trim() !== "" ? String(cell.f).trim() : "";
   return isEthereumLiquidityStatusOpen(cell.v, f);
 }
@@ -389,12 +403,14 @@ const statusCases = [
   ["Closed", false, null],
   ["closed", false, null],
   ["Close", false, null],
+  ["inactive", false, null],
   ["FALSE", false, false],
   [true, true, "TRUE"],
   [false, false, "FALSE"],
   ["Open", true, null],
-  ["", true, null],
-  [null, true, null],
+  ["open", true, null],
+  ["", false, null],
+  [null, false, null],
   [true, false, "Closed"],
 ];
 for (const [v, wantOpen, f] of statusCases) {
@@ -404,8 +420,14 @@ for (const [v, wantOpen, f] of statusCases) {
     failed = true;
   }
 }
-if (!isEthereumLiquidityStatusOpenFromGvizCell(null)) {
-  console.error("ETH status: empty/missing cell should default to open");
+if (isEthereumLiquidityStatusOpenFromGvizCell(null)) {
+  console.error("ETH status: empty/missing cell must stay hidden");
+  failed = true;
+}
+if (!isEthereumLiquidityStatusOpenText("inactive")) {
+  // inactive must not count as open
+} else {
+  console.error("ETH status: inactive must not be open");
   failed = true;
 }
 console.log(`\n=== ethereum open-only (${eth.length}) ===`);
