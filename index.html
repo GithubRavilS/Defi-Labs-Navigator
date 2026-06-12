@@ -3867,8 +3867,6 @@
       var POOL_BATTLE_CATEGORY_IDS = ["ethereum", "bitcoin", "rwa"];
 
       function categoryUsesPoolBattleGrouping(categoryId) {
-        // Ethereum: 1 строка листа = 1 позиция на сайте (без сворачивания в группы).
-        if (categoryId === "ethereum") return false;
         return POOL_BATTLE_CATEGORY_IDS.indexOf(categoryId) !== -1;
       }
 
