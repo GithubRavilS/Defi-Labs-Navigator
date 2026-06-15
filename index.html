@@ -2917,6 +2917,7 @@
           o.platform != null && String(o.platform).trim() !== "" ? String(o.platform).trim() : "";
         o.apy = normalizeApyValue(o.apy);
         o.fee = o.fee != null && String(o.fee).trim() !== "" ? normalizeFeeValue(o.fee) : "";
+        if (!o.fee && /uniswap\s*v4/i.test(String(o.platform || o.name || ""))) o.fee = "0";
         o.period = normalizePeriodValue(o.period, o.openDate);
         o.chain = o.chain != null && String(o.chain).trim() !== "" ? String(o.chain).trim() : "";
         o.type = o.type != null && String(o.type).trim() !== "" ? String(o.type).trim() : "";
@@ -3225,12 +3226,20 @@
       var SHEET_GVIZ_BASE =
         "https://docs.google.com/spreadsheets/d/1ZrMaFUyrHmxldFG242OsKHLOWPxhI4H8vCxO-TvL9Zg/gviz/tq?tqx=out:json&sheet=";
 
+      function sanitizeRangeGvizValue(val) {
+        var s = String(val == null ? "" : val).trim();
+        if (!s) return "";
+        var m = s.match(/^([\d\s\u00a0.,]+)\s*дн\s*$/i);
+        if (m) return m[1].trim();
+        return s;
+      }
+
       function gvizNumericCell(cells, colIdx) {
         if (colIdx == null || colIdx < 0) return "";
         var v = gvizCellAt(cells, colIdx);
         if (v == null || v === "") return "";
-        if (typeof v === "number" && !isNaN(v)) return String(v);
-        return String(v).trim();
+        if (typeof v === "number" && !isNaN(v)) return sanitizeRangeGvizValue(String(v));
+        return sanitizeRangeGvizValue(String(v));
       }
 
       function isSheetErrorCellValue(val) {
@@ -3529,54 +3538,148 @@
         return true;
       }
 
+      function isGvizSparseDataCellMissing(cell) {
+        if (!cell) return true;
+        var f = cell.f != null && String(cell.f).trim() !== "" ? String(cell.f).trim() : "";
+        if (f) return false;
+        if (cell.v === false || cell.v === 0) return false;
+        if (typeof cell.v === "number" && Number.isFinite(cell.v)) return false;
+        if (cell.v != null && String(cell.v).trim() !== "") return false;
+        return true;
+      }
+
+      function ethereumGvizRowNeedsSparsePatch(cells, cols) {
+        if (isGvizSparseDataCellMissing(cells[cols.minPrice])) return true;
+        if (isGvizSparseDataCellMissing(cells[cols.maxPrice])) return true;
+        if (isGvizSparseDataCellMissing(cells[cols.openDate])) return true;
+        if (isGvizSparseDataCellMissing(cells[cols.fee])) return true;
+        if (
+          cols.liquidityStatus != null &&
+          isGvizLiquidityStatusCellMissing(cells[cols.liquidityStatus])
+        )
+          return true;
+        return false;
+      }
+
+      var __ethereumLinkToSheetRow = null;
+
+      /** Карта link → номер строки листа (gviz-фильтр смещает rowIdx). */
+      function buildEthereumLinkToSheetRowMap() {
+        if (__ethereumLinkToSheetRow) return Promise.resolve(__ethereumLinkToSheetRow);
+        var map = Object.create(null);
+        var minRow = 2;
+        var maxRow = 80;
+        var batchSize = 10;
+        var sheetRows = [];
+        var r;
+        for (r = minRow; r <= maxRow; r++) sheetRows.push(r);
+
+        function scanBatch(startIdx) {
+          var batch = sheetRows.slice(startIdx, startIdx + batchSize);
+          if (!batch.length) {
+            __ethereumLinkToSheetRow = map;
+            return Promise.resolve(map);
+          }
+          return Promise.all(
+            batch.map(function (sheetRow) {
+              return fetchGvizPayloadByScript("ethereum", "N" + sheetRow + ":N" + sheetRow).then(
+                function (linkPayload) {
+                  var linkCell =
+                    linkPayload &&
+                    linkPayload.table &&
+                    linkPayload.table.rows &&
+                    linkPayload.table.rows[0] &&
+                    linkPayload.table.rows[0].c
+                      ? linkPayload.table.rows[0].c[0]
+                      : null;
+                  if (!linkCell) return;
+                  var link = String(gvizCellValue(linkCell) || "").trim();
+                  if (!link || link === "#") return;
+                  map[normalizeLinkKeyForPatch(link)] = sheetRow;
+                  var posId = extractPositionIdFromLink(link);
+                  if (posId) map["pos:" + posId] = sheetRow;
+                },
+              );
+            }),
+          ).then(function () {
+            return scanBatch(startIdx + batchSize);
+          });
+        }
+
+        return scanBatch(0);
+      }
+
+      function mergeGvizRowCellsInto(targetCells, sourceCells, startColIdx, count) {
+        var j;
+        if (!targetCells || !sourceCells) return;
+        for (j = 0; j < count; j++) {
+          if (sourceCells[j]) targetCells[startColIdx + j] = sourceCells[j];
+        }
+      }
+
       /**
-       * gviz иногда не кладёт P (Статус) в cells[15] при полной выгрузке листа,
-       * хотя в UI и в запросе P12 значение есть (напр. CLOSED). Дочитываем точечно.
+       * gviz bulk по ethereum иногда отдаёт пустые B/C/D/K/P (Krystal / Uniswap V4),
+       * а точечный запрос A{n}:P{n} по ссылке — полные значения.
        */
-      function patchEthereumGvizStatusCells(payload) {
+      function patchEthereumGvizSparseCells(payload) {
         var tableRows = payload && payload.table && payload.table.rows ? payload.table.rows : [];
-        var statusCol = poolBattleCols("ethereum").liquidityStatus;
-        var tasks = [];
+        var cols = poolBattleCols("ethereum");
+        var needsPatch = false;
         var i;
         for (i = 0; i < tableRows.length; i++) {
-          (function (rowIdx) {
-            var cells = tableRows[rowIdx].c || [];
-            var platform = String(
-              gvizCellAt(cells, poolBattleCols("ethereum").platform) || "",
-            ).trim();
-            if (!platform || /^платформа$/i.test(platform) || isSheetErrorCellValue(platform))
-              return;
-            if (!isGvizLiquidityStatusCellMissing(cells[statusCol])) return;
-            var sheetRow = rowIdx + 2;
-            tasks.push(
-              fetchGvizPayloadByScript("ethereum", "P" + sheetRow + ":P" + sheetRow).then(
-                function (statusPayload) {
-                  var patchedCell =
-                    statusPayload &&
-                    statusPayload.table &&
-                    statusPayload.table.rows &&
-                    statusPayload.table.rows[0] &&
-                    statusPayload.table.rows[0].c
-                      ? statusPayload.table.rows[0].c[0]
-                      : null;
-                  if (!patchedCell) return;
-                  if (!tableRows[rowIdx].c) tableRows[rowIdx].c = [];
-                  tableRows[rowIdx].c[statusCol] = patchedCell;
-                },
-              ),
-            );
-          })(i);
+          var probe = tableRows[i].c || [];
+          var platform = String(gvizCellAt(probe, cols.platform) || "").trim();
+          if (!platform || /^платформа$/i.test(platform) || isSheetErrorCellValue(platform))
+            continue;
+          if (ethereumGvizRowNeedsSparsePatch(probe, cols)) needsPatch = true;
         }
-        if (!tasks.length) return Promise.resolve(payload);
-        return Promise.all(tasks).then(function () {
-          return payload;
+        if (!needsPatch) return Promise.resolve(payload);
+
+        return buildEthereumLinkToSheetRowMap().then(function (linkMap) {
+          var tasks = [];
+          for (i = 0; i < tableRows.length; i++) {
+            (function (rowIdx) {
+              var cells = tableRows[rowIdx].c || [];
+              var platform = String(gvizCellAt(cells, cols.platform) || "").trim();
+              if (!platform || /^платформа$/i.test(platform) || isSheetErrorCellValue(platform))
+                return;
+              if (!ethereumGvizRowNeedsSparsePatch(cells, cols)) return;
+              var link = parseLinkFromGvizCell(cells, cols);
+              var lk = normalizeLinkKeyForPatch(link);
+              var sheetRow =
+                (lk && linkMap[lk]) || linkMap["pos:" + extractPositionIdFromLink(link)] || 0;
+              if (!sheetRow) return;
+              tasks.push(
+                fetchGvizPayloadByScript("ethereum", "A" + sheetRow + ":P" + sheetRow).then(
+                  function (rowPayload) {
+                    var srcRow =
+                      rowPayload &&
+                      rowPayload.table &&
+                      rowPayload.table.rows &&
+                      rowPayload.table.rows[0]
+                        ? rowPayload.table.rows[0].c
+                        : null;
+                    if (!srcRow) return;
+                    var srcLink = parseLinkFromGvizCell(srcRow, cols);
+                    if (lk && srcLink && normalizeLinkKeyForPatch(srcLink) !== lk) return;
+                    if (!tableRows[rowIdx].c) tableRows[rowIdx].c = [];
+                    mergeGvizRowCellsInto(tableRows[rowIdx].c, srcRow, 0, 16);
+                  },
+                ),
+              );
+            })(i);
+          }
+          if (!tasks.length) return payload;
+          return Promise.all(tasks).then(function () {
+            return payload;
+          });
         });
       }
 
       function fetchEthereumGvizSheet() {
         return fetchGvizPayloadByScript("ethereum")
           .then(function (payload) {
-            return patchEthereumGvizStatusCells(payload);
+            return patchEthereumGvizSparseCells(payload);
           })
           .then(function (payload) {
             return parsePoolBattleGvizPayload(payload, "ethereum");
@@ -3960,7 +4063,8 @@
         var pair = poolBattlePairKey(tool.pair);
         var chain = poolBattleIdentityKeyChain_(tool.chain);
         var fee = normalizeFeeKeyForPatch(tool.fee);
-        if (!platform || !pair || !chain || !fee) return "";
+        if (!fee) fee = "0";
+        if (!platform || !pair || !chain) return "";
         return [platform, pair, chain, fee].join("\u0001");
       }
 
@@ -4216,6 +4320,7 @@
 
       function formatPoolBattleRangeOrMeta(tool) {
         if (hasValidPriceRange(tool)) return formatPriceRangeLabel(tool);
+        if (formatChainLabel(tool) || formatFeeLabelFromTool(tool)) return "";
         return formatPoolMetaLabel(tool);
       }
 
@@ -4823,7 +4928,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260615a";
+      var NAVIGATOR_BUILD = "20260615b";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";

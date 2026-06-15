@@ -243,30 +243,70 @@ function isEthereumLiquidityStatusOpenFromGvizCell(cell) {
   return isEthereumLiquidityStatusOpen(cell.v, f);
 }
 
-async function patchEthereumStatusInPayload(payload) {
+async function buildEthereumLinkToSheetRowMap() {
+  const map = {};
+  for (let r = 2; r <= 80; r++) {
+    const p = await fetchGviz("ethereum", `N${r}:N${r}`);
+    const link = String(gvizCellValue(p?.table?.rows?.[0]?.c?.[0]) || "")
+      .trim()
+      .toLowerCase();
+    if (link && link !== "#") map[link] = r;
+  }
+  return map;
+}
+
+function isGvizSparseDataCellMissing(cell) {
+  if (!cell) return true;
+  const f = cell.f != null && String(cell.f).trim() !== "" ? String(cell.f).trim() : "";
+  if (f) return false;
+  if (typeof cell.v === "number" && Number.isFinite(cell.v)) return false;
+  if (cell.v != null && String(cell.v).trim() !== "") return false;
+  return true;
+}
+
+async function patchEthereumSparseInPayload(payload) {
   const rows = payload?.table?.rows || [];
+  const cols = POOL_BATTLE_COL_BY_CAT.ethereum;
+  let needs = false;
+  for (const row of rows) {
+    const c = row.c || [];
+    const plat = c[cols.platform]?.v;
+    if (!plat || /^платформа$/i.test(String(plat)) || String(plat).startsWith("#")) continue;
+    if (
+      isGvizSparseDataCellMissing(c[cols.minPrice]) ||
+      isGvizSparseDataCellMissing(c[cols.maxPrice]) ||
+      isGvizSparseDataCellMissing(c[cols.openDate]) ||
+      isGvizSparseDataCellMissing(c[cols.fee]) ||
+      isGvizSparseDataCellMissing(c[cols.liquidityStatus])
+    )
+      needs = true;
+  }
+  if (!needs) return payload;
+  const linkMap = await buildEthereumLinkToSheetRowMap();
   const tasks = [];
   for (let i = 0; i < rows.length; i++) {
-    const plat = rows[i].c?.[0]?.v;
+    const c = rows[i].c || [];
+    const plat = c[cols.platform]?.v;
     if (!plat || /^платформа$/i.test(String(plat)) || String(plat).startsWith("#")) continue;
-    const cell = rows[i].c?.[15];
-    const missing =
-      !cell ||
-      ((!cell.f || !String(cell.f).trim()) &&
-        cell.v !== false &&
-        cell.v !== 0 &&
-        cell.v !== true &&
-        cell.v !== 1 &&
-        (cell.v == null || cell.v === ""));
-    if (!missing) continue;
-    const sheetRow = i + 2;
+    if (
+      !isGvizSparseDataCellMissing(c[cols.minPrice]) &&
+      !isGvizSparseDataCellMissing(c[cols.maxPrice]) &&
+      !isGvizSparseDataCellMissing(c[cols.openDate]) &&
+      !isGvizSparseDataCellMissing(c[cols.fee]) &&
+      !isGvizSparseDataCellMissing(c[cols.liquidityStatus])
+    )
+      continue;
+    const link = String(gvizCellValue(c[cols.link]) || "")
+      .trim()
+      .toLowerCase();
+    const sheetRow = linkMap[link];
+    if (!sheetRow) continue;
     tasks.push(
-      fetchGviz("ethereum", `P${sheetRow}:P${sheetRow}`).then((p) => {
-        const patched = p?.table?.rows?.[0]?.c?.[0];
-        if (patched) {
-          if (!rows[i].c) rows[i].c = [];
-          rows[i].c[15] = patched;
-        }
+      fetchGviz("ethereum", `A${sheetRow}:P${sheetRow}`).then((p) => {
+        const src = p?.table?.rows?.[0]?.c;
+        if (!src) return;
+        if (!rows[i].c) rows[i].c = [];
+        for (let j = 0; j < 16; j++) if (src[j]) rows[i].c[j] = src[j];
       }),
     );
   }
@@ -293,14 +333,16 @@ function parseRows(payload, categoryId) {
         continue;
     }
     const openDate = parseGvizDateTimeValue(gvizCellValue(cells[cols.openDate]));
+    let fee = normalizeFeeValue(gvizCellFeeValue(cells[cols.fee]));
+    if (!fee && /uniswap\s*v4/i.test(platform)) fee = "0";
     out.push({
       categoryId,
       platform,
       pair: String(gvizCellValue(cells[cols.pair]) || ""),
       apy: String(gvizCellValue(cells[cols.apy]) || ""),
       link: String(gvizCellValue(cells[cols.link]) || ""),
-      fee: normalizeFeeValue(gvizCellFeeValue(cells[cols.fee])),
-      feeLabel: formatFeeLabel(normalizeFeeValue(gvizCellFeeValue(cells[cols.fee]))),
+      fee,
+      feeLabel: formatFeeLabel(fee),
       chain: String(gvizCellValue(cells[cols.chain]) || ""),
       openDate,
       period: openDate ? periodFromOpenDateString(openDate) : "",
@@ -314,7 +356,7 @@ const rwa = parseRows(rwaPayload, "rwa");
 console.log(`\n=== БИТВА ПУЛОВ RWA (${rwa.length}) ===`);
 rwa.slice(0, 3).forEach((r) => console.log(JSON.stringify(r)));
 
-const ethPayload = await patchEthereumStatusInPayload(await fetchGviz("ethereum"));
+const ethPayload = await patchEthereumSparseInPayload(await fetchGviz("ethereum"));
 const eth = parseRows(ethPayload, "ethereum");
 console.log(`\n=== ethereum (${eth.length}) ===`);
 eth.slice(0, 3).forEach((r) => console.log(JSON.stringify(r)));
