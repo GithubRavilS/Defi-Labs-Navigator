@@ -118,8 +118,32 @@ function expectedFeeLabel(cell) {
   return formatFeeLabel(norm);
 }
 
+function gvizCellOpenDateValue(cell) {
+  if (!cell) return "";
+  const f = cell.f != null && String(cell.f).trim() !== "" ? String(cell.f).trim() : "";
+  if (f) return f;
+  if (cell.v != null && cell.v !== "") return cell.v;
+  return "";
+}
+
+function openDateFromSheetsSerial(serial) {
+  const n = Number(serial);
+  if (!Number.isFinite(n) || n <= 20000 || n >= 80000) return "";
+  const base = new Date(Date.UTC(1899, 11, 30));
+  const opened = new Date(base.getTime() + Math.round(n) * 86400000);
+  if (isNaN(opened.getTime())) return "";
+  const d = opened.getUTCDate();
+  const mo = opened.getUTCMonth() + 1;
+  const y = opened.getUTCFullYear();
+  return `${d < 10 ? "0" : ""}${d}.${mo < 10 ? "0" : ""}${mo}.${y}`;
+}
+
 function parseGvizDateTimeValue(v) {
   if (v == null || v === "") return "";
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const fromSerial = openDateFromSheetsSerial(v);
+    if (fromSerial) return fromSerial;
+  }
   const s = String(v);
   const m = s.match(/Date\((\d+),(\d+),(\d+)(?:,(\d+),(\d+)(?:,(\d+))?)?\)/);
   if (!m) return s;
@@ -245,7 +269,7 @@ function isEthereumLiquidityStatusOpenFromGvizCell(cell) {
 
 async function buildEthereumLinkToSheetRowMap() {
   const map = {};
-  for (let r = 2; r <= 80; r++) {
+  for (let r = 2; r <= 120; r++) {
     const p = await fetchGviz("ethereum", `N${r}:N${r}`);
     const link = String(gvizCellValue(p?.table?.rows?.[0]?.c?.[0]) || "")
       .trim()
@@ -311,6 +335,27 @@ async function patchEthereumSparseInPayload(payload) {
     );
   }
   if (tasks.length) await Promise.all(tasks);
+  const dateTasks = [];
+  for (let i = 0; i < rows.length; i++) {
+    const c = rows[i].c || [];
+    const plat = c[cols.platform]?.v;
+    if (!plat || /^платформа$/i.test(String(plat)) || String(plat).startsWith("#")) continue;
+    if (!isGvizSparseDataCellMissing(c[cols.openDate])) continue;
+    const link = String(gvizCellValue(c[cols.link]) || "")
+      .trim()
+      .toLowerCase();
+    const sheetRow = linkMap[link];
+    if (!sheetRow) continue;
+    dateTasks.push(
+      fetchGviz("ethereum", `D${sheetRow}:D${sheetRow}`).then((p) => {
+        const src = p?.table?.rows?.[0]?.c?.[0];
+        if (!src) return;
+        if (!rows[i].c) rows[i].c = [];
+        rows[i].c[cols.openDate] = src;
+      }),
+    );
+  }
+  if (dateTasks.length) await Promise.all(dateTasks);
   return payload;
 }
 
@@ -332,7 +377,7 @@ function parseRows(payload, categoryId) {
       )
         continue;
     }
-    const openDate = parseGvizDateTimeValue(gvizCellValue(cells[cols.openDate]));
+    const openDate = parseGvizDateTimeValue(gvizCellOpenDateValue(cells[cols.openDate]));
     let fee = normalizeFeeValue(gvizCellFeeValue(cells[cols.fee]));
     if (!fee && /uniswap\s*v4/i.test(platform)) fee = "0";
     out.push({
@@ -506,7 +551,15 @@ if (aero.length === 0 || !aero.some((r) => parseFloat(r.apy) > 0)) {
   console.error("ETH: Aerodrome row must be visible with APY > 0, got", aero);
   failed = true;
 }
-console.log(`\n=== ethereum (${eth.length} open rows) ===`);
+for (const r of eth) {
+  if (!r.period || r.period === "0 ч") {
+    console.error("ETH missing period:", r);
+    failed = true;
+  }
+}
+console.log(
+  `\n=== ethereum (${eth.length} open rows), period gaps: ${eth.filter((r) => !r.period).length} ===`,
+);
 
 if (failed) process.exit(1);
 console.log("\nAll gviz checks passed");
