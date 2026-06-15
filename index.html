@@ -3305,26 +3305,6 @@
         return isEthereumLiquidityStatusOpen(cell.v, f);
       }
 
-      /** Пустой P + ссылка Krystal: позиция без статуса из Revert, считаем открытой. */
-      function isEthereumLiquidityStatusCellEmpty(cell) {
-        if (!cell) return true;
-        var f = cell.f != null && String(cell.f).trim() !== "" ? String(cell.f).trim() : "";
-        if (f) return false;
-        if (cell.v === false || cell.v === 0) return false;
-        if (cell.v === true || cell.v === 1) return false;
-        return cell.v == null || cell.v === "";
-      }
-
-      function isEthereumKrystalPositionLink(link) {
-        return /cloud-ui\.krystal\.app/i.test(String(link || ""));
-      }
-
-      function isEthereumLiquidityStatusVisible(cell, link) {
-        if (isEthereumLiquidityStatusOpenFromGvizCell(cell)) return true;
-        if (!isEthereumLiquidityStatusCellEmpty(cell)) return false;
-        return isEthereumKrystalPositionLink(link);
-      }
-
       /** Одна строка листа → один объект (без слияния с GAS). */
       function parsePoolBattleGvizPayload(payload, categoryId) {
         var cols = poolBattleCols(categoryId);
@@ -3346,7 +3326,7 @@
             if (isSheetErrorCellValue(linkProbe)) continue;
             if (
               cols.liquidityStatus != null &&
-              !isEthereumLiquidityStatusVisible(cells[cols.liquidityStatus], linkProbe)
+              !isEthereumLiquidityStatusOpenFromGvizCell(cells[cols.liquidityStatus])
             )
               continue;
           }
@@ -4771,7 +4751,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260528g";
+      var NAVIGATOR_BUILD = "20260528h";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
