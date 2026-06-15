@@ -5065,7 +5065,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260616b";
+      var NAVIGATOR_BUILD = "20260616c";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
@@ -5370,11 +5370,54 @@
       function getSheetDataApiUrl() {
         try {
           var h = (window.location.hostname || "").toLowerCase();
-          if (h.indexOf("vercel.app") !== -1 || h === "localhost" || h === "127.0.0.1") {
+          if (
+            h.indexOf("vercel.app") !== -1 ||
+            h.indexOf("defilabs") !== -1 ||
+            h === "localhost" ||
+            h === "127.0.0.1"
+          ) {
             return "/api/sheet-data";
           }
         } catch (e) {}
         return "";
+      }
+
+      function loadPoolBattleFromPatchedGviz(data) {
+        if (!data || !Array.isArray(data.tools)) return Promise.resolve(data);
+        var metaFallback = buildSheetMetaFallbackIndex(data.tools);
+        return fetchEthereumGvizSheet().then(function (ethRows) {
+          applySheetMetaFallback(ethRows, metaFallback);
+          return fetchGvizSheetByScript("bitcoin").then(function (btcRows) {
+            applySheetMetaFallback(btcRows, metaFallback);
+            return fetchRwaToolsFromPublicSheet().then(function (rwaTools) {
+              var other = data.tools.filter(function (t) {
+                return POOL_BATTLE_SHEET_CATEGORIES.indexOf(t.categoryId) === -1;
+              });
+              var maxId = 0;
+              other.forEach(function (t) {
+                if (t.id > maxId) maxId = t.id;
+              });
+              var pool = [];
+              var j;
+              for (j = 0; j < ethRows.length; j++) {
+                maxId++;
+                pool.push(poolBattleToolFromSheetRow(ethRows[j], maxId));
+              }
+              for (j = 0; j < btcRows.length; j++) {
+                maxId++;
+                pool.push(poolBattleToolFromSheetRow(btcRows[j], maxId));
+              }
+              for (j = 0; j < rwaTools.length; j++) {
+                maxId++;
+                var rwaCopy = Object.assign({}, rwaTools[j], { id: maxId });
+                pool.push(normalizeTool(rwaCopy));
+              }
+              pool = dedupePoolBattleToolsList(pool);
+              data.tools = other.concat(pool);
+              return replaceStablesFromSheetGviz(data);
+            });
+          });
+        });
       }
 
       function loadDataFromSheetApi() {
@@ -5411,93 +5454,69 @@
           });
       }
 
-      /** Данные из Google Таблицы через Apps Script (DATA_API_URL). Vercel env не нужен. */
+      /** Данные: 1) /api/sheet-data (Excel напрямую), 2) gviz-патч (без старого GAS). */
       function loadDataOnce() {
         return loadDataFromSheetApi().then(function (sheetMeta) {
           if (sheetMeta) {
             finishDataLoad();
             return sheetMeta;
           }
-          return loadDataOnceFromGas();
+          return loadDataOnceFromGvizPools();
         });
       }
 
-      function loadDataOnceFromGas() {
+      function loadDataOnceFromGvizPools() {
         var g = getGoogleAppsScriptApiUrl();
-        if (!g.useApi) {
-          try {
-            setDataBadge("warn");
-          } catch (e) {}
-          applyLoadedData(null);
-          finishDataLoad();
-          return Promise.resolve({ apiCallbackReceived: false });
+        var base = { categories: STATIC_NAV_CATEGORIES.slice(), tools: [] };
+
+        function finishGvizPools(gasData) {
+          var seed = gasData && Array.isArray(gasData.tools) ? gasData : base;
+          if (gasData && gasData.categories && gasData.categories.length) {
+            seed.categories = gasData.categories;
+          }
+          return loadPoolBattleFromPatchedGviz(seed).then(function (merged) {
+            applyLoadedData(merged);
+            console.log("DeFi Navigator: пулы из gviz (Excel), прочее из GAS", {
+              tools: allTools.length,
+              ethereum: allTools.filter(function (t) {
+                return t.categoryId === "ethereum";
+              }).length,
+            });
+            try {
+              setDataBadge("ok", new Date());
+            } catch (e) {}
+            return { apiCallbackReceived: true, source: "gviz-pools" };
+          });
         }
+
+        if (!g.useApi) return finishGvizPools(base);
 
         return new Promise(function (resolve) {
           var finished = false;
-          var timeout;
           var cbSeq = (window.__defilabsCbSeq = (window.__defilabsCbSeq || 0) + 1);
           var cbName = "__defilabsDataCb_" + cbSeq;
+          var timeout = setTimeout(function () {
+            if (finished) return;
+            finished = true;
+            finishGvizPools(base).then(resolve);
+          }, 12000);
 
-          function finish(apiCallbackReceived) {
+          window[cbName] = function (data) {
             if (finished) return;
             finished = true;
             clearTimeout(timeout);
-            window[cbName] = function () {};
-            finishDataLoad();
-            resolve({ apiCallbackReceived: !!apiCallbackReceived });
-          }
-
-          window[cbName] = function (data) {
-            mergeRwaFromSheetIfMissing(data)
-              .then(function (merged) {
-                return replacePoolBattleCategoriesFromSheetGviz(merged).then(
-                  replaceStablesFromSheetGviz,
-                );
-              })
-              .then(function (merged) {
-                applyLoadedData(merged);
-                if (merged && merged.error)
-                  console.warn("DeFi Navigator: ошибка таблицы", merged.error);
-                else {
-                  var rwaN = allTools.filter(function (t) {
-                    return t.categoryId === "rwa";
-                  }).length;
-                  console.log("DeFi Navigator: данные из таблицы (GAS+gviz)", {
-                    categories: categories.length,
-                    tools: allTools.length,
-                    rwa: rwaN,
-                    apiVersion: merged && merged.apiVersion,
-                  });
-                }
-                try {
-                  if (merged && merged.error) setDataBadge("err");
-                  else setDataBadge("ok", new Date());
-                } catch (e) {}
-                finish(true);
-              });
+            finishGvizPools(data).then(resolve);
           };
 
           var sep = g.apiUrl.indexOf("?") >= 0 ? "&" : "?";
           var script = document.createElement("script");
+          script.src = g.apiUrl + sep + "callback=" + encodeURIComponent(cbName);
           script.onerror = function () {
-            console.warn("DeFi Navigator: запрос к Google Apps Script не удался.");
-            try {
-              setDataBadge("warn");
-            } catch (e) {}
-            applyLoadedData(null);
-            finish(false);
+            if (finished) return;
+            finished = true;
+            clearTimeout(timeout);
+            finishGvizPools(base).then(resolve);
           };
-          timeout = setTimeout(function () {
-            console.warn("DeFi Navigator: таймаут загрузки данных.");
-            try {
-              setDataBadge("warn");
-            } catch (e) {}
-            applyLoadedData(null);
-            finish(false);
-          }, DATA_LOAD_TIMEOUT_MS);
-          script.src =
-            g.apiUrl + sep + "callback=" + encodeURIComponent(cbName) + "&_=" + Date.now();
           document.head.appendChild(script);
         });
       }
