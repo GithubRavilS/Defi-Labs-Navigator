@@ -3867,87 +3867,6 @@
         return /cloud-ui\.krystal\.app\/positions\//i.test(String(link || ""));
       }
 
-      function isFeeTierMissingOrZero(tool) {
-        var n = feeToPercentNumber_(tool.fee);
-        return !Number.isFinite(n) || n === 0;
-      }
-
-      /**
-       * Krystal иногда пишет fee 0% — подтягиваем tier с revert-строки того же id
-       * (2037806 → 0,05%, 2037809 → 0,01%). Разные id не трогаем.
-       */
-      function enrichPoolBattleToolsFromRevertByPositionId(tools) {
-        if (!tools || !tools.length) return [];
-        var revertByPos = Object.create(null);
-        var i;
-        for (i = 0; i < tools.length; i++) {
-          var t = tools[i];
-          if (isKrystalPositionLink(t.link)) continue;
-          var posId = extractPositionIdFromLink(t.link);
-          if (!posId) continue;
-          if (
-            !revertByPos[posId] ||
-            poolBattleRowQualityScore(t) > poolBattleRowQualityScore(revertByPos[posId])
-          )
-            revertByPos[posId] = t;
-        }
-        return tools.map(function (tool) {
-          if (!isKrystalPositionLink(tool.link) || !isFeeTierMissingOrZero(tool)) return tool;
-          var posId = extractPositionIdFromLink(tool.link);
-          var rev = posId ? revertByPos[posId] : null;
-          if (!rev || isFeeTierMissingOrZero(rev)) return tool;
-          var copy = Object.assign({}, tool);
-          copy.fee = normalizeFeeValue(rev.fee);
-          if (!copy.priceMin && rev.priceMin) copy.priceMin = rev.priceMin;
-          if (!copy.priceMax && rev.priceMax) copy.priceMax = rev.priceMax;
-          if (!copy.openDate && rev.openDate) copy.openDate = rev.openDate;
-          if (!copy.period || isAbsurdPeriodValue(copy.period))
-            copy.period = normalizePeriodValue(rev.period, copy.openDate || rev.openDate);
-          var chain = String(copy.chain || "").trim();
-          if (chain && copy.fee) copy.desc = copy.descEn = chain + " " + formatFeeLabel(copy.fee);
-          return enrichPoolBattleFields(copy);
-        });
-      }
-
-      /** revert-строка предпочтительнее второй выгрузки того же id (Krystal + Revert). */
-      function poolBattleRowQualityScore(tool) {
-        var score = 0;
-        if (!isKrystalPositionLink(tool.link)) score += 20;
-        var feeNum = feeToPercentNumber_(tool.fee);
-        if (Number.isFinite(feeNum) && feeNum > 0) score += 10;
-        if (hasValidPriceRange(tool)) score += 5;
-        if (tool.openDate) score += 3;
-        if (tool.period && !isAbsurdPeriodValue(tool.period)) score += 2;
-        return score;
-      }
-
-      /**
-       * Один position id → одна карточка, если в таблице две выгрузки (Krystal + Revert).
-       * 2037806 и 2037809 — разные id, обе остаются.
-       */
-      function dedupePoolBattleByPositionId(tools) {
-        if (!tools || !tools.length) return [];
-        var byPos = Object.create(null);
-        var noPos = [];
-        var i;
-        for (i = 0; i < tools.length; i++) {
-          var tool = tools[i];
-          var posId = extractPositionIdFromLink(tool.link);
-          if (!posId) {
-            noPos.push(tool);
-            continue;
-          }
-          var existing = byPos[posId];
-          if (!existing || poolBattleRowQualityScore(tool) > poolBattleRowQualityScore(existing))
-            byPos[posId] = tool;
-        }
-        var out = noPos.slice();
-        Object.keys(byPos).forEach(function (k) {
-          out.push(byPos[k]);
-        });
-        return out;
-      }
-
       function patchPoolBattleToolsFromRows(tools, rows, categoryId) {
         if (!tools || !rows || !rows.length) return tools;
         var index = {};
@@ -4144,7 +4063,14 @@
           .replace(/\s+/g, "");
       }
 
-      /** Группа: платформа + пара + сеть + fee tier. Krystal с fee 0% — по id (несколько V4). */
+      /** Суффикс ссылки Krystal (…-2037806) — только для группировки, не NFT id из Revert. */
+      function poolBattleKrystalLinkSuffix(link) {
+        var s = String(link || "").trim();
+        var m = s.match(/-(\d{5,})(?:[/?#]|$)/);
+        return m ? m[1] : "";
+      }
+
+      /** Группа: платформа + пара + сеть + fee; при fee 0% — ещё суффикс ссылки (Krystal / без tier). */
       function poolBattleIdentityKey(tool) {
         var platform = poolBattlePlatformKey(tool.platform || tool.name);
         var pair = poolBattlePairKey(tool.pair);
@@ -4152,11 +4078,14 @@
         var fee = normalizeFeeKeyForPatch(tool.fee);
         if (!fee) fee = "0";
         if (!platform || !pair || !chain) return "";
-        if (isKrystalPositionLink(tool.link)) {
-          var posId = extractPositionIdFromLink(tool.link);
-          var feeNum = parseFloat(fee);
-          if (posId && (!Number.isFinite(feeNum) || feeNum === 0))
-            return [platform, pair, chain, fee, "id:" + posId].join("\u0001");
+        var feeNum = parseFloat(fee);
+        if (!Number.isFinite(feeNum) || feeNum === 0) {
+          if (isKrystalPositionLink(tool.link)) {
+            var kSuffix = poolBattleKrystalLinkSuffix(tool.link);
+            if (kSuffix) return [platform, pair, chain, fee, "k:" + kSuffix].join("\u0001");
+          }
+          var lk = normalizeLinkKeyForPatch(tool.link);
+          if (lk && lk !== "#") return [platform, pair, chain, fee, "u:" + lk].join("\u0001");
         }
         return [platform, pair, chain, fee].join("\u0001");
       }
@@ -4440,9 +4369,7 @@
       }
 
       function buildPoolBattleGroups(tools, categoryId) {
-        tools = enrichPoolBattleToolsFromRevertByPositionId(tools || []);
-        tools = dedupePoolBattleByPositionId(tools);
-        tools = dedupePoolBattleToolsList(tools);
+        tools = dedupePoolBattleToolsList(tools || []);
         if (!categoryUsesPoolBattleGrouping(categoryId)) {
           return tools.map(function (tool) {
             return {
@@ -5033,7 +4960,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260615d";
+      var NAVIGATOR_BUILD = "20260615e";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
