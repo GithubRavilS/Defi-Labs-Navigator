@@ -3238,7 +3238,7 @@
         return s.length > 0 && s.charAt(0) === "#";
       }
 
-      /** Ethereum col P: показываем только явно open/true; closed/false/пусто/прочее — скрываем. */
+      /** Ethereum col P: скрываем только явно closed/false/#error; пусто = открыта (Krystal). */
       function isEthereumLiquidityStatusClosedText(text) {
         var s = String(text || "")
           .trim()
@@ -3296,11 +3296,11 @@
         }
         if (rawVal === false || rawVal === 0) return false;
         if (rawVal === true || rawVal === 1) return true;
-        return false;
+        return true;
       }
 
       function isEthereumLiquidityStatusOpenFromGvizCell(cell) {
-        if (!cell) return false;
+        if (!cell) return true;
         var f = cell.f != null && String(cell.f).trim() !== "" ? String(cell.f).trim() : "";
         return isEthereumLiquidityStatusOpen(cell.v, f);
       }
@@ -4823,7 +4823,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260528i";
+      var NAVIGATOR_BUILD = "20260615a";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
