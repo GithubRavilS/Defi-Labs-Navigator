@@ -282,14 +282,21 @@ function isEthereumLiquidityStatusOpenFromGvizCell(cell) {
 
 async function buildEthereumLinkToSheetRowMap() {
   const map = {};
-  for (let r = 2; r <= 120; r++) {
-    const p = await fetchGviz("ethereum", `N${r}:N${r}`);
-    const link = String(gvizCellValue(p?.table?.rows?.[0]?.c?.[0]) || "").trim();
-    if (!link || link === "#") continue;
-    const lk = normalizeLinkKeyForPatch(link);
-    if (lk) map[lk] = r;
-    const posId = extractPositionIdFromLink(link);
-    if (posId) map[`pos:${posId}`] = r;
+  const batchSize = 25;
+  for (let start = 2; start <= 120; start += batchSize) {
+    const batch = [];
+    for (let r = start; r < start + batchSize && r <= 120; r++) batch.push(r);
+    await Promise.all(
+      batch.map(async (sheetRow) => {
+        const p = await fetchGviz("ethereum", `N${sheetRow}:N${sheetRow}`);
+        const link = String(gvizCellValue(p?.table?.rows?.[0]?.c?.[0]) || "").trim();
+        if (!link || link === "#") return;
+        const lk = normalizeLinkKeyForPatch(link);
+        if (lk) map[lk] = sheetRow;
+        const posId = extractPositionIdFromLink(link);
+        if (posId) map[`pos:${posId}`] = sheetRow;
+      }),
+    );
   }
   return map;
 }
@@ -349,26 +356,29 @@ async function patchEthereumSparseInPayload(payload) {
     );
   }
   if (tasks.length) await Promise.all(tasks);
-  const dateTasks = [];
+  const metaTasks = [];
   for (let i = 0; i < rows.length; i++) {
     const c = rows[i].c || [];
     const plat = c[cols.platform]?.v;
     if (!plat || /^платформа$/i.test(String(plat)) || String(plat).startsWith("#")) continue;
-    if (!isGvizSparseDataCellMissing(c[cols.openDate])) continue;
+    const needDate = isGvizSparseDataCellMissing(c[cols.openDate]);
+    const needFee = isGvizSparseDataCellMissing(c[cols.fee]);
+    if (!needDate && !needFee) continue;
     const link = String(gvizCellValue(c[cols.link]) || "").trim();
     const lk = normalizeLinkKeyForPatch(link);
     const sheetRow = linkMap[lk] || linkMap[`pos:${extractPositionIdFromLink(link)}`];
     if (!sheetRow) continue;
-    dateTasks.push(
-      fetchGviz("ethereum", `D${sheetRow}:D${sheetRow}`).then((p) => {
-        const src = p?.table?.rows?.[0]?.c?.[0];
+    metaTasks.push(
+      fetchGviz("ethereum", `D${sheetRow}:K${sheetRow}`).then((p) => {
+        const src = p?.table?.rows?.[0]?.c;
         if (!src) return;
         if (!rows[i].c) rows[i].c = [];
-        rows[i].c[cols.openDate] = src;
+        if (needDate && src[0]) rows[i].c[cols.openDate] = src[0];
+        if (needFee && src[7]) rows[i].c[cols.fee] = src[7];
       }),
     );
   }
-  if (dateTasks.length) await Promise.all(dateTasks);
+  if (metaTasks.length) await Promise.all(metaTasks);
   return payload;
 }
 
@@ -392,7 +402,6 @@ function parseRows(payload, categoryId) {
     }
     const openDate = parseGvizDateTimeValue(gvizCellOpenDateValue(cells[cols.openDate]));
     let fee = normalizeFeeValue(gvizCellFeeValue(cells[cols.fee]));
-    if (!fee && /uniswap\s*v4/i.test(platform)) fee = "0";
     out.push({
       categoryId,
       platform,

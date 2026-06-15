@@ -2917,7 +2917,6 @@
           o.platform != null && String(o.platform).trim() !== "" ? String(o.platform).trim() : "";
         o.apy = normalizeApyValue(o.apy);
         o.fee = o.fee != null && String(o.fee).trim() !== "" ? normalizeFeeValue(o.fee) : "";
-        if (!o.fee && /uniswap\s*v4/i.test(String(o.platform || o.name || ""))) o.fee = "0";
         o.period = normalizePeriodValue(o.period, o.openDate);
         o.chain = o.chain != null && String(o.chain).trim() !== "" ? String(o.chain).trim() : "";
         o.type = o.type != null && String(o.type).trim() !== "" ? String(o.type).trim() : "";
@@ -3482,13 +3481,13 @@
         });
       }
 
-      function buildSheetPeriodFallbackIndex(tools) {
+      function buildSheetMetaFallbackIndex(tools) {
         var index = {};
         var i;
         for (i = 0; i < (tools || []).length; i++) {
           var t = tools[i];
           if (!t || (t.categoryId !== "ethereum" && t.categoryId !== "bitcoin")) continue;
-          if (!t.period && !t.openDate) continue;
+          if (!t.period && !t.openDate && !t.fee) continue;
           var lk = normalizeLinkKeyForPatch(t.link);
           if (lk && lk !== "#" && !index[lk]) index[lk] = t;
           var pid = extractPositionIdFromLink(t.link);
@@ -3497,17 +3496,18 @@
         return index;
       }
 
-      function applySheetPeriodFallback(rows, fallbackIndex) {
+      function applySheetMetaFallback(rows, fallbackIndex) {
         if (!rows || !rows.length || !fallbackIndex) return rows;
         var i;
         for (i = 0; i < rows.length; i++) {
           var row = rows[i];
-          if (row.period && row.openDate) continue;
+          if (row.period && row.openDate && row.fee) continue;
           var patch =
             fallbackIndex[normalizeLinkKeyForPatch(row.link)] ||
             fallbackIndex["pos:" + extractPositionIdFromLink(row.link)];
           if (!patch) continue;
           if (!row.openDate && patch.openDate) row.openDate = patch.openDate;
+          if (!row.fee && patch.fee) row.fee = patch.fee;
           if (!row.period && patch.period) row.period = patch.period;
           if (!row.period && row.openDate) row.period = periodFromOpenDateString(row.openDate);
           if (!row.period && patch.openDate) row.period = periodFromOpenDateString(patch.openDate);
@@ -3551,12 +3551,12 @@
       function replacePoolBattleCategoriesFromSheetGviz(data) {
         if (!data || !Array.isArray(data.tools)) return Promise.resolve(data);
 
-        var periodFallback = buildSheetPeriodFallbackIndex(data.tools);
+        var metaFallback = buildSheetMetaFallbackIndex(data.tools);
 
         return fetchEthereumGvizSheet().then(function (ethRows) {
-          applySheetPeriodFallback(ethRows, periodFallback);
+          applySheetMetaFallback(ethRows, metaFallback);
           return fetchGvizSheetByScript("bitcoin").then(function (btcRows) {
-            applySheetPeriodFallback(btcRows, periodFallback);
+            applySheetMetaFallback(btcRows, metaFallback);
             return fetchRwaToolsFromPublicSheet().then(function (rwaTools) {
               var other = data.tools.filter(function (t) {
                 return POOL_BATTLE_SHEET_CATEGORIES.indexOf(t.categoryId) === -1;
@@ -3633,13 +3633,13 @@
 
       var __ethereumLinkToSheetRow = null;
 
-      /** Карта link → номер строки листа (gviz-фильтр смещает rowIdx). */
+      /** Карта link / pos:id → номер строки листа (батчевый скан N{r}:N{r}). */
       function buildEthereumLinkToSheetRowMap() {
         if (__ethereumLinkToSheetRow) return Promise.resolve(__ethereumLinkToSheetRow);
         var map = Object.create(null);
         var minRow = 2;
         var maxRow = 120;
-        var batchSize = 10;
+        var batchSize = 25;
         var sheetRows = [];
         var r;
         for (r = minRow; r <= maxRow; r++) sheetRows.push(r);
@@ -3739,39 +3739,41 @@
               );
             })(i);
           }
-          var dateTasks = [];
+          var metaTasks = [];
           for (i = 0; i < tableRows.length; i++) {
             (function (rowIdx) {
               var cells = tableRows[rowIdx].c || [];
               var platform = String(gvizCellAt(cells, cols.platform) || "").trim();
               if (!platform || /^платформа$/i.test(platform) || isSheetErrorCellValue(platform))
                 return;
-              if (!isGvizSparseDataCellMissing(cells[cols.openDate])) return;
+              var needDate = isGvizSparseDataCellMissing(cells[cols.openDate]);
+              var needFee = isGvizSparseDataCellMissing(cells[cols.fee]);
+              if (!needDate && !needFee) return;
               var link = parseLinkFromGvizCell(cells, cols);
               var lk = normalizeLinkKeyForPatch(link);
               var sheetRow =
                 (lk && linkMap[lk]) || linkMap["pos:" + extractPositionIdFromLink(link)] || 0;
               if (!sheetRow) return;
-              dateTasks.push(
-                fetchGvizPayloadByScript("ethereum", "D" + sheetRow + ":D" + sheetRow).then(
+              metaTasks.push(
+                fetchGvizPayloadByScript("ethereum", "D" + sheetRow + ":K" + sheetRow).then(
                   function (rowPayload) {
-                    var srcCell =
+                    var srcRow =
                       rowPayload &&
                       rowPayload.table &&
                       rowPayload.table.rows &&
-                      rowPayload.table.rows[0] &&
-                      rowPayload.table.rows[0].c
-                        ? rowPayload.table.rows[0].c[0]
+                      rowPayload.table.rows[0]
+                        ? rowPayload.table.rows[0].c
                         : null;
-                    if (!srcCell) return;
+                    if (!srcRow) return;
                     if (!tableRows[rowIdx].c) tableRows[rowIdx].c = [];
-                    tableRows[rowIdx].c[cols.openDate] = srcCell;
+                    if (needDate && srcRow[0]) tableRows[rowIdx].c[cols.openDate] = srcRow[0];
+                    if (needFee && srcRow[10 - 3]) tableRows[rowIdx].c[cols.fee] = srcRow[7];
                   },
                 ),
               );
             })(i);
           }
-          var allTasks = tasks.concat(dateTasks);
+          var allTasks = tasks.concat(metaTasks);
           if (!allTasks.length) return payload;
           return Promise.all(allTasks).then(function () {
             return payload;
@@ -3798,7 +3800,7 @@
           var finished = false;
           var seq = (window.__defilabsGvizSeq = (window.__defilabsGvizSeq || 0) + 1);
           var scriptId = "defilabsGvizScript_" + seq;
-          var timeoutMs = 25000;
+          var timeoutMs = 60000;
           var prevSetResponse = null;
 
           function done(payload) {
@@ -5063,7 +5065,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260616a";
+      var NAVIGATOR_BUILD = "20260616b";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
@@ -5386,9 +5388,7 @@
           .then(function (data) {
             if (!data || !Array.isArray(data.tools)) throw new Error("sheet-data empty");
             return mergeRwaFromSheetIfMissing(data).then(function (merged) {
-              return replacePoolBattleCategoriesFromSheetGviz(merged).then(
-                replaceStablesFromSheetGviz,
-              );
+              return replaceStablesFromSheetGviz(merged);
             });
           })
           .then(function (merged) {
