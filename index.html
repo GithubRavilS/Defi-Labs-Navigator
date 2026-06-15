@@ -3867,7 +3867,49 @@
         return /cloud-ui\.krystal\.app\/positions\//i.test(String(link || ""));
       }
 
-      /** revert-строка с fee tier предпочтительнее дубля из Krystal (0% / завышенный APY). */
+      function isFeeTierMissingOrZero(tool) {
+        var n = feeToPercentNumber_(tool.fee);
+        return !Number.isFinite(n) || n === 0;
+      }
+
+      /**
+       * Krystal иногда пишет fee 0% — подтягиваем tier с revert-строки того же id
+       * (2037806 → 0,05%, 2037809 → 0,01%). Разные id не трогаем.
+       */
+      function enrichPoolBattleToolsFromRevertByPositionId(tools) {
+        if (!tools || !tools.length) return [];
+        var revertByPos = Object.create(null);
+        var i;
+        for (i = 0; i < tools.length; i++) {
+          var t = tools[i];
+          if (isKrystalPositionLink(t.link)) continue;
+          var posId = extractPositionIdFromLink(t.link);
+          if (!posId) continue;
+          if (
+            !revertByPos[posId] ||
+            poolBattleRowQualityScore(t) > poolBattleRowQualityScore(revertByPos[posId])
+          )
+            revertByPos[posId] = t;
+        }
+        return tools.map(function (tool) {
+          if (!isKrystalPositionLink(tool.link) || !isFeeTierMissingOrZero(tool)) return tool;
+          var posId = extractPositionIdFromLink(tool.link);
+          var rev = posId ? revertByPos[posId] : null;
+          if (!rev || isFeeTierMissingOrZero(rev)) return tool;
+          var copy = Object.assign({}, tool);
+          copy.fee = normalizeFeeValue(rev.fee);
+          if (!copy.priceMin && rev.priceMin) copy.priceMin = rev.priceMin;
+          if (!copy.priceMax && rev.priceMax) copy.priceMax = rev.priceMax;
+          if (!copy.openDate && rev.openDate) copy.openDate = rev.openDate;
+          if (!copy.period || isAbsurdPeriodValue(copy.period))
+            copy.period = normalizePeriodValue(rev.period, copy.openDate || rev.openDate);
+          var chain = String(copy.chain || "").trim();
+          if (chain && copy.fee) copy.desc = copy.descEn = chain + " " + formatFeeLabel(copy.fee);
+          return enrichPoolBattleFields(copy);
+        });
+      }
+
+      /** revert-строка предпочтительнее второй выгрузки того же id (Krystal + Revert). */
       function poolBattleRowQualityScore(tool) {
         var score = 0;
         if (!isKrystalPositionLink(tool.link)) score += 20;
@@ -3879,7 +3921,10 @@
         return score;
       }
 
-      /** Одна on-chain позиция (2037806 и т.д.) — одна строка в списке. */
+      /**
+       * Один position id → одна карточка, если в таблице две выгрузки (Krystal + Revert).
+       * 2037806 и 2037809 — разные id, обе остаются.
+       */
       function dedupePoolBattleByPositionId(tools) {
         if (!tools || !tools.length) return [];
         var byPos = Object.create(null);
@@ -4099,7 +4144,7 @@
           .replace(/\s+/g, "");
       }
 
-      /** Группа: платформа + пара + блокчейн + fee tier; Krystal — отдельная карточка на каждый id. */
+      /** Группа: платформа + пара + сеть + fee tier. Krystal с fee 0% — по id (несколько V4). */
       function poolBattleIdentityKey(tool) {
         var platform = poolBattlePlatformKey(tool.platform || tool.name);
         var pair = poolBattlePairKey(tool.pair);
@@ -4109,7 +4154,9 @@
         if (!platform || !pair || !chain) return "";
         if (isKrystalPositionLink(tool.link)) {
           var posId = extractPositionIdFromLink(tool.link);
-          if (posId) return [platform, pair, chain, fee, "id:" + posId].join("\u0001");
+          var feeNum = parseFloat(fee);
+          if (posId && (!Number.isFinite(feeNum) || feeNum === 0))
+            return [platform, pair, chain, fee, "id:" + posId].join("\u0001");
         }
         return [platform, pair, chain, fee].join("\u0001");
       }
@@ -4393,7 +4440,8 @@
       }
 
       function buildPoolBattleGroups(tools, categoryId) {
-        tools = dedupePoolBattleByPositionId(tools || []);
+        tools = enrichPoolBattleToolsFromRevertByPositionId(tools || []);
+        tools = dedupePoolBattleByPositionId(tools);
         tools = dedupePoolBattleToolsList(tools);
         if (!categoryUsesPoolBattleGrouping(categoryId)) {
           return tools.map(function (tool) {
@@ -4985,7 +5033,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260615c";
+      var NAVIGATOR_BUILD = "20260615d";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
