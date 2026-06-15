@@ -3857,8 +3857,50 @@
 
       function extractPositionIdFromLink(link) {
         var s = String(link || "").trim();
-        var m = s.match(/\/(\d{5,})(?:[/?#]|$)/);
+        var m = s.match(/-(\d{5,})(?:[/?#]|$)/);
+        if (m) return m[1];
+        m = s.match(/\/(\d{5,})(?:[/?#]|$)/);
         return m ? m[1] : "";
+      }
+
+      function isKrystalPositionLink(link) {
+        return /cloud-ui\.krystal\.app\/positions\//i.test(String(link || ""));
+      }
+
+      /** revert-строка с fee tier предпочтительнее дубля из Krystal (0% / завышенный APY). */
+      function poolBattleRowQualityScore(tool) {
+        var score = 0;
+        if (!isKrystalPositionLink(tool.link)) score += 20;
+        var feeNum = feeToPercentNumber_(tool.fee);
+        if (Number.isFinite(feeNum) && feeNum > 0) score += 10;
+        if (hasValidPriceRange(tool)) score += 5;
+        if (tool.openDate) score += 3;
+        if (tool.period && !isAbsurdPeriodValue(tool.period)) score += 2;
+        return score;
+      }
+
+      /** Одна on-chain позиция (2037806 и т.д.) — одна строка в списке. */
+      function dedupePoolBattleByPositionId(tools) {
+        if (!tools || !tools.length) return [];
+        var byPos = Object.create(null);
+        var noPos = [];
+        var i;
+        for (i = 0; i < tools.length; i++) {
+          var tool = tools[i];
+          var posId = extractPositionIdFromLink(tool.link);
+          if (!posId) {
+            noPos.push(tool);
+            continue;
+          }
+          var existing = byPos[posId];
+          if (!existing || poolBattleRowQualityScore(tool) > poolBattleRowQualityScore(existing))
+            byPos[posId] = tool;
+        }
+        var out = noPos.slice();
+        Object.keys(byPos).forEach(function (k) {
+          out.push(byPos[k]);
+        });
+        return out;
       }
 
       function patchPoolBattleToolsFromRows(tools, rows, categoryId) {
@@ -4057,7 +4099,7 @@
           .replace(/\s+/g, "");
       }
 
-      /** Группа: платформа + пара + блокчейн + fee tier (все четыре совпали). */
+      /** Группа: платформа + пара + блокчейн + fee tier; Krystal — отдельная карточка на каждый id. */
       function poolBattleIdentityKey(tool) {
         var platform = poolBattlePlatformKey(tool.platform || tool.name);
         var pair = poolBattlePairKey(tool.pair);
@@ -4065,6 +4107,10 @@
         var fee = normalizeFeeKeyForPatch(tool.fee);
         if (!fee) fee = "0";
         if (!platform || !pair || !chain) return "";
+        if (isKrystalPositionLink(tool.link)) {
+          var posId = extractPositionIdFromLink(tool.link);
+          if (posId) return [platform, pair, chain, fee, "id:" + posId].join("\u0001");
+        }
         return [platform, pair, chain, fee].join("\u0001");
       }
 
@@ -4318,6 +4364,17 @@
         return hasValidPriceRange(tool) ? formatPriceRangeLabel(tool) : "";
       }
 
+      function formatPoolBattleAltInstrumentLabel(tool) {
+        var range = formatPoolBattleAltRange(tool);
+        if (range) return range;
+        var fee = formatFeeLabelFromTool(tool);
+        var chain = formatChainLabel(tool);
+        if (chain && fee) return chain + " · " + fee;
+        if (fee) return fee;
+        if (chain) return chain;
+        return "";
+      }
+
       function formatPoolBattleRangeOrMeta(tool) {
         if (hasValidPriceRange(tool)) return formatPriceRangeLabel(tool);
         if (formatChainLabel(tool) || formatFeeLabelFromTool(tool)) return "";
@@ -4336,7 +4393,8 @@
       }
 
       function buildPoolBattleGroups(tools, categoryId) {
-        tools = dedupePoolBattleToolsList(tools || []);
+        tools = dedupePoolBattleByPositionId(tools || []);
+        tools = dedupePoolBattleToolsList(tools);
         if (!categoryUsesPoolBattleGrouping(categoryId)) {
           return tools.map(function (tool) {
             return {
@@ -4501,11 +4559,10 @@
         if (!alternates.length) return "";
         return alternates
           .map(function (tool) {
-            var range = formatPoolBattleAltRange(tool);
             return (
               '<div class="pool-battle-alt-item">' +
               '<div class="pool-battle-alt-range">' +
-              escapeHtml(range || t("noValue")) +
+              escapeHtml(formatPoolBattleAltInstrumentLabel(tool) || t("noValue")) +
               "</div>" +
               '<div class="pool-battle-alt-apy">' +
               escapeHtml(formatApyDisplay(tool)) +
@@ -4532,7 +4589,7 @@
               escapeHtml(group.groupKey) +
               '">' +
               '<td><div class="pool-battle-alt-indent"><span class="pool-battle-alt-range">' +
-              escapeHtml(formatPoolBattleAltRange(alt) || t("noValue")) +
+              escapeHtml(formatPoolBattleAltInstrumentLabel(alt) || t("noValue")) +
               "</span></div></td>" +
               "<td>" +
               escapeHtml(alt.pair || group.primary.pair || "—") +
@@ -4928,7 +4985,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260615b";
+      var NAVIGATOR_BUILD = "20260615c";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
