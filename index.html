@@ -3476,7 +3476,7 @@
       function replacePoolBattleCategoriesFromSheetGviz(data) {
         if (!data || !Array.isArray(data.tools)) return Promise.resolve(data);
 
-        return fetchGvizSheetByScript("ethereum").then(function (ethRows) {
+        return fetchEthereumGvizSheet().then(function (ethRows) {
           return fetchGvizSheetByScript("bitcoin").then(function (btcRows) {
             return fetchRwaToolsFromPublicSheet().then(function (rwaTools) {
               var other = data.tools.filter(function (t) {
@@ -3519,22 +3519,90 @@
         });
       }
 
-      function fetchGvizSheetByScript(sheetName) {
-        return new Promise(function (resolve) {
+      function isGvizLiquidityStatusCellMissing(cell) {
+        if (!cell) return true;
+        var f = cell.f != null && String(cell.f).trim() !== "" ? String(cell.f).trim() : "";
+        if (f) return false;
+        if (cell.v === false || cell.v === 0) return false;
+        if (cell.v === true || cell.v === 1) return false;
+        if (cell.v != null && String(cell.v).trim() !== "") return false;
+        return true;
+      }
+
+      /**
+       * gviz иногда не кладёт P (Статус) в cells[15] при полной выгрузке листа,
+       * хотя в UI и в запросе P12 значение есть (напр. CLOSED). Дочитываем точечно.
+       */
+      function patchEthereumGvizStatusCells(payload) {
+        var tableRows = payload && payload.table && payload.table.rows ? payload.table.rows : [];
+        var statusCol = poolBattleCols("ethereum").liquidityStatus;
+        var tasks = [];
+        var i;
+        for (i = 0; i < tableRows.length; i++) {
+          (function (rowIdx) {
+            var cells = tableRows[rowIdx].c || [];
+            var platform = String(
+              gvizCellAt(cells, poolBattleCols("ethereum").platform) || "",
+            ).trim();
+            if (!platform || /^платформа$/i.test(platform) || isSheetErrorCellValue(platform))
+              return;
+            if (!isGvizLiquidityStatusCellMissing(cells[statusCol])) return;
+            var sheetRow = rowIdx + 2;
+            tasks.push(
+              fetchGvizPayloadByScript("ethereum", "P" + sheetRow + ":P" + sheetRow).then(
+                function (statusPayload) {
+                  var patchedCell =
+                    statusPayload &&
+                    statusPayload.table &&
+                    statusPayload.table.rows &&
+                    statusPayload.table.rows[0] &&
+                    statusPayload.table.rows[0].c
+                      ? statusPayload.table.rows[0].c[0]
+                      : null;
+                  if (!patchedCell) return;
+                  if (!tableRows[rowIdx].c) tableRows[rowIdx].c = [];
+                  tableRows[rowIdx].c[statusCol] = patchedCell;
+                },
+              ),
+            );
+          })(i);
+        }
+        if (!tasks.length) return Promise.resolve(payload);
+        return Promise.all(tasks).then(function () {
+          return payload;
+        });
+      }
+
+      function fetchEthereumGvizSheet() {
+        return fetchGvizPayloadByScript("ethereum")
+          .then(function (payload) {
+            return patchEthereumGvizStatusCells(payload);
+          })
+          .then(function (payload) {
+            return parsePoolBattleGvizPayload(payload, "ethereum");
+          })
+          .catch(function (err) {
+            console.warn("ethereum gviz", err);
+            return [];
+          });
+      }
+
+      function fetchGvizPayloadByScript(sheetName, range) {
+        return new Promise(function (resolve, reject) {
           var finished = false;
           var seq = (window.__defilabsGvizSeq = (window.__defilabsGvizSeq || 0) + 1);
           var scriptId = "defilabsGvizScript_" + seq;
           var timeoutMs = 25000;
           var prevSetResponse = null;
 
-          function done(rows) {
+          function done(payload) {
             if (finished) return;
             finished = true;
             clearTimeout(timer);
             var el = document.getElementById(scriptId);
             if (el && el.parentNode) el.parentNode.removeChild(el);
             if (prevSetResponse) window.google.visualization.Query.setResponse = prevSetResponse;
-            resolve(rows || []);
+            resolve(payload);
           }
 
           var g = (window.google = window.google || {});
@@ -3543,34 +3611,38 @@
           prevSetResponse = g.visualization.Query.setResponse;
 
           g.visualization.Query.setResponse = function (payload) {
-            try {
-              if (sheetName === STABLES_SHEET_NAME) {
-                done(parseStablesGvizPayload(payload));
-              } else {
-                var cat =
-                  sheetName === "bitcoin" ? "bitcoin" : sheetName === "ethereum" ? "ethereum" : "";
-                done(parsePoolBattleGvizPayload(payload, cat));
-              }
-            } catch (err) {
-              console.warn("gviz parse", sheetName, err);
-              done([]);
-            }
+            done(payload);
           };
 
           var timer = setTimeout(function () {
-            console.warn("gviz timeout", sheetName);
-            done([]);
+            reject(new Error("gviz timeout " + sheetName));
           }, timeoutMs);
 
           var script = document.createElement("script");
           script.id = scriptId;
           script.charset = "UTF-8";
-          script.src = SHEET_GVIZ_BASE + encodeURIComponent(sheetName) + "&_=" + seq;
+          var url = SHEET_GVIZ_BASE + encodeURIComponent(sheetName) + "&_=" + seq;
+          if (range) url += "&range=" + encodeURIComponent(range);
+          script.src = url;
           script.onerror = function () {
-            done([]);
+            reject(new Error("gviz load failed " + sheetName));
           };
           document.head.appendChild(script);
         });
+      }
+
+      function fetchGvizSheetByScript(sheetName) {
+        if (sheetName === "ethereum") return fetchEthereumGvizSheet();
+        return fetchGvizPayloadByScript(sheetName)
+          .then(function (payload) {
+            if (sheetName === STABLES_SHEET_NAME) return parseStablesGvizPayload(payload);
+            var cat = sheetName === "bitcoin" ? "bitcoin" : "";
+            return parsePoolBattleGvizPayload(payload, cat);
+          })
+          .catch(function (err) {
+            console.warn("gviz parse", sheetName, err);
+            return [];
+          });
       }
 
       /** @deprecated используй replacePoolBattleCategoriesFromSheetGviz */
@@ -4751,7 +4823,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260528h";
+      var NAVIGATOR_BUILD = "20260528i";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";

@@ -243,6 +243,37 @@ function isEthereumLiquidityStatusOpenFromGvizCell(cell) {
   return isEthereumLiquidityStatusOpen(cell.v, f);
 }
 
+async function patchEthereumStatusInPayload(payload) {
+  const rows = payload?.table?.rows || [];
+  const tasks = [];
+  for (let i = 0; i < rows.length; i++) {
+    const plat = rows[i].c?.[0]?.v;
+    if (!plat || /^платформа$/i.test(String(plat)) || String(plat).startsWith("#")) continue;
+    const cell = rows[i].c?.[15];
+    const missing =
+      !cell ||
+      ((!cell.f || !String(cell.f).trim()) &&
+        cell.v !== false &&
+        cell.v !== 0 &&
+        cell.v !== true &&
+        cell.v !== 1 &&
+        (cell.v == null || cell.v === ""));
+    if (!missing) continue;
+    const sheetRow = i + 2;
+    tasks.push(
+      fetchGviz("ethereum", `P${sheetRow}:P${sheetRow}`).then((p) => {
+        const patched = p?.table?.rows?.[0]?.c?.[0];
+        if (patched) {
+          if (!rows[i].c) rows[i].c = [];
+          rows[i].c[15] = patched;
+        }
+      }),
+    );
+  }
+  if (tasks.length) await Promise.all(tasks);
+  return payload;
+}
+
 function parseRows(payload, categoryId) {
   const cols = POOL_BATTLE_COL_BY_CAT[categoryId];
   const rows = payload?.table?.rows || [];
@@ -283,7 +314,7 @@ const rwa = parseRows(rwaPayload, "rwa");
 console.log(`\n=== БИТВА ПУЛОВ RWA (${rwa.length}) ===`);
 rwa.slice(0, 3).forEach((r) => console.log(JSON.stringify(r)));
 
-const ethPayload = await fetchGviz("ethereum");
+const ethPayload = await patchEthereumStatusInPayload(await fetchGviz("ethereum"));
 const eth = parseRows(ethPayload, "ethereum");
 console.log(`\n=== ethereum (${eth.length}) ===`);
 eth.slice(0, 3).forEach((r) => console.log(JSON.stringify(r)));
