@@ -194,10 +194,23 @@ function periodFromOpenDateString(dateStr) {
   return `${Math.floor(hours / 24)} дн`;
 }
 
-async function fetchGviz(sheet) {
-  const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheet)}`;
+async function fetchGviz(sheet, range) {
+  let url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheet)}`;
+  if (range) url += `&range=${encodeURIComponent(range)}`;
   const text = await fetch(url).then((r) => r.text());
   return JSON.parse(text.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/, "$1"));
+}
+
+function normalizeLinkKeyForPatch(link) {
+  return String(link || "")
+    .trim()
+    .toLowerCase()
+    .replace(/#.*$/, "");
+}
+
+function extractPositionIdFromLink(link) {
+  const m = String(link || "").match(/-(\d{5,})(?:\?|#|$)/i);
+  return m ? m[1] : "";
 }
 
 function isSheetErrorCellValue(val) {
@@ -271,10 +284,12 @@ async function buildEthereumLinkToSheetRowMap() {
   const map = {};
   for (let r = 2; r <= 120; r++) {
     const p = await fetchGviz("ethereum", `N${r}:N${r}`);
-    const link = String(gvizCellValue(p?.table?.rows?.[0]?.c?.[0]) || "")
-      .trim()
-      .toLowerCase();
-    if (link && link !== "#") map[link] = r;
+    const link = String(gvizCellValue(p?.table?.rows?.[0]?.c?.[0]) || "").trim();
+    if (!link || link === "#") continue;
+    const lk = normalizeLinkKeyForPatch(link);
+    if (lk) map[lk] = r;
+    const posId = extractPositionIdFromLink(link);
+    if (posId) map[`pos:${posId}`] = r;
   }
   return map;
 }
@@ -320,10 +335,9 @@ async function patchEthereumSparseInPayload(payload) {
       !isGvizSparseDataCellMissing(c[cols.liquidityStatus])
     )
       continue;
-    const link = String(gvizCellValue(c[cols.link]) || "")
-      .trim()
-      .toLowerCase();
-    const sheetRow = linkMap[link];
+    const link = String(gvizCellValue(c[cols.link]) || "").trim();
+    const lk = normalizeLinkKeyForPatch(link);
+    const sheetRow = linkMap[lk] || linkMap[`pos:${extractPositionIdFromLink(link)}`];
     if (!sheetRow) continue;
     tasks.push(
       fetchGviz("ethereum", `A${sheetRow}:P${sheetRow}`).then((p) => {
@@ -341,10 +355,9 @@ async function patchEthereumSparseInPayload(payload) {
     const plat = c[cols.platform]?.v;
     if (!plat || /^платформа$/i.test(String(plat)) || String(plat).startsWith("#")) continue;
     if (!isGvizSparseDataCellMissing(c[cols.openDate])) continue;
-    const link = String(gvizCellValue(c[cols.link]) || "")
-      .trim()
-      .toLowerCase();
-    const sheetRow = linkMap[link];
+    const link = String(gvizCellValue(c[cols.link]) || "").trim();
+    const lk = normalizeLinkKeyForPatch(link);
+    const sheetRow = linkMap[lk] || linkMap[`pos:${extractPositionIdFromLink(link)}`];
     if (!sheetRow) continue;
     dateTasks.push(
       fetchGviz("ethereum", `D${sheetRow}:D${sheetRow}`).then((p) => {
