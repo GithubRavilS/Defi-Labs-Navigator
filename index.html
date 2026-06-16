@@ -4268,6 +4268,8 @@
           var parts = s.split(",");
           if (parts.length === 2 && parts[1].length <= 2) {
             s = parts[0] + "." + parts[1];
+          } else if (parts.length >= 2) {
+            s = parts[0] + "." + parts.slice(1).join("");
           } else {
             s = s.replace(/,/g, "");
           }
@@ -5113,7 +5115,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260617a";
+      var NAVIGATOR_BUILD = "20260617c";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
