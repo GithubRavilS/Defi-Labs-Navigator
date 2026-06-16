@@ -5113,7 +5113,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260616e";
+      var NAVIGATOR_BUILD = "20260616f";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
@@ -5245,7 +5245,7 @@
 
       // ========== INIT ==========
       window.addEventListener("DOMContentLoaded", function () {
-        prefetchRwaToolsCache();
+        if (!getSheetDataApiUrl()) prefetchRwaToolsCache();
         currentLang = localStorage.getItem("defilabs-lang") || "ru";
         applyLang();
         var navSubmit = document.getElementById("navAuthSubmit");
@@ -5395,7 +5395,9 @@
         } else {
           allTools = [];
         }
+        var fromSheet = data && data.source === "sheets-direct";
         if (
+          !fromSheet &&
           !allTools.some(function (t) {
             return t.categoryId === "rwa";
           })
@@ -5478,18 +5480,18 @@
           })
           .then(function (data) {
             if (!data || !Array.isArray(data.tools)) throw new Error("sheet-data empty");
-            return mergeRwaFromSheetIfMissing(data).then(function (merged) {
-              return replaceStablesFromSheetGviz(merged);
-            });
-          })
-          .then(function (merged) {
-            applyLoadedData(merged);
-            console.log("DeFi Navigator: данные из /api/sheet-data", {
+            if (data.error) throw new Error(String(data.error));
+            applyLoadedData(data);
+            console.log("DeFi Navigator: данные напрямую из Excel (/api/sheet-data)", {
               tools: allTools.length,
+              ethereum: allTools.filter(function (t) {
+                return t.categoryId === "ethereum";
+              }).length,
               rwa: allTools.filter(function (t) {
                 return t.categoryId === "rwa";
               }).length,
-              apiVersion: merged && merged.apiVersion,
+              apiVersion: data.apiVersion,
+              source: data.source,
             });
             try {
               setDataBadge("ok", new Date());
@@ -5502,18 +5504,23 @@
           });
       }
 
-      /** Данные: 1) /api/sheet-data (Excel напрямую), 2) gviz-патч (без старого GAS). */
+      /** Только Excel через /api/sheet-data. Без gviz/GAS-обогащения пулов. */
       function loadDataOnce() {
         return loadDataFromSheetApi().then(function (sheetMeta) {
           if (sheetMeta) {
             finishDataLoad();
             return sheetMeta;
           }
-          return loadDataOnceFromGvizPools();
+          try {
+            setDataBadge("err");
+          } catch (e) {}
+          applyLoadedData(null);
+          finishDataLoad();
+          return { apiCallbackReceived: false, source: "sheet-data-failed" };
         });
       }
 
-      function loadDataOnceFromGvizPools() {
+      function loadDataOnceFromGvizPools_UNUSED() {
         var g = getGoogleAppsScriptApiUrl();
         var base = { categories: STATIC_NAV_CATEGORIES.slice(), tools: [] };
 
@@ -6210,7 +6217,7 @@
       function refreshData() {
         window.__defilabsRwaCache = null;
         document.body.style.opacity = "0.5";
-        prefetchRwaToolsCache();
+        if (!getSheetDataApiUrl()) prefetchRwaToolsCache();
         loadData({ maxRetries: 4, retryDelayMs: 1800 })
           .then(function () {
             if (currentCategory) {
