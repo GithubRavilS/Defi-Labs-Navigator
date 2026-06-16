@@ -3296,7 +3296,7 @@
         return "";
       }
 
-      function gvizPriceCell(cells, colIdx) {
+      function gvizPriceCell(cells, colIdx, categoryId) {
         if (colIdx == null || colIdx < 0) return "";
         var cell = cells[colIdx];
         if (!cell) return "";
@@ -3306,14 +3306,14 @@
           if (cleaned) return cleaned;
         }
         if (typeof cell.v === "number" && Number.isFinite(cell.v)) {
-          if (cell.v > 50000) return "";
+          if (cell.v > 1000000) return "";
           return sanitizeRangeGvizValue(String(cell.v));
         }
         return sanitizeRangeGvizValue(String(cell.v == null ? "" : cell.v));
       }
 
-      function gvizNumericCell(cells, colIdx) {
-        return gvizPriceCell(cells, colIdx);
+      function gvizNumericCell(cells, colIdx, categoryId) {
+        return gvizPriceCell(cells, colIdx, categoryId);
       }
 
       function isSheetErrorCellValue(val) {
@@ -3420,8 +3420,10 @@
           var feeRaw = String(gvizCellFeeValue(cells[cols.fee]) || "").trim();
           var apyRaw = parseApyFromGvizCell(cells, cols);
           var link = parseLinkFromGvizCell(cells, cols) || "#";
-          var priceMin = categoryId === "rwa" ? "-10%" : gvizNumericCell(cells, cols.minPrice);
-          var priceMax = categoryId === "rwa" ? "+10%" : gvizNumericCell(cells, cols.maxPrice);
+          var priceMin =
+            categoryId === "rwa" ? "-10%" : gvizNumericCell(cells, cols.minPrice, categoryId);
+          var priceMax =
+            categoryId === "rwa" ? "+10%" : gvizNumericCell(cells, cols.maxPrice, categoryId);
           out.push({
             categoryId: categoryId,
             name: platform,
@@ -5115,7 +5117,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260617c";
+      var NAVIGATOR_BUILD = "20260617d";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
