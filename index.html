@@ -2915,6 +2915,10 @@
         o.pair = rawPair != null && String(rawPair).trim() !== "" ? String(rawPair).trim() : "";
         o.platform =
           o.platform != null && String(o.platform).trim() !== "" ? String(o.platform).trim() : "";
+        if (isDateLikeLabel(o.platform) && !isDateLikeLabel(o.name)) o.platform = o.name;
+        if (isDateLikeLabel(o.name) && !isDateLikeLabel(o.platform)) o.name = o.platform;
+        if (isDateLikeLabel(o.name)) o.name = "";
+        if (isDateLikeLabel(o.platform)) o.platform = "";
         o.apy = normalizeApyValue(o.apy);
         o.fee = o.fee != null && String(o.fee).trim() !== "" ? normalizeFeeValue(o.fee) : "";
         o.period = normalizePeriodValue(o.period, o.openDate);
@@ -3257,17 +3261,59 @@
       function sanitizeRangeGvizValue(val) {
         var s = String(val == null ? "" : val).trim();
         if (!s) return "";
+        if (/Date\(|^\d{1,2}[./]\d{1,2}[./]\d{2,4}/.test(s)) return "";
         var m = s.match(/^([\d\s\u00a0.,]+)\s*дн\s*$/i);
-        if (m) return m[1].trim();
+        if (m) return "";
         return s;
       }
 
-      function gvizNumericCell(cells, colIdx) {
+      function isDateLikeLabel(value) {
+        var s = String(value == null ? "" : value).trim();
+        if (!s) return false;
+        if (/^Date\(/i.test(s)) return true;
+        return /^\d{1,2}[./]\d{1,2}[./]\d{2,4}(?:\s+\d{1,2}:\d{2})?$/.test(s);
+      }
+
+      function formatInstrumentName(tool) {
+        var name = String((tool && (tool.platform || tool.name)) || "").trim();
+        if (!name || isDateLikeLabel(name)) {
+          var alt = String((tool && tool.platform) || "").trim();
+          if (alt && !isDateLikeLabel(alt)) return alt;
+          return "—";
+        }
+        return name;
+      }
+
+      function gvizCellPlatformValue(cell) {
+        if (!cell) return "";
+        var f = cell.f != null && String(cell.f).trim() !== "" ? String(cell.f).trim() : "";
+        if (f && !isDateLikeLabel(f)) return f;
+        var v = cell.v;
+        if (v != null && v !== "") {
+          var s = String(v).trim();
+          if (!isDateLikeLabel(s)) return s;
+        }
+        return "";
+      }
+
+      function gvizPriceCell(cells, colIdx) {
         if (colIdx == null || colIdx < 0) return "";
-        var v = gvizCellAt(cells, colIdx);
-        if (v == null || v === "") return "";
-        if (typeof v === "number" && !isNaN(v)) return sanitizeRangeGvizValue(String(v));
-        return sanitizeRangeGvizValue(String(v));
+        var cell = cells[colIdx];
+        if (!cell) return "";
+        var f = cell.f != null && String(cell.f).trim() !== "" ? String(cell.f).trim() : "";
+        if (f) {
+          var cleaned = sanitizeRangeGvizValue(f.replace(/\u00a0/g, " ").replace(/\s/g, ""));
+          if (cleaned) return cleaned;
+        }
+        if (typeof cell.v === "number" && Number.isFinite(cell.v)) {
+          if (cell.v > 50000) return "";
+          return sanitizeRangeGvizValue(String(cell.v));
+        }
+        return sanitizeRangeGvizValue(String(cell.v == null ? "" : cell.v));
+      }
+
+      function gvizNumericCell(cells, colIdx) {
+        return gvizPriceCell(cells, colIdx);
       }
 
       function isSheetErrorCellValue(val) {
@@ -3350,8 +3396,8 @@
         var i;
         for (i = 0; i < tableRows.length; i++) {
           var cells = tableRows[i].c || [];
-          var platform = String(gvizCellAt(cells, cols.platform) || "").trim();
-          if (!platform || /^платформа$/i.test(platform)) continue;
+          var platform = String(gvizCellPlatformValue(cells[cols.platform]) || "").trim();
+          if (!platform || /^платформа$/i.test(platform) || isDateLikeLabel(platform)) continue;
           if (
             categoryId === "rwa" &&
             pairContainsEthOrBtc(gvizCellAt(cells, cols.pair), platform, platform)
@@ -3698,7 +3744,7 @@
         var i;
         for (i = 0; i < tableRows.length; i++) {
           var probe = tableRows[i].c || [];
-          var platform = String(gvizCellAt(probe, cols.platform) || "").trim();
+          var platform = String(gvizCellPlatformValue(probe[cols.platform]) || "").trim();
           if (!platform || /^платформа$/i.test(platform) || isSheetErrorCellValue(platform))
             continue;
           if (ethereumGvizRowNeedsSparsePatch(probe, cols)) needsPatch = true;
@@ -3865,8 +3911,8 @@
         var i;
         for (i = 0; i < tableRows.length; i++) {
           var cells = tableRows[i].c || [];
-          var platform = String(gvizCellAt(cells, cols.platform) || "").trim();
-          if (!platform || /^платформа$/i.test(platform)) continue;
+          var platform = String(gvizCellPlatformValue(cells[cols.platform]) || "").trim();
+          if (!platform || /^платформа$/i.test(platform) || isDateLikeLabel(platform)) continue;
           var openDate = parseGvizDateTimeValue(gvizCellOpenDateValue(cells[cols.openDate]));
           var pairStr = String(gvizCellAt(cells, cols.pair) || "");
           if (pairContainsEthOrBtc(pairStr, platform, platform)) continue;
@@ -4316,7 +4362,9 @@
         if (tool && tool.categoryId === "rwa") return true;
         var minN = parsePriceBoundary(tool.priceMin);
         var maxN = parsePriceBoundary(tool.priceMax);
-        return Number.isFinite(minN) && Number.isFinite(maxN) && minN > 0 && maxN > 0;
+        if (!Number.isFinite(minN) || !Number.isFinite(maxN)) return false;
+        if (minN <= 0 || maxN <= 0 || minN > 1000000 || maxN > 1000000) return false;
+        return true;
       }
 
       function getOrderedPriceRangeNumbers(tool) {
@@ -4417,7 +4465,7 @@
         return (
           '<div class="pool-battle-instrument-head">' +
           '<div class="pool-battle-instrument-name">' +
-          escapeHtml(tool.name) +
+          escapeHtml(formatInstrumentName(tool)) +
           "</div>" +
           '<div class="pool-battle-meta-row">' +
           renderPoolBattleChainChip(tool) +
@@ -5065,7 +5113,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260616c";
+      var NAVIGATOR_BUILD = "20260616d";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
@@ -5656,7 +5704,7 @@
               "</div>";
             return `
                     <a href="#" class="heatmap-block ${sizeClass}" onclick="showCategory('${tool.categoryId}'); return false;">
-                        <div class="heatmap-name">${escapeHtml(tool.name)}</div>
+                        <div class="heatmap-name">${escapeHtml(formatInstrumentName(tool))}</div>
                         ${pairHtml}
                         ${periodHtml}
                         ${metaHtml}
