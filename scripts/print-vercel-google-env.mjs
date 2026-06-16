@@ -11,6 +11,9 @@ const credPath = path.join(root, "pusher-490008-bf7c384ba372.json");
 const cred = JSON.parse(readFileSync(credPath, "utf8"));
 
 console.log("Name: GOOGLE_SERVICE_ACCOUNT_JSON");
+console.log("Or base64 (easier paste): GOOGLE_SERVICE_ACCOUNT_JSON_B64");
 console.log("Email для доступа к таблице:", cred.client_email);
-console.log("--- copy everything below this line ---");
+console.log("--- copy JSON (one line) ---");
 console.log(JSON.stringify(cred));
+console.log("--- or base64 ---");
+console.log(Buffer.from(JSON.stringify(cred)).toString("base64"));
