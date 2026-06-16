@@ -3275,13 +3275,13 @@
       }
 
       function formatInstrumentName(tool) {
-        var name = String((tool && (tool.platform || tool.name)) || "").trim();
-        if (!name || isDateLikeLabel(name)) {
-          var alt = String((tool && tool.platform) || "").trim();
-          if (alt && !isDateLikeLabel(alt)) return alt;
-          return "—";
+        var candidates = [tool && tool.platform, tool && tool.name];
+        var i;
+        for (i = 0; i < candidates.length; i++) {
+          var s = String(candidates[i] || "").trim();
+          if (s && !isDateLikeLabel(s)) return s;
         }
-        return name;
+        return "—";
       }
 
       function gvizCellPlatformValue(cell) {
@@ -3756,7 +3756,7 @@
           for (i = 0; i < tableRows.length; i++) {
             (function (rowIdx) {
               var cells = tableRows[rowIdx].c || [];
-              var platform = String(gvizCellAt(cells, cols.platform) || "").trim();
+              var platform = String(gvizCellPlatformValue(cells[cols.platform]) || "").trim();
               if (!platform || /^платформа$/i.test(platform) || isSheetErrorCellValue(platform))
                 return;
               if (!ethereumGvizRowNeedsSparsePatch(cells, cols)) return;
@@ -3789,7 +3789,7 @@
           for (i = 0; i < tableRows.length; i++) {
             (function (rowIdx) {
               var cells = tableRows[rowIdx].c || [];
-              var platform = String(gvizCellAt(cells, cols.platform) || "").trim();
+              var platform = String(gvizCellPlatformValue(cells[cols.platform]) || "").trim();
               if (!platform || /^платформа$/i.test(platform) || isSheetErrorCellValue(platform))
                 return;
               var needDate = isGvizSparseDataCellMissing(cells[cols.openDate]);
