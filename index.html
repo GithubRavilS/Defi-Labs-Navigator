@@ -3082,8 +3082,9 @@
       }
 
       /** Индексы колонок (0-based) — у листов ETH и RWA разная ширина блока «доходов». */
-      var POOL_BATTLE_SHEET_CATEGORIES = ["ethereum", "bitcoin", "rwa"];
-      var STABLES_SHEET_NAME = "stables";
+      var POOL_BATTLE_SHEET_CATEGORIES = ["stables", "ethereum", "bitcoin", "rwa"];
+      var ETHEREUM_UNIFIED_SHEET = "ethereum";
+      var BATTLE_COLUMN = 16;
       var STABLES_COL = {
         name: 0,
         apy: 1,
@@ -3120,6 +3121,7 @@
           link: 13,
           invested: 14,
           liquidityStatus: 15,
+          battle: 16,
         },
         bitcoin: {
           platform: 0,
@@ -3136,7 +3138,27 @@
       };
 
       function poolBattleCols(categoryId) {
+        if (categoryId === "ethereum" || categoryId === "bitcoin" || categoryId === "stables") {
+          return POOL_BATTLE_COL_BY_CAT.ethereum;
+        }
         return POOL_BATTLE_COL_BY_CAT[categoryId] || POOL_BATTLE_COL_BY_CAT.rwa;
+      }
+
+      function isPoolBattleLiquidityCategory(categoryId) {
+        return categoryId === "ethereum" || categoryId === "bitcoin" || categoryId === "stables";
+      }
+
+      /** Колонка Q «Битва»: Ethereum / Bitcoin / Stablecoin. */
+      function categoryIdFromBattleColumn(val) {
+        var s = String(val == null ? "" : val)
+          .trim()
+          .toLowerCase()
+          .replace(/ё/g, "е");
+        if (!s) return "ethereum";
+        if (s === "ethereum" || /эфир/.test(s)) return "ethereum";
+        if (s === "bitcoin" || /биткоин|\bbtc\b/.test(s)) return "bitcoin";
+        if (s === "stablecoin" || /стейбл|stablecoin|\bstables?\b/.test(s)) return "stables";
+        return "";
       }
 
       /** @deprecated use poolBattleCols */
@@ -3379,8 +3401,69 @@
         return isEthereumLiquidityStatusOpen(cell.v, f);
       }
 
+      /** Лист ethereum: одна строка → ethereum / bitcoin / stables по колонке Q «Битва». */
+      function parseEthereumUnifiedGvizPayload(payload) {
+        var cols = poolBattleCols("ethereum");
+        var battleCol = cols.battle != null ? cols.battle : BATTLE_COLUMN;
+        var tableRows = payload && payload.table && payload.table.rows ? payload.table.rows : [];
+        var out = [];
+        var counts = { ethereum: 0, bitcoin: 0, stables: 0 };
+        var i;
+        for (i = 0; i < tableRows.length; i++) {
+          var cells = tableRows[i].c || [];
+          var platform = String(gvizCellPlatformValue(cells[cols.platform]) || "").trim();
+          if (!platform || /^платформа$/i.test(platform) || isDateLikeLabel(platform)) continue;
+          var categoryId = categoryIdFromBattleColumn(gvizCellAt(cells, battleCol));
+          if (!categoryId) continue;
+          if (isPoolBattleLiquidityCategory(categoryId)) {
+            if (isSheetErrorCellValue(platform)) continue;
+            var linkProbe = parseLinkFromGvizCell(cells, cols);
+            if (isSheetErrorCellValue(linkProbe)) continue;
+            if (
+              cols.liquidityStatus != null &&
+              !isEthereumLiquidityStatusOpenFromGvizCell(cells[cols.liquidityStatus])
+            )
+              continue;
+          }
+          var openDate = parseGvizDateTimeValue(gvizCellOpenDateValue(cells[cols.openDate]));
+          var period = openDate ? periodFromOpenDateString(openDate) : "";
+          var pair = String(gvizCellAt(cells, cols.pair) || "").trim();
+          var chain = String(gvizCellAt(cells, cols.chain) || "").trim();
+          var feeRaw = String(gvizCellFeeValue(cells[cols.fee]) || "").trim();
+          var apyRaw = parseApyFromGvizCell(cells, cols);
+          var link = parseLinkFromGvizCell(cells, cols) || "#";
+          var priceMin = gvizNumericCell(cells, cols.minPrice, categoryId);
+          var priceMax = gvizNumericCell(cells, cols.maxPrice, categoryId);
+          out.push({
+            categoryId: categoryId,
+            name: platform,
+            platform: platform,
+            pair: pair,
+            link: link,
+            openDate: openDate,
+            period: period,
+            apy: apyRaw,
+            fee: feeRaw,
+            chain: chain,
+            priceMin: priceMin,
+            priceMax: priceMax,
+            status: "active",
+            desc: chain,
+            descEn: chain,
+          });
+          counts[categoryId] = (counts[categoryId] || 0) + 1;
+        }
+        console.log("DeFi Navigator: ethereum unified gviz (колонка Q)", counts);
+        return out;
+      }
+
       /** Одна строка листа → один объект (без слияния с GAS). */
       function parsePoolBattleGvizPayload(payload, categoryId) {
+        if (categoryId === "ethereum" || categoryId === "bitcoin" || categoryId === "stables") {
+          return parseEthereumUnifiedGvizPayload(payload).filter(function (row) {
+            return row.categoryId === categoryId;
+          });
+        }
         var cols = poolBattleCols(categoryId);
         var tableRows = payload && payload.table && payload.table.rows ? payload.table.rows : [];
         var out = [];
@@ -3494,30 +3577,10 @@
       }
 
       /**
-       * Стейблкоин-стратегии: только лист stables (колонка apy), без legacy-блока H+ из GAS.
+       * @deprecated stables/bitcoin — на листе ethereum (колонка Q).
        */
       function replaceStablesFromSheetGviz(data) {
-        if (!data || !Array.isArray(data.tools)) return Promise.resolve(data);
-        return fetchGvizSheetByScript(STABLES_SHEET_NAME).then(function (rows) {
-          var other = data.tools.filter(function (t) {
-            return t.categoryId !== "stables";
-          });
-          var maxId = 0;
-          other.forEach(function (t) {
-            if (t.id > maxId) maxId = t.id;
-          });
-          var stables = [];
-          var j;
-          for (j = 0; j < rows.length; j++) {
-            maxId++;
-            stables.push(stableToolFromSheetRow(rows[j], maxId));
-          }
-          data.tools = other.concat(stables);
-          console.log("DeFi Navigator: stables из таблицы (колонка apy)", {
-            count: stables.length,
-          });
-          return data;
-        });
+        return Promise.resolve(data);
       }
 
       function buildSheetMetaFallbackIndex(tools) {
@@ -3525,7 +3588,7 @@
         var i;
         for (i = 0; i < (tools || []).length; i++) {
           var t = tools[i];
-          if (!t || (t.categoryId !== "ethereum" && t.categoryId !== "bitcoin")) continue;
+          if (!t || !isPoolBattleLiquidityCategory(t.categoryId)) continue;
           if (!t.period && !t.openDate && !t.fee) continue;
           var lk = normalizeLinkKeyForPatch(t.link);
           if (lk && lk !== "#" && !index[lk]) index[lk] = t;
@@ -3592,47 +3655,38 @@
 
         var metaFallback = buildSheetMetaFallbackIndex(data.tools);
 
-        return fetchEthereumGvizSheet().then(function (ethRows) {
-          applySheetMetaFallback(ethRows, metaFallback);
-          return fetchGvizSheetByScript("bitcoin").then(function (btcRows) {
-            applySheetMetaFallback(btcRows, metaFallback);
-            return fetchRwaToolsFromPublicSheet().then(function (rwaTools) {
-              var other = data.tools.filter(function (t) {
-                return POOL_BATTLE_SHEET_CATEGORIES.indexOf(t.categoryId) === -1;
-              });
-              var maxId = 0;
-              other.forEach(function (t) {
-                if (t.id > maxId) maxId = t.id;
-              });
-              var pool = [];
-
-              function appendRows(rows, categoryId) {
-                var j;
-                for (j = 0; j < rows.length; j++) {
-                  maxId++;
-                  pool.push(poolBattleToolFromSheetRow(rows[j], maxId));
-                }
-              }
-
-              appendRows(ethRows, "ethereum");
-              appendRows(btcRows, "bitcoin");
-
-              var k;
-              for (k = 0; k < rwaTools.length; k++) {
-                maxId++;
-                var rwaCopy = Object.assign({}, rwaTools[k], { id: maxId });
-                pool.push(normalizeTool(rwaCopy));
-              }
-
-              pool = dedupePoolBattleToolsList(pool);
-              data.tools = other.concat(pool);
-              console.log("DeFi Navigator: пулы из таблицы (1 строка = 1 позиция)", {
-                ethereum: ethRows.length,
-                bitcoin: btcRows.length,
-                rwa: rwaTools.length,
-              });
-              return replaceStablesFromSheetGviz(data);
+        return fetchEthereumUnifiedGvizSheet().then(function (unifiedRows) {
+          applySheetMetaFallback(unifiedRows, metaFallback);
+          return fetchRwaToolsFromPublicSheet().then(function (rwaTools) {
+            var other = data.tools.filter(function (t) {
+              return POOL_BATTLE_SHEET_CATEGORIES.indexOf(t.categoryId) === -1;
             });
+            var maxId = 0;
+            other.forEach(function (t) {
+              if (t.id > maxId) maxId = t.id;
+            });
+            var pool = [];
+            var j;
+            for (j = 0; j < unifiedRows.length; j++) {
+              maxId++;
+              pool.push(poolBattleToolFromSheetRow(unifiedRows[j], maxId));
+            }
+
+            var k;
+            for (k = 0; k < rwaTools.length; k++) {
+              maxId++;
+              var rwaCopy = Object.assign({}, rwaTools[k], { id: maxId });
+              pool.push(normalizeTool(rwaCopy));
+            }
+
+            pool = dedupePoolBattleToolsList(pool);
+            data.tools = other.concat(pool);
+            var counts = { ethereum: 0, bitcoin: 0, stables: 0, rwa: rwaTools.length };
+            pool.forEach(function (t) {
+              if (counts[t.categoryId] != null) counts[t.categoryId]++;
+            });
+            console.log("DeFi Navigator: пулы из листа ethereum (колонка Q)", counts);
+            return data;
           });
         });
       }
@@ -3820,18 +3874,22 @@
         });
       }
 
-      function fetchEthereumGvizSheet() {
-        return fetchGvizPayloadByScript("ethereum")
+      function fetchEthereumUnifiedGvizSheet() {
+        return fetchGvizPayloadByScript(ETHEREUM_UNIFIED_SHEET)
           .then(function (payload) {
             return patchEthereumGvizSparseCells(payload);
           })
           .then(function (payload) {
-            return parsePoolBattleGvizPayload(payload, "ethereum");
+            return parseEthereumUnifiedGvizPayload(payload);
           })
           .catch(function (err) {
-            console.warn("ethereum gviz", err);
+            console.warn("ethereum unified gviz", err);
             return [];
           });
+      }
+
+      function fetchEthereumGvizSheet() {
+        return fetchEthereumUnifiedGvizSheet();
       }
 
       function fetchGvizPayloadByScript(sheetName, range) {
@@ -3879,12 +3937,12 @@
       }
 
       function fetchGvizSheetByScript(sheetName) {
-        if (sheetName === "ethereum") return fetchEthereumGvizSheet();
+        if (sheetName === ETHEREUM_UNIFIED_SHEET || sheetName === "ethereum") {
+          return fetchEthereumUnifiedGvizSheet();
+        }
         return fetchGvizPayloadByScript(sheetName)
           .then(function (payload) {
-            if (sheetName === STABLES_SHEET_NAME) return parseStablesGvizPayload(payload);
-            var cat = sheetName === "bitcoin" ? "bitcoin" : "";
-            return parsePoolBattleGvizPayload(payload, cat);
+            return parsePoolBattleGvizPayload(payload, "rwa");
           })
           .catch(function (err) {
             console.warn("gviz parse", sheetName, err);
@@ -4044,6 +4102,7 @@
             patch.apy &&
             (categoryId === "ethereum" ||
               categoryId === "bitcoin" ||
+              categoryId === "stables" ||
               !t.apy ||
               !parseApyNumber(t.apy))
           ) {
@@ -5114,7 +5173,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260618b";
+      var NAVIGATOR_BUILD = "20260618d";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
@@ -5434,41 +5493,7 @@
       }
 
       function loadPoolBattleFromPatchedGviz(data) {
-        if (!data || !Array.isArray(data.tools)) return Promise.resolve(data);
-        var metaFallback = buildSheetMetaFallbackIndex(data.tools);
-        return fetchEthereumGvizSheet().then(function (ethRows) {
-          applySheetMetaFallback(ethRows, metaFallback);
-          return fetchGvizSheetByScript("bitcoin").then(function (btcRows) {
-            applySheetMetaFallback(btcRows, metaFallback);
-            return fetchRwaToolsFromPublicSheet().then(function (rwaTools) {
-              var other = data.tools.filter(function (t) {
-                return POOL_BATTLE_SHEET_CATEGORIES.indexOf(t.categoryId) === -1;
-              });
-              var maxId = 0;
-              other.forEach(function (t) {
-                if (t.id > maxId) maxId = t.id;
-              });
-              var pool = [];
-              var j;
-              for (j = 0; j < ethRows.length; j++) {
-                maxId++;
-                pool.push(poolBattleToolFromSheetRow(ethRows[j], maxId));
-              }
-              for (j = 0; j < btcRows.length; j++) {
-                maxId++;
-                pool.push(poolBattleToolFromSheetRow(btcRows[j], maxId));
-              }
-              for (j = 0; j < rwaTools.length; j++) {
-                maxId++;
-                var rwaCopy = Object.assign({}, rwaTools[j], { id: maxId });
-                pool.push(normalizeTool(rwaCopy));
-              }
-              pool = dedupePoolBattleToolsList(pool);
-              data.tools = other.concat(pool);
-              return replaceStablesFromSheetGviz(data);
-            });
-          });
-        });
+        return replacePoolBattleCategoriesFromSheetGviz(data);
       }
 
       function loadDataFromSheetApi() {
