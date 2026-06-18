@@ -2978,39 +2978,30 @@
       }
 
       /**
-       * fee_tier → проценты. Сначала «0,01%» из листа; доли 0.003 / 0.0001 / 0.034; 0.01 → 1%.
+       * fee_tier из Excel — как в ячейке («0,01%», «0,30%»). Без 0.01→1%.
        */
       function feeToPercentNumber_(value) {
         var raw = String(value == null ? "" : value).trim();
         if (!raw) return NaN;
-        var hadPct = raw.indexOf("%") !== -1;
-        var compact = raw.replace(",", ".").replace(/%/g, "");
+        if (raw.indexOf("%") !== -1) {
+          var n = parseFloat(raw.replace(/%/g, "").replace(",", ".").replace(/\s/g, ""));
+          return Number.isFinite(n) ? Math.round(n * 1000) / 1000 : NaN;
+        }
+        var compact = raw.replace(",", ".");
         var n = parseFloat(compact);
         if (!Number.isFinite(n)) return NaN;
-        if (hadPct) return Math.round(n * 1000) / 1000;
         if (n >= 1 && n <= 100) return Math.round(n * 1000) / 1000;
-        if (n > 0 && n < 1) {
-          if (/^0\.0{2,}\d/.test(compact) || n <= 0.001) {
-            return Math.round(n * 10000) / 100;
-          }
-          if (n === 0.01 && /^0\.01$/.test(compact)) return 1;
-          if (n >= 0.02 && feeDecimalPlaces_(n) >= 3) {
-            return Math.round(n * 10000) / 100;
-          }
-          if (n < 0.02 && feeDecimalPlaces_(n) >= 3) {
-            return Math.round(n * 10000) / 100;
-          }
-          return Math.round(n * 1000) / 1000;
-        }
+        if (n > 0 && n < 1) return Math.round(n * 1000) / 1000;
         return NaN;
       }
 
       function normalizeFeeValue(value) {
         var raw = String(value == null ? "" : value).trim();
         if (!raw) return "";
+        if (raw.indexOf("%") !== -1) return raw.replace(/\u00a0/g, " ").trim();
         var n = feeToPercentNumber_(value);
-        if (!Number.isFinite(n)) return raw.replace(/%/g, "");
-        if (n > 0 && n < 0.1) return n.toFixed(3);
+        if (!Number.isFinite(n)) return raw;
+        if (n > 0 && n < 0.1) return String(n).replace(".", ",");
         return String(n);
       }
 
@@ -3969,6 +3960,12 @@
       }
 
       function normalizeFeeKeyForPatch(fee) {
+        var raw = String(fee || "").trim();
+        if (!raw) return "0";
+        if (raw.indexOf("%") !== -1) {
+          var n = parseFloat(raw.replace(/%/g, "").replace(",", ".").replace(/\s/g, ""));
+          return Number.isFinite(n) ? String(n) : poolBattleIdentityPart(raw);
+        }
         var n = feeToPercentNumber_(fee);
         if (!Number.isFinite(n)) return poolBattleIdentityPart(fee);
         return String(n);
@@ -4413,10 +4410,10 @@
       function formatFeeLabel(fee) {
         var f = String(fee || "").trim();
         if (!f) return "";
-        if (f.indexOf("%") !== -1) return f;
+        if (f.indexOf("%") !== -1) return f.replace(/\u00a0/g, " ").trim();
         var n = parseFloat(f.replace(",", "."));
         if (Number.isFinite(n) && n > 0 && n < 0.1) {
-          f = String(n.toFixed(3)).replace(/\.?0+$/, "");
+          f = String(n).replace(".", ",");
         }
         return f + "%";
       }
@@ -5117,7 +5114,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260617d";
+      var NAVIGATOR_BUILD = "20260618a";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
