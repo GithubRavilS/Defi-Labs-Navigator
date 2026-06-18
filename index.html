@@ -3334,6 +3334,19 @@
         return s.length > 0 && s.charAt(0) === "#";
       }
 
+      function sanitizeSheetCellForDisplay(val, fallback) {
+        fallback = fallback || "";
+        if (val == null || val === "") return fallback;
+        var s = String(val).trim();
+        if (!s || isSheetErrorCellValue(s)) return fallback;
+        return s;
+      }
+
+      function isPoolBattleGvizRowOpen(cells, cols) {
+        if (cols.liquidityStatus == null) return true;
+        return isEthereumLiquidityStatusOpenFromGvizCell(cells[cols.liquidityStatus]);
+      }
+
       function isEthereumLiquidityStatusClosedText(text) {
         var s = String(text || "")
           .trim()
@@ -3412,26 +3425,22 @@
         for (i = 0; i < tableRows.length; i++) {
           var cells = tableRows[i].c || [];
           var platform = String(gvizCellPlatformValue(cells[cols.platform]) || "").trim();
-          if (!platform || /^платформа$/i.test(platform) || isDateLikeLabel(platform)) continue;
+          if (/^платформа$/i.test(platform)) continue;
           var categoryId = categoryIdFromBattleColumn(gvizCellAt(cells, battleCol));
           if (!categoryId) continue;
-          if (isPoolBattleLiquidityCategory(categoryId)) {
-            if (isSheetErrorCellValue(platform)) continue;
-            var linkProbe = parseLinkFromGvizCell(cells, cols);
-            if (isSheetErrorCellValue(linkProbe)) continue;
-            if (
-              cols.liquidityStatus != null &&
-              !isEthereumLiquidityStatusOpenFromGvizCell(cells[cols.liquidityStatus])
-            )
-              continue;
+          if (isPoolBattleLiquidityCategory(categoryId) && !isPoolBattleGvizRowOpen(cells, cols))
+            continue;
+          if (!platform || isDateLikeLabel(platform)) {
+            platform = sanitizeSheetCellForDisplay(platform, "—");
           }
           var openDate = parseGvizDateTimeValue(gvizCellOpenDateValue(cells[cols.openDate]));
           var period = openDate ? periodFromOpenDateString(openDate) : "";
-          var pair = String(gvizCellAt(cells, cols.pair) || "").trim();
-          var chain = String(gvizCellAt(cells, cols.chain) || "").trim();
-          var feeRaw = String(gvizCellFeeValue(cells[cols.fee]) || "").trim();
+          var pair = sanitizeSheetCellForDisplay(gvizCellAt(cells, cols.pair));
+          var chain = sanitizeSheetCellForDisplay(gvizCellAt(cells, cols.chain));
+          var feeRaw = sanitizeSheetCellForDisplay(gvizCellFeeValue(cells[cols.fee]));
           var apyRaw = parseApyFromGvizCell(cells, cols);
-          var link = parseLinkFromGvizCell(cells, cols) || "#";
+          if (isSheetErrorCellValue(apyRaw)) apyRaw = "0";
+          var link = sanitizeSheetCellForDisplay(parseLinkFromGvizCell(cells, cols), "#");
           var priceMin = gvizNumericCell(cells, cols.minPrice, categoryId);
           var priceMax = gvizNumericCell(cells, cols.maxPrice, categoryId);
           out.push({
@@ -5173,7 +5182,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260618d";
+      var NAVIGATOR_BUILD = "20260618e";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
