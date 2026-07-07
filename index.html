@@ -4579,7 +4579,10 @@
         return formatPoolMetaLabel(tool);
       }
 
-      function compareByNarrowestRangeThenApy(a, b) {
+      /** Главная строка группы — макс. APY; при равенстве — уже диапазон. */
+      function compareByHighestApyThenRange(a, b) {
+        var apyDiff = parseApyNumber(b.apy) - parseApyNumber(a.apy);
+        if (apyDiff !== 0) return apyDiff;
         var wa = priceRangeWidth(a);
         var wb = priceRangeWidth(b);
         var aHasRange = Number.isFinite(wa);
@@ -4587,7 +4590,7 @@
         if (aHasRange && bHasRange && wa !== wb) return wa - wb;
         if (aHasRange && !bHasRange) return -1;
         if (!aHasRange && bHasRange) return 1;
-        return parseApyNumber(b.apy) - parseApyNumber(a.apy);
+        return 0;
       }
 
       function buildPoolBattleGroups(tools, categoryId) {
@@ -4614,7 +4617,7 @@
 
         return Object.keys(groupsMap).map(function (key) {
           var members = dedupePoolBattleToolsList(groupsMap[key]).sort(
-            compareByNarrowestRangeThenApy,
+            compareByHighestApyThenRange,
           );
           var hasVariants = members.length > 1;
           return {
@@ -5182,7 +5185,7 @@
         if (typeof refreshDataBadgeDisplay === "function") refreshDataBadgeDisplay();
       }
 
-      var NAVIGATOR_BUILD = "20260618e";
+      var NAVIGATOR_BUILD = "20260707b";
       // URL веб-приложения Google Apps Script (Развёртывание → Веб-приложение). Без валидного URL позиции и APY не подгружаются.
       var DATA_API_URL =
         "https://script.google.com/macros/s/AKfycbzyLXhoOxNmJS6TQNPkWvYRV33aAVFFC1QDp5Whn2iIE7C94rkRes_8qp_yWrY9Z69uFA/exec";
