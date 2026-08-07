@@ -611,6 +611,90 @@
         border-color: var(--accent);
       }
 
+      /* POOL FILTERS (platform / chain / fee) */
+      .pool-filters-bar {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        margin-bottom: 24px;
+        padding: 16px 18px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        max-width: 100%;
+      }
+
+      .pool-filters-bar.hidden {
+        display: none;
+      }
+
+      .pool-filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .pool-filter-label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-secondary);
+      }
+
+      .pool-filter-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .pool-filter-chip {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid var(--border);
+        color: var(--text-primary);
+        padding: 7px 12px;
+        border-radius: 999px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        transition: all 0.2s ease;
+        line-height: 1.2;
+      }
+
+      .pool-filter-chip:hover {
+        border-color: var(--accent);
+      }
+
+      .pool-filter-chip.active {
+        background: rgba(47, 128, 237, 0.22);
+        border-color: var(--accent-bright);
+        color: var(--white);
+        box-shadow: 0 0 0 1px rgba(79, 163, 255, 0.25);
+      }
+
+      .pool-filter-reset {
+        align-self: flex-start;
+        background: transparent;
+        border: 1px dashed rgba(255, 255, 255, 0.18);
+        color: var(--text-secondary);
+        padding: 7px 12px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        transition: all 0.2s ease;
+      }
+
+      .pool-filter-reset:hover {
+        border-color: var(--accent);
+        color: var(--text-primary);
+      }
+
+      .pool-filter-reset.hidden {
+        display: none;
+      }
+
       /* TOOLS GRID */
       .tools-grid {
         display: grid;
@@ -1754,6 +1838,15 @@
           margin-left: auto;
           margin-right: auto;
         }
+        .pool-filters-bar {
+          margin-bottom: 16px;
+          padding: 12px;
+          gap: 12px;
+        }
+        .pool-filter-chip {
+          padding: 6px 10px;
+          font-size: 11px;
+        }
         .dashboard-title {
           font-size: 22px;
           line-height: 1.2;
@@ -2463,6 +2556,29 @@
             </button>
           </div>
 
+          <div class="pool-filters-bar hidden" id="poolFiltersBar" aria-label="">
+            <div class="pool-filter-group">
+              <div class="pool-filter-label" data-i18n="filterPlatform">Платформа</div>
+              <div class="pool-filter-chips" id="poolFilterPlatformChips"></div>
+            </div>
+            <div class="pool-filter-group">
+              <div class="pool-filter-label" data-i18n="filterChain">Блокчейн</div>
+              <div class="pool-filter-chips" id="poolFilterChainChips"></div>
+            </div>
+            <div class="pool-filter-group">
+              <div class="pool-filter-label" data-i18n="filterFee">Комиссия</div>
+              <div class="pool-filter-chips" id="poolFilterFeeChips"></div>
+            </div>
+            <button
+              type="button"
+              class="pool-filter-reset hidden"
+              id="poolFilterResetBtn"
+              data-i18n="filterReset"
+            >
+              Сбросить фильтры
+            </button>
+          </div>
+
           <div id="gridView">
             <div class="tools-grid" id="toolsGrid">
               <!-- Populated by JS -->
@@ -2723,6 +2839,11 @@
           authErrorBackendStale:
             "API на PythonAnywhere устарело: в ответе входа нет токена. Залейте новый src/navigator_pa_api.py, перезагрузите веб-приложение (Reload) и обновите страницу.",
           tooltipRange: "Диапазон цен",
+          filterPlatform: "Платформа",
+          filterChain: "Блокчейн",
+          filterFee: "Комиссия",
+          filterReset: "Сбросить фильтры",
+          filterBarAria: "Фильтры по платформе, блокчейну и комиссии",
         },
         en: {
           logo: "DeFi Labs",
@@ -2816,6 +2937,11 @@
           authErrorBackendStale:
             "PythonAnywhere API is outdated (login response has no token). Deploy updated src/navigator_pa_api.py, Reload the web app, then hard-refresh this page.",
           tooltipRange: "Price range",
+          filterPlatform: "Platform",
+          filterChain: "Blockchain",
+          filterFee: "Fee tier",
+          filterReset: "Reset filters",
+          filterBarAria: "Filters by platform, blockchain, and fee tier",
         },
       };
 
@@ -4263,6 +4389,196 @@
       var expandedPoolGroups = new Set();
       var POOL_BATTLE_CATEGORY_IDS = ["ethereum", "bitcoin", "rwa"];
 
+      var poolFilterState = {
+        platforms: new Set(),
+        chains: new Set(),
+        fees: new Set(),
+      };
+
+      var PLATFORM_FILTERS = [
+        {
+          id: "uniswap-v3",
+          label: "Uniswap V3",
+          test: function (p) {
+            return /uniswap\s*v?\s*3|uniswapv3/i.test(p);
+          },
+        },
+        {
+          id: "uniswap-v4",
+          label: "Uniswap V4",
+          test: function (p) {
+            return /uniswap\s*v?\s*4|uniswapv4/i.test(p);
+          },
+        },
+        {
+          id: "aerodrome",
+          label: "Aerodrome",
+          test: function (p) {
+            return /aerodrome/i.test(p);
+          },
+        },
+        {
+          id: "pancakeswap",
+          label: "PancakeSwap",
+          test: function (p) {
+            return /pancake/i.test(p);
+          },
+        },
+      ];
+
+      function getToolPlatformFilterId(tool) {
+        var p = String((tool && (tool.platform || tool.name)) || "").trim();
+        if (!p) return "";
+        var i;
+        for (i = 0; i < PLATFORM_FILTERS.length; i++) {
+          if (PLATFORM_FILTERS[i].test(p)) return PLATFORM_FILTERS[i].id;
+        }
+        return "";
+      }
+
+      function getToolChainFilterKey(tool) {
+        var label = formatChainLabel(tool);
+        return label ? String(label).trim() : "";
+      }
+
+      function getToolFeeFilterKey(tool) {
+        var fee = String((tool && tool.fee) || "").trim();
+        if (!fee && tool) fee = parsePoolMetaFromDesc(tool.desc).fee || "";
+        if (!fee) return "";
+        return normalizeFeeKeyForPatch(fee);
+      }
+
+      function feeFilterKeyToLabel(key) {
+        return formatFeeLabel(key);
+      }
+
+      function toolMatchesPoolFilters(tool) {
+        if (poolFilterState.platforms.size) {
+          var platformId = getToolPlatformFilterId(tool);
+          if (!platformId || !poolFilterState.platforms.has(platformId)) return false;
+        }
+        if (poolFilterState.chains.size) {
+          var chainKey = getToolChainFilterKey(tool);
+          if (!chainKey || !poolFilterState.chains.has(chainKey)) return false;
+        }
+        if (poolFilterState.fees.size) {
+          var feeKey = getToolFeeFilterKey(tool);
+          if (!feeKey || !poolFilterState.fees.has(feeKey)) return false;
+        }
+        return true;
+      }
+
+      function buildChainFilterOptions(rawTools) {
+        var map = Object.create(null);
+        rawTools.forEach(function (tool) {
+          var key = getToolChainFilterKey(tool);
+          if (key) map[key] = true;
+        });
+        return Object.keys(map).sort(function (a, b) {
+          return a.localeCompare(b, undefined, { sensitivity: "base" });
+        });
+      }
+
+      function buildFeeFilterOptions(rawTools) {
+        var map = Object.create(null);
+        rawTools.forEach(function (tool) {
+          var key = getToolFeeFilterKey(tool);
+          if (key) map[key] = true;
+        });
+        return Object.keys(map).sort(function (a, b) {
+          return parseFloat(a) - parseFloat(b);
+        });
+      }
+
+      function renderPoolFilterChipGroup(containerId, options, activeSet, filterType) {
+        var el = document.getElementById(containerId);
+        if (!el) return;
+        el.innerHTML = options
+          .map(function (opt) {
+            var id = opt.id;
+            var label = opt.label;
+            var active = activeSet.has(id);
+            return (
+              '<button type="button" class="pool-filter-chip' +
+              (active ? " active" : "") +
+              '" data-filter-type="' +
+              escapeHtml(filterType) +
+              '" data-filter-id="' +
+              escapeHtml(id) +
+              '">' +
+              escapeHtml(label) +
+              "</button>"
+            );
+          })
+          .join("");
+      }
+
+      function updatePoolFiltersBar(rawTools, categoryId) {
+        var bar = document.getElementById("poolFiltersBar");
+        if (!bar) return;
+        if (!categoryUsesPoolBattleGrouping(categoryId)) {
+          bar.classList.add("hidden");
+          return;
+        }
+        bar.classList.remove("hidden");
+        if (typeof t === "function") bar.setAttribute("aria-label", t("filterBarAria"));
+
+        renderPoolFilterChipGroup(
+          "poolFilterPlatformChips",
+          PLATFORM_FILTERS,
+          poolFilterState.platforms,
+          "platform",
+        );
+        renderPoolFilterChipGroup(
+          "poolFilterChainChips",
+          buildChainFilterOptions(rawTools).map(function (chain) {
+            return { id: chain, label: chain };
+          }),
+          poolFilterState.chains,
+          "chain",
+        );
+        renderPoolFilterChipGroup(
+          "poolFilterFeeChips",
+          buildFeeFilterOptions(rawTools).map(function (feeKey) {
+            return { id: feeKey, label: feeFilterKeyToLabel(feeKey) };
+          }),
+          poolFilterState.fees,
+          "fee",
+        );
+
+        var resetBtn = document.getElementById("poolFilterResetBtn");
+        var hasActive =
+          poolFilterState.platforms.size > 0 ||
+          poolFilterState.chains.size > 0 ||
+          poolFilterState.fees.size > 0;
+        if (resetBtn) resetBtn.classList.toggle("hidden", !hasActive);
+      }
+
+      function togglePoolFilter(filterType, filterId) {
+        var set =
+          filterType === "platform"
+            ? poolFilterState.platforms
+            : filterType === "chain"
+              ? poolFilterState.chains
+              : poolFilterState.fees;
+        if (set.has(filterId)) set.delete(filterId);
+        else set.add(filterId);
+        rerenderCurrentCategoryTools();
+      }
+
+      function resetPoolFilters() {
+        poolFilterState.platforms.clear();
+        poolFilterState.chains.clear();
+        poolFilterState.fees.clear();
+        rerenderCurrentCategoryTools();
+      }
+
+      function clearPoolFilters() {
+        poolFilterState.platforms.clear();
+        poolFilterState.chains.clear();
+        poolFilterState.fees.clear();
+      }
+
       function categoryUsesPoolBattleGrouping(categoryId) {
         return POOL_BATTLE_CATEGORY_IDS.indexOf(categoryId) !== -1;
       }
@@ -4744,7 +5060,11 @@
       }
 
       function renderCategoryPositionViews(rawTools, categoryId, query) {
-        var groups = getCategoryRenderGroups(rawTools, categoryId, query);
+        updatePoolFiltersBar(rawTools, categoryId);
+        var filteredTools = categoryUsesPoolBattleGrouping(categoryId)
+          ? rawTools.filter(toolMatchesPoolFilters)
+          : rawTools;
+        var groups = getCategoryRenderGroups(filteredTools, categoryId, query);
         renderTools(groups, categoryId);
         renderToolsTable(groups, categoryId);
         renderChart(
@@ -5632,6 +5952,17 @@
 
       function setupEventListeners() {
         document.getElementById("searchBox").addEventListener("input", handleSearch);
+        var poolFiltersBar = document.getElementById("poolFiltersBar");
+        if (poolFiltersBar) {
+          poolFiltersBar.addEventListener("click", function (e) {
+            var chip = e.target.closest(".pool-filter-chip");
+            if (chip) {
+              togglePoolFilter(chip.getAttribute("data-filter-type"), chip.getAttribute("data-filter-id"));
+              return;
+            }
+            if (e.target.closest("#poolFilterResetBtn")) resetPoolFilters();
+          });
+        }
         var grid = document.getElementById("toolsGrid");
         if (grid) {
           grid.addEventListener("click", function (e) {
@@ -5831,6 +6162,7 @@
         }
         currentCategory = categoryId;
         expandedPoolGroups.clear();
+        clearPoolFilters();
         const tools = getVisibleTools().filter(function (t) {
           return t.categoryId === categoryId;
         });
