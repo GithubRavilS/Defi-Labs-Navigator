@@ -546,9 +546,7 @@ async function getTvlByPairFeeSearch(pair, fee, dexChain, platform) {
   // GeckoTerminal pool search (best for fee-tier names)
   if (geckoNet) {
     try {
-      const qParts = [...symbols];
-      if (feePct != null && feePct >= 0.01) qParts.push(`${feePct}%`);
-      const q = encodeURIComponent(qParts.join(" "));
+      const q = encodeURIComponent(symbols.join(" "));
       const { status, body } = await httpsGet(
         `https://api.geckoterminal.com/api/v2/search/pools?query=${q}&network=${geckoNet}`,
         { timeout: 9000 },
