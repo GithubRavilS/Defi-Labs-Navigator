@@ -44,17 +44,34 @@ function llamaChainMatches(llamaChain, ourChain) {
   return mapped === (ourChain || "").toLowerCase();
 }
 
-// Fee tier normalisation: "500" bps → "0.05%", "3000" → "0.3%", etc.
+// Fee tier normalisation: "500" bps → "0.05%", "3000" → "0.3%", "0,05%" → "0.05%"
 function normalizeFee(fee) {
   if (!fee) return null;
-  const s = String(fee).trim();
-  if (s.endsWith("%")) return s; // already "0.05%"
+  // Replace Russian/locale comma decimal separator with dot
+  let s = String(fee).trim().replace(",", ".");
+  if (s.endsWith("%")) {
+    // Already percent-formatted — normalize decimal places for comparison
+    const num = parseFloat(s);
+    if (isNaN(num)) return s;
+    // Round to avoid float noise: 0.0500% → "0.05%", 0.3000% → "0.3%"
+    return num.toFixed(4).replace(/\.?0+$/, "") + "%";
+  }
   const bps = parseFloat(s);
-  if (!isNaN(bps) && bps > 1) {
-    // bps → percent
+  if (!isNaN(bps) && bps >= 1) {
     return (bps / 10000).toFixed(4).replace(/\.?0+$/, "") + "%";
   }
   return s;
+}
+
+// Token symbol aliases — DeFiLlama sometimes uses ETH, sometimes WETH
+// Expand a symbol set to include known aliases
+function expandSymbolAliases(sym) {
+  const s = sym.toUpperCase();
+  if (s === "ETH") return [s, "WETH"];
+  if (s === "WETH") return [s, "ETH"];
+  if (s === "BTC") return [s, "WBTC", "BTCB"];
+  if (s === "WBTC") return [s, "BTC", "BTCB"];
+  return [s];
 }
 
 // Project slug hints — Krystal protocol key → DeFiLlama project slugs
@@ -65,11 +82,9 @@ const PROTOCOL_TO_LLAMA = {
   pancakev4: ["pancakeswap-amm", "pancakeswap-amm-v3"],
   pancakev2: ["pancakeswap-amm"],
   "aerodrome-concentrated": ["aerodrome-slipstream"],
+  "aerodrome-slipstream": ["aerodrome-slipstream"],
   aerodromev2: ["aerodrome-slipstream"],
   aerodromev1: ["aerodrome-v1"],
-  // revert exchange names
-  uniswapv4: ["uniswap-v4"],
-  uniswapv3: ["uniswap-v3"],
 };
 
 function fetchDeFiLlamaPools() {
@@ -121,45 +136,73 @@ async function getPools() {
 
 function findBestMatch(pools, { chain, token0, token1, fee, project }) {
   const feeNorm = normalizeFee(fee);
-  const sym0 = (token0 || "").toUpperCase().trim();
-  const sym1 = (token1 || "").toUpperCase().trim();
-  const symsSet = new Set([sym0, sym1]);
 
-  // Allowed project slugs
+  // Expand token symbols with aliases (ETH↔WETH, BTC↔WBTC etc.)
+  const sym0Variants = new Set(expandSymbolAliases((token0 || "").trim()));
+  const sym1Variants = new Set(expandSymbolAliases((token1 || "").trim()));
+
+  // Allowed project slugs (try with and without restriction)
   let allowedProjects = null;
   if (project) {
     const slug = (project || "").toLowerCase();
-    allowedProjects = PROTOCOL_TO_LLAMA[slug] ||
-      Object.entries(PROTOCOL_TO_LLAMA).find(([k]) => slug.includes(k))?.[1] || [slug];
+    allowedProjects =
+      PROTOCOL_TO_LLAMA[slug] ||
+      Object.entries(PROTOCOL_TO_LLAMA).find(([k]) => slug.includes(k))?.[1] ||
+      null; // if unknown slug, don't restrict
   }
 
   let bestMatch = null;
   let bestScore = -1;
 
-  for (const p of pools) {
-    if (!llamaChainMatches(p.chain, chain)) continue;
-    if (allowedProjects && !allowedProjects.includes(p.project)) continue;
+  // Two passes: first with project filter, then without if nothing found
+  const passes = allowedProjects ? [allowedProjects, null] : [null];
 
-    // Symbol matching — DeFiLlama stores "USDC-WETH" or "WETH-USDC"
-    const parts = (p.symbol || "").toUpperCase().split("-");
-    if (parts.length < 2) continue;
-    const partsSet = new Set(parts);
-    const symOverlap = [...symsSet].filter((t) => partsSet.has(t)).length;
-    if (symOverlap < 2) continue;
+  for (const projectFilter of passes) {
+    for (const p of pools) {
+      if (!llamaChainMatches(p.chain, chain)) continue;
+      if (projectFilter && !projectFilter.includes(p.project)) continue;
 
-    let score = symOverlap * 10;
-    if (feeNorm && p.poolMeta) {
-      if (p.poolMeta === feeNorm) score += 5;
-    } else if (!feeNorm) {
-      score += 1; // no fee filter — small bonus
+      // Symbol matching — DeFiLlama stores "USDC-WETH" or "WETH-USDC"
+      const parts = (p.symbol || "").toUpperCase().split("-");
+      if (parts.length < 2) continue;
+
+      // Check that one part matches sym0 variants and another matches sym1 variants
+      // (order-independent)
+      const p0 = parts[0];
+      const p1 = parts[parts.length - 1]; // for 3-token symbols take last
+      const t0match =
+        (sym0Variants.has(p0) && sym1Variants.has(p1)) ||
+        (sym0Variants.has(p1) && sym1Variants.has(p0));
+      if (!t0match) continue;
+
+      let score = 20; // base: both tokens matched
+
+      // Exact symbol match (ETH=ETH) scores higher than alias match (ETH=WETH)
+      const sym0Raw = (token0 || "").toUpperCase().trim();
+      const sym1Raw = (token1 || "").toUpperCase().trim();
+      const exactSyms = new Set([sym0Raw, sym1Raw]);
+      const partsSet = new Set([p0, p1]);
+      const exactOverlap = [...exactSyms].filter((t) => partsSet.has(t)).length;
+      score += exactOverlap * 3;
+
+      // Fee match
+      if (feeNorm && p.poolMeta) {
+        const pMeta = normalizeFee(p.poolMeta);
+        if (pMeta === feeNorm) score += 10;
+      }
+
+      // Project filter bonus
+      if (!projectFilter) score -= 2; // second pass (no filter) slight penalty
+
+      // Prefer higher TVL when scores tie
+      score += Math.log10((p.tvlUsd || 1) + 1) * 0.01;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = p;
+      }
     }
-    // prefer higher TVL when scores tie
-    score += Math.log10((p.tvlUsd || 1) + 1) * 0.01;
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = p;
-    }
+    if (bestMatch) break; // found in first pass, skip second
   }
   return bestMatch;
 }
