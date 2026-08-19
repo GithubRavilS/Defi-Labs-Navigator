@@ -235,6 +235,41 @@ async function ethCall(chainKey, to, data) {
   return null;
 }
 
+function decodeAbiString(hex) {
+  try {
+    const raw = hex.startsWith("0x") ? hex.slice(2) : hex;
+    const offset = parseInt(raw.slice(0, 64), 16) * 2;
+    const len = parseInt(raw.slice(64, 128), 16);
+    return Buffer.from(raw.slice(128, 128 + len * 2), "hex").toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+// V4 PositionManager: tokenURI(uint256) returns addresses embedded in description
+async function getPositionDataV4(nfpm, tokenId, chainKey) {
+  const tokenIdHex = BigInt(tokenId).toString(16).padStart(64, "0");
+  const result = await ethCall(chainKey, nfpm, "0xc87b56dd" + tokenIdHex); // tokenURI(uint256)
+  if (!result) return null;
+  try {
+    const uri = decodeAbiString(result);
+    if (!uri || !uri.includes("base64,")) return null;
+    const meta = JSON.parse(Buffer.from(uri.split("base64,")[1], "base64").toString("utf8"));
+    const desc = meta.description || "";
+    // Extract all 0x addresses from description (first = PoolManager, then token0, token1)
+    const addrs = desc.match(/0x[0-9a-fA-F]{40}/g) || [];
+    if (addrs.length < 3) return null;
+    return {
+      token0: addrs[1].toLowerCase(),
+      token1: addrs[2].toLowerCase(),
+      fee: null,
+      isV4: true,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // NFPM.positions(tokenId) → { token0, token1, fee }
 async function getPositionData(nfpm, tokenId, chainKey) {
   const tokenIdHex = BigInt(tokenId).toString(16).padStart(64, "0");
@@ -265,21 +300,84 @@ async function getPoolFromFactory(factory, token0, token1, fee, chainKey) {
 
 // ─── DexScreener ─────────────────────────────────────────────────────────────
 
+// DexScreener chain → GeckoTerminal network slug
+const CHAIN_TO_GECKO = {
+  ethereum: "eth",
+  bsc: "bsc",
+  base: "base",
+  arbitrum: "arbitrum",
+  optimism: "optimism",
+  polygon: "polygon",
+};
+
 async function getTvlByPoolAddress(poolAddress, dexChain) {
+  // Primary: DexScreener
   const url = `https://api.dexscreener.com/latest/dex/pairs/${dexChain}/${poolAddress.toLowerCase()}`;
   try {
     const { status, body } = await httpsGet(url, { timeout: 8000 });
+    if (status === 200) {
+      const data = JSON.parse(body);
+      const pairs = data.pairs || (data.pair ? [data.pair] : []);
+      if (pairs && pairs.length) {
+        const pair =
+          pairs.find((p) => (p.pairAddress || "").toLowerCase() === poolAddress.toLowerCase()) ||
+          pairs[0];
+        const tvl = pair?.liquidity?.usd;
+        if (tvl != null) return tvl;
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+
+  // Fallback: GeckoTerminal (covers pools DexScreener misses)
+  const geckoNet = CHAIN_TO_GECKO[dexChain];
+  if (!geckoNet) return null;
+  try {
+    const geckoUrl = `https://api.geckoterminal.com/api/v2/networks/${geckoNet}/pools/${poolAddress.toLowerCase()}`;
+    const { status, body } = await httpsGet(geckoUrl, { timeout: 8000 });
+    if (status === 200) {
+      const data = JSON.parse(body);
+      const reserveUsd = parseFloat(data.data?.attributes?.reserve_in_usd);
+      if (!isNaN(reserveUsd) && reserveUsd > 0) return reserveUsd;
+    }
+  } catch {
+    /* ignore */
+  }
+
+  return null;
+}
+
+// GeckoTerminal: find top pool TVL for two token addresses
+async function getTvlByTokenPair(token0, token1, geckoNet) {
+  if (!geckoNet) return null;
+  try {
+    // Search pools for token0 first, then filter by token1
+    const url = `https://api.geckoterminal.com/api/v2/networks/${geckoNet}/tokens/${token0.toLowerCase()}/pools?page=1`;
+    const { status, body } = await httpsGet(url, { timeout: 8000 });
     if (status !== 200) return null;
     const data = JSON.parse(body);
-    const pairs = data.pairs || (data.pair ? [data.pair] : []);
-    if (!pairs || !pairs.length) return null;
-    const pair =
-      pairs.find((p) => (p.pairAddress || "").toLowerCase() === poolAddress.toLowerCase()) ||
-      pairs[0];
-    return pair?.liquidity?.usd ?? null;
+    const pools = data.data || [];
+    // Find pool containing both tokens
+    for (const pool of pools) {
+      const rels = pool.relationships || {};
+      const t0addr = (rels.base_token?.data?.id || "").split("_")[1] || "";
+      const t1addr = (rels.quote_token?.data?.id || "").split("_")[1] || "";
+      const has0 =
+        t0addr.toLowerCase() === token0.toLowerCase() ||
+        t1addr.toLowerCase() === token0.toLowerCase();
+      const has1 =
+        t0addr.toLowerCase() === token1.toLowerCase() ||
+        t1addr.toLowerCase() === token1.toLowerCase();
+      if (has0 && has1) {
+        const reserve = parseFloat(pool.attributes?.reserve_in_usd);
+        if (!isNaN(reserve) && reserve > 0) return reserve;
+      }
+    }
   } catch {
-    return null;
+    /* ignore */
   }
+  return null;
 }
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
@@ -334,7 +432,7 @@ module.exports = async (req, res) => {
     }
     const tvlUsd = await getTvlByPoolAddress(poolAddr, dexChain);
     cacheSet(ckey, tvlUsd, { poolAddress: poolAddr });
-    return respond(tvlUsd, { source: "revert+dexscreener", poolAddress: poolAddr });
+    return respond(tvlUsd, { source: "revert+gecko", poolAddress: poolAddr });
   }
 
   // ── Path C: Krystal link → on-chain NFPM → Factory → DexScreener ──────────
@@ -353,9 +451,33 @@ module.exports = async (req, res) => {
       return respond(null, { reason: "unsupported chain" });
     }
 
-    // Step 1: get token0, token1, fee from NFPM
-    const pos = await getPositionData(nfpm, tokenId, resolvedChain);
+    // Uniswap V4 PositionManagers — positions() reverts; use tokenURI to get token addresses
+    const isV4Nfpm = platform.toLowerCase().includes("v4");
+    if (isV4Nfpm) {
+      const posV4 = await getPositionDataV4(nfpm, tokenId, resolvedChain);
+      if (!posV4) {
+        cacheSet(ckey, null);
+        return respond(null, { reason: "v4 tokenuri lookup failed" });
+      }
+      const geckoNet = CHAIN_TO_GECKO[resolvedDex];
+      const tvlUsd = await getTvlByTokenPair(posV4.token0, posV4.token1, geckoNet);
+      cacheSet(ckey, tvlUsd);
+      return respond(tvlUsd, { source: "v4+gecko" });
+    }
+
+    // Step 1: get token0, token1, fee from NFPM (V3-style)
+    let pos = await getPositionData(nfpm, tokenId, resolvedChain);
+
+    // If positions() reverts (e.g. Aerodrome CL uses tickSpacing not fee),
+    // fall back to tokenURI → GeckoTerminal by token pair
     if (!pos) {
+      const posV4 = await getPositionDataV4(nfpm, tokenId, resolvedChain);
+      if (posV4) {
+        const geckoNet = CHAIN_TO_GECKO[resolvedDex];
+        const tvlUsd = await getTvlByTokenPair(posV4.token0, posV4.token1, geckoNet);
+        cacheSet(ckey, tvlUsd);
+        return respond(tvlUsd, { source: "tokenuri+gecko" });
+      }
       cacheSet(ckey, null);
       return respond(null, { reason: "nfpm lookup failed" });
     }
@@ -363,8 +485,6 @@ module.exports = async (req, res) => {
     // Step 2: find the factory for this NFPM
     const factory = NFPM_TO_FACTORY[nfpm.toLowerCase()];
     if (!factory) {
-      // Unknown NFPM — fall back to factory() call on NFPM contract
-      // (some contracts expose factory())
       const factoryResult = await ethCall(resolvedChain, nfpm, "0xc45a0155");
       const fallbackFactory = factoryResult ? "0x" + factoryResult.slice(-40) : null;
       if (!fallbackFactory || fallbackFactory === "0x0000000000000000000000000000000000000000") {
@@ -404,7 +524,7 @@ module.exports = async (req, res) => {
       return respond(null, { reason: "pool not found in factory" });
     }
 
-    // Step 4: DexScreener by exact pool address
+    // Step 4: DexScreener + GeckoTerminal fallback by exact pool address
     const tvlUsd = await getTvlByPoolAddress(poolAddr, resolvedDex);
     cacheSet(ckey, tvlUsd, { poolAddress: poolAddr });
     return respond(tvlUsd, {
