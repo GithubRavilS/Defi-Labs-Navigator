@@ -461,6 +461,31 @@ async function getTvlByTokenPair(token0, token1, geckoNet) {
   return null;
 }
 
+function countSymbolOverlap(poolSymbols, pairSymbols) {
+  let n = 0;
+  for (const sym of pairSymbols) {
+    if (symbolVariants(sym).some((v) => poolSymbols.some((ps) => ps === v || ps.includes(v)))) n++;
+  }
+  return n;
+}
+
+async function getPoolTokenSymbols(poolAddress, dexChain) {
+  try {
+    const { status, body } = await httpsGet(
+      `https://api.dexscreener.com/latest/dex/pairs/${dexChain}/${poolAddress.toLowerCase()}`,
+      { timeout: 6000 },
+    );
+    if (status !== 200) return null;
+    const data = JSON.parse(body);
+    const pairs = data.pairs || (data.pair ? [data.pair] : []);
+    const p = pairs[0];
+    if (!p) return null;
+    return [(p.baseToken?.symbol || "").toUpperCase(), (p.quoteToken?.symbol || "").toUpperCase()];
+  } catch {
+    return null;
+  }
+}
+
 async function getDexIdForPool(poolAddress, dexChain) {
   try {
     const { status, body } = await httpsGet(
@@ -661,21 +686,33 @@ module.exports = async (req, res) => {
 
     if (!dexChain) return respond(null, { reason: "unsupported chain" });
 
-    // Pair+fee search first — Revert API sometimes returns wrong pool for the pair
-    if (pair) {
-      const fb = await tryPairFeeFallback(pair, fee, dexChain, platform);
-      if (fb?.tvlUsd != null) {
-        cacheSet(ckey, fb.tvlUsd, fb);
-        return respond(fb.tvlUsd, { ...fb, fallback: true });
-      }
-    }
-
     const poolAddr = await getPoolAddressFromRevert(nftId, revertNetwork, revertProtocol);
     if (!poolAddr) {
       return finish(ckey, null, { reason: "not found in revert" });
     }
-    const tvlUsd = await getTvlByPoolAddress(poolAddr, dexChain);
-    return finish(ckey, tvlUsd, { source: "revert+gecko", poolAddress: poolAddr });
+
+    const pairSymbols = parsePairSymbols(pair);
+    const poolSymbols = pair ? await getPoolTokenSymbols(poolAddr, dexChain) : null;
+    const overlap =
+      poolSymbols && pairSymbols.length ? countSymbolOverlap(poolSymbols, pairSymbols) : 2;
+
+    if (overlap >= 2) {
+      const tvlUsd = await getTvlByPoolAddress(poolAddr, dexChain);
+      return finish(ckey, tvlUsd, { source: "revert+gecko", poolAddress: poolAddr });
+    }
+
+    if (overlap === 1) {
+      const tvlUsd = await getTvlByPoolAddress(poolAddr, dexChain);
+      if (tvlUsd != null) {
+        return finish(ckey, tvlUsd, {
+          source: "revert+gecko",
+          poolAddress: poolAddr,
+          pairPartial: true,
+        });
+      }
+    }
+
+    return finish(ckey, null, { reason: "revert pool pair mismatch", poolAddress: poolAddr });
   }
 
   // ── Path C: Krystal link → on-chain NFPM → Factory → DexScreener ──────────
