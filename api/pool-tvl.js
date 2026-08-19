@@ -615,6 +615,7 @@ module.exports = async (req, res) => {
       }
     }
     if (ckey) cacheSet(ckey, tvlUsd, extra);
+    if (tvlUsd == null && !extra.reason) extra.reason = "not found";
     return respond(tvlUsd, extra);
   };
 
@@ -647,6 +648,15 @@ module.exports = async (req, res) => {
     }
 
     if (!dexChain) return respond(null, { reason: "unsupported chain" });
+
+    // Pair+fee search first — Revert API sometimes returns wrong pool for the pair
+    if (pair) {
+      const fb = await tryPairFeeFallback(pair, fee, dexChain, platform);
+      if (fb?.tvlUsd != null) {
+        cacheSet(ckey, fb.tvlUsd, fb);
+        return respond(fb.tvlUsd, { ...fb, fallback: true });
+      }
+    }
 
     const poolAddr = await getPoolAddressFromRevert(nftId, revertNetwork, revertProtocol);
     if (!poolAddr) {
