@@ -37,14 +37,14 @@ const CHAIN_TO_DEXSCREENER = {
   zksync: "zksync",
 };
 
-// chain key → public JSON-RPC endpoint (free, no key)
+// chain key → public JSON-RPC endpoints (free, no key) — ordered by reliability
 const CHAIN_TO_RPC = {
-  mainnet: "https://eth.llamarpc.com",
-  base: "https://mainnet.base.org",
-  bsc: "https://bsc-dataseed.binance.org",
-  arbitrum: "https://arb1.arbitrum.io/rpc",
-  optimism: "https://mainnet.optimism.io",
-  polygon: "https://polygon-rpc.com",
+  mainnet: ["https://ethereum.publicnode.com", "https://cloudflare-eth.com"],
+  base: ["https://mainnet.base.org", "https://base.publicnode.com"],
+  bsc: ["https://bsc-dataseed.binance.org", "https://bsc.publicnode.com"],
+  arbitrum: ["https://arb1.arbitrum.io/rpc", "https://arbitrum.publicnode.com"],
+  optimism: ["https://mainnet.optimism.io", "https://optimism.publicnode.com"],
+  polygon: ["https://polygon-rpc.com", "https://polygon.publicnode.com"],
 };
 
 // Krystal chain ID → our chain key
@@ -230,34 +230,37 @@ async function getPoolAddressFromRevert(nftId, network, protocol) {
 
 // ─── On-chain NFPM lookup ─────────────────────────────────────────────────────
 
-// Call NFPM.positions(tokenId) via eth_call on public RPC
-async function getPositionFromNFPM(nfpm, tokenId, rpcUrl) {
-  // positions(uint256) selector: 0x99fbab88
+// Call NFPM.positions(tokenId) via eth_call — tries multiple RPCs until one works
+async function getPositionFromNFPM(nfpm, tokenId, rpcUrls) {
   const tokenIdHex = BigInt(tokenId).toString(16).padStart(64, "0");
-  const data = "0x99fbab88" + tokenIdHex;
+  const data = "0x99fbab88" + tokenIdHex; // positions(uint256) selector
   const payload = {
     jsonrpc: "2.0",
     id: 1,
     method: "eth_call",
     params: [{ to: nfpm, data }, "latest"],
   };
-  try {
-    const { status, body } = await httpsPost(rpcUrl, payload, { timeout: 8000 });
-    if (status !== 200) return null;
-    const resp = JSON.parse(body);
-    if (resp.error || !resp.result || resp.result === "0x") return null;
-    const hex = resp.result.slice(2); // remove 0x
-    const fields = [];
-    for (let i = 0; i < hex.length; i += 64) fields.push(hex.slice(i, i + 64));
-    if (fields.length < 5) return null;
-    // Layout: [0]=nonce, [1]=operator, [2]=token0, [3]=token1, [4]=fee, ...
-    const token0 = "0x" + fields[2].slice(-40);
-    const token1 = "0x" + fields[3].slice(-40);
-    const fee = parseInt(fields[4], 16); // in bps (e.g. 500 = 0.05%)
-    return { token0: token0.toLowerCase(), token1: token1.toLowerCase(), fee };
-  } catch {
-    return null;
+  const urls = Array.isArray(rpcUrls) ? rpcUrls : [rpcUrls];
+  for (const rpcUrl of urls) {
+    try {
+      const { status, body } = await httpsPost(rpcUrl, payload, { timeout: 8000 });
+      if (status !== 200) continue;
+      const resp = JSON.parse(body);
+      if (resp.error || !resp.result || resp.result === "0x") continue;
+      const hex = resp.result.slice(2);
+      const fields = [];
+      for (let i = 0; i < hex.length; i += 64) fields.push(hex.slice(i, i + 64));
+      if (fields.length < 5) continue;
+      // Layout: [0]=nonce, [1]=operator, [2]=token0, [3]=token1, [4]=fee, ...
+      const token0 = "0x" + fields[2].slice(-40);
+      const token1 = "0x" + fields[3].slice(-40);
+      const fee = parseInt(fields[4], 16);
+      return { token0: token0.toLowerCase(), token1: token1.toLowerCase(), fee };
+    } catch {
+      continue;
+    }
   }
+  return null;
 }
 
 // ─── DexScreener ─────────────────────────────────────────────────────────────
@@ -283,7 +286,7 @@ async function getTvlByTokenPair(token0, token1, dexChain, platformSlug, feeBps)
   // DexScreener: search by two token addresses
   const url = `https://api.dexscreener.com/latest/dex/tokens/${token0},${token1}`;
   try {
-    const { status, body } = await httpsGet(url, ({ timeout = 10000 } = {}));
+    const { status, body } = await httpsGet(url, { timeout: 10000 });
     if (status !== 200) return { tvlUsd: null };
     const data = JSON.parse(body);
     const pairs = (data.pairs || []).filter((p) => p.chainId === dexChain);
