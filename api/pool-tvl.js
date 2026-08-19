@@ -510,8 +510,9 @@ function pickBestPoolCandidate(candidates, feePct, dexIds, isV4) {
     const exact = pool.filter((c) => c.fee != null && Math.abs(c.fee - feePct) < 0.02);
     if (exact.length) pool = exact;
     else {
-      const close = pool.filter((c) => c.fee != null && Math.abs(c.fee - feePct) < 0.15);
+      const close = pool.filter((c) => c.fee != null && Math.abs(c.fee - feePct) < 0.08);
       if (close.length) pool = close;
+      else return null; // never pick a different fee tier
     }
   }
 
@@ -641,17 +642,24 @@ module.exports = async (req, res) => {
     return res.status(200).json({ found: tvlUsd != null, tvlUsd, ...extra });
   };
 
-  const finish = async (ckey, tvlUsd, extra = {}) => {
-    if (tvlUsd == null && pair) {
+  const respondExact = (ckey, tvlUsd, poolAddr, source = "exact-pool") => {
+    const extra = { source, poolAddress: poolAddr };
+    if (ckey) cacheSet(ckey, tvlUsd, extra);
+    return respond(tvlUsd, extra);
+  };
+
+  // Pair+fee search ONLY when we could not resolve any pool address for this position
+  const finishWithPairFallback = async (ckey, extra = {}) => {
+    if (pair) {
       const fb = await tryPairFeeFallback(pair, fee, dexChain, platform);
       if (fb?.tvlUsd != null) {
         if (ckey) cacheSet(ckey, fb.tvlUsd, fb);
         return respond(fb.tvlUsd, { ...fb, fallback: true });
       }
     }
-    if (ckey) cacheSet(ckey, tvlUsd, extra);
-    if (tvlUsd == null && !extra.reason) extra.reason = "not found";
-    return respond(tvlUsd, extra);
+    if (ckey) cacheSet(ckey, null, extra);
+    if (!extra.reason) extra.reason = "not found";
+    return respond(null, extra);
   };
 
   // ── Path A: direct pool address ────────────────────────────────────────────
@@ -676,7 +684,7 @@ module.exports = async (req, res) => {
     const { network: linkNetwork, nftId } = parsed;
     const revertNetwork = linkNetwork || CHAIN_TO_REVERT[chainKey] || chainKey;
     const revertProtocol = platformToRevertProtocol(platform);
-    const ckey = `revert:${revertNetwork}:${revertProtocol}:${nftId}`;
+    const ckey = `v2:revert:${revertNetwork}:${revertProtocol}:${nftId}`;
     const cached = cacheGet(ckey);
     if (cached && cached.tvlUsd != null) {
       return respond(cached.tvlUsd, { source: "revert+dexscreener", cached: true });
@@ -686,33 +694,11 @@ module.exports = async (req, res) => {
 
     const poolAddr = await getPoolAddressFromRevert(nftId, revertNetwork, revertProtocol);
     if (!poolAddr) {
-      return finish(ckey, null, { reason: "not found in revert" });
+      return finishWithPairFallback(ckey, { reason: "not found in revert" });
     }
 
-    const pairSymbols = parsePairSymbols(pair);
-    const poolSymbols = pair ? await getPoolTokenSymbols(poolAddr, dexChain) : null;
-    let overlap = 2;
-    if (pairSymbols.length) {
-      overlap = poolSymbols ? countSymbolOverlap(poolSymbols, pairSymbols) : 0;
-    }
-
-    if (overlap >= 2) {
-      const tvlUsd = await getTvlByPoolAddress(poolAddr, dexChain);
-      return finish(ckey, tvlUsd, { source: "revert+gecko", poolAddress: poolAddr });
-    }
-
-    if (overlap === 1) {
-      const tvlUsd = await getTvlByPoolAddress(poolAddr, dexChain);
-      if (tvlUsd != null) {
-        return finish(ckey, tvlUsd, {
-          source: "revert+gecko",
-          poolAddress: poolAddr,
-          pairPartial: true,
-        });
-      }
-    }
-
-    return finish(ckey, null, { reason: "revert pool pair mismatch", poolAddress: poolAddr });
+    const tvlUsd = await getTvlByPoolAddress(poolAddr, dexChain);
+    return respondExact(ckey, tvlUsd, poolAddr, "revert+gecko");
   }
 
   // ── Path C: Krystal link → on-chain NFPM → Factory → DexScreener ──────────
@@ -744,21 +730,18 @@ module.exports = async (req, res) => {
     const isV4Nfpm = platform.toLowerCase().includes("v4");
     if (isV4Nfpm) {
       const posV4 = await getPositionDataV4(nfpm, tokenId, resolvedChain);
-      if (!posV4) {
-        return finish(ckey, null, { reason: "v4 tokenuri lookup failed" });
+      const feeStr = fee || (posV4?.fee != null ? `${posV4.fee}%` : "");
+      const fb = await getTvlByPairFeeSearch(
+        pair || posV4?.pairName || "",
+        feeStr,
+        resolvedDex,
+        platform,
+      );
+      if (fb?.tvlUsd != null) {
+        if (ckey) cacheSet(ckey, fb.tvlUsd, fb);
+        return respond(fb.tvlUsd, fb);
       }
-      const geckoNet = CHAIN_TO_GECKO[resolvedDex];
-      let tvlUsd = await getTvlByTokenPair(posV4.token0, posV4.token1, geckoNet);
-      if (tvlUsd == null) {
-        const fb = await getTvlByPairFeeSearch(
-          pair || posV4.pairName,
-          fee || (posV4.fee != null ? `${posV4.fee}%` : ""),
-          resolvedDex,
-          platform,
-        );
-        if (fb?.tvlUsd != null) return finish(ckey, fb.tvlUsd, fb);
-      }
-      return finish(ckey, tvlUsd, { source: "v4+gecko" });
+      return finishWithPairFallback(ckey, { reason: "v4 pool not found" });
     }
 
     // Step 1: get token0, token1, fee/tickSpacing from NFPM (V3-style)
@@ -766,13 +749,7 @@ module.exports = async (req, res) => {
     const isAero = isAerodromePlatform(platform, nfpm);
 
     if (!pos) {
-      const posV4 = await getPositionDataV4(nfpm, tokenId, resolvedChain);
-      if (posV4) {
-        const geckoNet = CHAIN_TO_GECKO[resolvedDex];
-        const tvlUsd = await getTvlByTokenPair(posV4.token0, posV4.token1, geckoNet);
-        return finish(ckey, tvlUsd, { source: "tokenuri+gecko" });
-      }
-      return finish(ckey, null, { reason: "nfpm lookup failed" });
+      return finishWithPairFallback(ckey, { reason: "nfpm lookup failed" });
     }
 
     const factory = NFPM_TO_FACTORY[nfpm.toLowerCase()];
@@ -781,11 +758,10 @@ module.exports = async (req, res) => {
       const factoryResult = await ethCall(resolvedChain, nfpm, "0xc45a0155");
       resolvedFactory = factoryResult ? "0x" + factoryResult.slice(-40) : null;
       if (!resolvedFactory || resolvedFactory === "0x0000000000000000000000000000000000000000") {
-        return finish(ckey, null, { reason: "unknown nfpm factory" });
+        return finishWithPairFallback(ckey, { reason: "unknown nfpm factory" });
       }
     }
 
-    // Aerodrome uses tickSpacing (field4), not Uniswap fee tiers
     const spacingOrFee = pos.fee;
     let poolAddr = await getPoolFromFactory(
       resolvedFactory,
@@ -795,7 +771,6 @@ module.exports = async (req, res) => {
       resolvedChain,
     );
 
-    // Brute-force common Aerodrome tick spacings if first attempt fails
     if (!poolAddr && isAero) {
       for (const ts of [1, 10, 50, 100, 200, 2000, spacingOrFee]) {
         poolAddr = await getPoolFromFactory(
@@ -810,15 +785,11 @@ module.exports = async (req, res) => {
     }
 
     if (!poolAddr) {
-      return finish(ckey, null, { reason: "pool not found in factory" });
+      return finishWithPairFallback(ckey, { reason: "pool not found in factory" });
     }
 
     const tvlUsd = await getTvlByPoolAddress(poolAddr, resolvedDex);
-    return finish(ckey, tvlUsd, {
-      source: "onchain+gecko",
-      poolAddress: poolAddr,
-      feeBps: spacingOrFee,
-    });
+    return respondExact(ckey, tvlUsd, poolAddr, "onchain+gecko");
   }
 
   return respond(null, { reason: "unrecognised link type" });
