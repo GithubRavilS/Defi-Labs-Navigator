@@ -802,6 +802,10 @@
         margin-bottom: 16px;
         position: relative;
         z-index: 1;
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
       }
 
       .tool-period-pill {
@@ -1104,6 +1108,33 @@
         font-weight: 700;
         color: var(--text-secondary);
         letter-spacing: 0.02em;
+      }
+
+      .pool-tvl-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(99, 210, 176, 0.28);
+        background: rgba(99, 210, 176, 0.09);
+        color: #a8eddc;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        vertical-align: middle;
+      }
+      .pool-tvl-badge .tvl-label {
+        opacity: 0.72;
+        font-weight: 600;
+      }
+      .pool-tvl-badge--loading {
+        opacity: 0.45;
+      }
+      .pool-tvl-badge--na {
+        display: none;
       }
 
       .pool-battle-alt-panel {
@@ -4846,6 +4877,130 @@
         return '<span class="pool-battle-fee-chip">' + escapeHtml(label) + "</span>";
       }
 
+      // ── TVL lazy-fetch from /api/pool-tvl (DeFiLlama) ──────────────────────
+      var _tvlCache = {};       // key → {tvlUsd, ts}
+      var _tvlPending = {};     // key → true (request in flight)
+      var TVL_CACHE_TTL = 10 * 60 * 1000;
+
+      function tvlKeyForTool(tool) {
+        var chain = (tool.chain || "").toLowerCase().replace(/\s+/g, "");
+        // normalise chain to our API keys
+        var chainKey = chain === "ethereum" || chain === "mainnet" ? "mainnet"
+          : chain === "bsc" || chain === "bnb" || chain === "binancesmartchain" ? "bsc"
+          : chain === "base" ? "base"
+          : chain === "arbitrum" || chain === "arbitrumone" ? "arbitrum"
+          : chain === "optimism" ? "optimism"
+          : chain;
+        var pair = (tool.pair || "").trim();
+        var parts = pair.split(/[\/\-]/).map(function(s){ return s.trim().toUpperCase(); }).filter(Boolean);
+        if (parts.length < 2) return null;
+        parts.sort();
+        var fee = (tool.fee || "").trim();
+        return [chainKey, parts[0], parts[1], fee].join("|");
+      }
+
+      function tvlApiUrl(tool) {
+        var chain = (tool.chain || "").toLowerCase().replace(/\s+/g, "");
+        var chainKey = chain === "ethereum" || chain === "mainnet" ? "mainnet"
+          : chain === "bsc" || chain === "bnb" || chain === "binancesmartchain" ? "bsc"
+          : chain === "base" ? "base"
+          : chain === "arbitrum" || chain === "arbitrumone" ? "arbitrum"
+          : chain === "optimism" ? "optimism"
+          : chain;
+        var pair = (tool.pair || "").trim();
+        var parts = pair.split(/[\/\-]/).map(function(s){ return s.trim(); }).filter(Boolean);
+        if (parts.length < 2) return null;
+        var url = "/api/pool-tvl?chain=" + encodeURIComponent(chainKey)
+          + "&token0=" + encodeURIComponent(parts[0])
+          + "&token1=" + encodeURIComponent(parts[1]);
+        if (tool.fee) url += "&fee=" + encodeURIComponent(tool.fee);
+        if (tool.platform) url += "&project=" + encodeURIComponent(
+          (tool.platform || "").toLowerCase().replace(/\s+v\d.*$/i, "").replace(/\s+/g, "")
+        );
+        return url;
+      }
+
+      function formatTvl(usd) {
+        if (usd == null || isNaN(usd)) return null;
+        if (usd >= 1e9) return "$" + (usd / 1e9).toFixed(1) + "B";
+        if (usd >= 1e6) return "$" + (usd / 1e6).toFixed(1) + "M";
+        if (usd >= 1e3) return "$" + (usd / 1e3).toFixed(0) + "K";
+        return "$" + usd.toFixed(0);
+      }
+
+      function updateTvlBadges(key, tvlUsd) {
+        var els = document.querySelectorAll('[data-tvl-key="' + CSS.escape(key) + '"]');
+        els.forEach(function(el) {
+          if (tvlUsd == null) {
+            el.className = el.className.replace(/pool-tvl-badge--loading/g, "") + " pool-tvl-badge--na";
+            return;
+          }
+          var fmt = formatTvl(tvlUsd);
+          if (!fmt) { el.classList.add("pool-tvl-badge--na"); return; }
+          el.classList.remove("pool-tvl-badge--loading", "pool-tvl-badge--na");
+          el.querySelector(".tvl-value").textContent = fmt;
+        });
+      }
+
+      function fetchTvlForKey(tool, key) {
+        if (_tvlPending[key]) return;
+        var url = tvlApiUrl(tool);
+        if (!url) return;
+        _tvlPending[key] = true;
+        fetch(url)
+          .then(function(r){ return r.json(); })
+          .then(function(data) {
+            var tvl = data.found ? data.tvlUsd : null;
+            _tvlCache[key] = { tvlUsd: tvl, ts: Date.now() };
+            delete _tvlPending[key];
+            updateTvlBadges(key, tvl);
+          })
+          .catch(function() {
+            delete _tvlPending[key];
+            updateTvlBadges(key, null);
+          });
+      }
+
+      function renderTvlBadgePlaceholder(tool) {
+        var key = tvlKeyForTool(tool);
+        if (!key) return "";
+        var cached = _tvlCache[key];
+        var now = Date.now();
+        if (cached && now - cached.ts < TVL_CACHE_TTL) {
+          if (cached.tvlUsd == null) return "";
+          var fmt = formatTvl(cached.tvlUsd);
+          if (!fmt) return "";
+          return '<span class="pool-tvl-badge" data-tvl-key="' + escapeHtml(key) + '">'
+            + '<span class="tvl-label">TVL</span>'
+            + '<span class="tvl-value">' + escapeHtml(fmt) + '</span>'
+            + '</span>';
+        }
+        return '<span class="pool-tvl-badge pool-tvl-badge--loading" data-tvl-key="' + escapeHtml(key) + '">'
+          + '<span class="tvl-label">TVL</span>'
+          + '<span class="tvl-value">…</span>'
+          + '</span>';
+      }
+
+      function loadTvlForVisibleCards() {
+        var badges = document.querySelectorAll(".pool-tvl-badge--loading[data-tvl-key]");
+        // group by key to avoid duplicate requests
+        var seen = {};
+        badges.forEach(function(el) {
+          var key = el.getAttribute("data-tvl-key");
+          if (!key || seen[key]) return;
+          seen[key] = true;
+          var cached = _tvlCache[key];
+          if (cached && Date.now() - cached.ts < TVL_CACHE_TTL) {
+            updateTvlBadges(key, cached.tvlUsd);
+            return;
+          }
+          // Need the tool object — find by key from allTools
+          var tool = (window._allToolsFlat || []).find(function(t) { return tvlKeyForTool(t) === key; });
+          if (tool) fetchTvlForKey(tool, key);
+        });
+      }
+      // ───────────────────────────────────────────────────────────────────────
+
       function renderPoolBattleInstrumentHead(tool) {
         return (
           '<div class="pool-battle-instrument-head">' +
@@ -5060,6 +5215,8 @@
       }
 
       function renderCategoryPositionViews(rawTools, categoryId, query) {
+        // keep a flat snapshot so TVL fetcher can look up tool by key
+        window._allToolsFlat = rawTools;
         updatePoolFiltersBar(rawTools, categoryId);
         var filteredTools = categoryUsesPoolBattleGrouping(categoryId)
           ? rawTools.filter(toolMatchesPoolFilters)
@@ -5073,6 +5230,8 @@
           }),
         );
         updateCollapseAllControls(groups, categoryId);
+        // fire TVL fetches after DOM is ready
+        setTimeout(loadTvlForVisibleCards, 50);
       }
 
       function renderPoolBattleAltItems(alternates) {
@@ -6277,7 +6436,9 @@
               escapeHtml(t("period")) +
               '</span><span class="tool-period-val">' +
               escapeHtml(formatPeriodDisplay(tool)) +
-              "</span></span></div>" +
+              "</span></span>" +
+              renderTvlBadgePlaceholder(tool) +
+              "</div>" +
               '<div class="tool-footer">' +
               '<a href="' +
               escapeHtml(tool.link) +
@@ -6343,7 +6504,9 @@
               "</td>" +
               '<td class="period-cell"><span class="table-period-chip">' +
               escapeHtml(formatPeriodDisplay(tool)) +
-              "</span></td>" +
+              "</span>" +
+              renderTvlBadgePlaceholder(tool) +
+              "</td>" +
               '<td><a href="' +
               escapeHtml(tool.link) +
               '" target="_blank" rel="noopener noreferrer" class="tool-link">' +
