@@ -4877,47 +4877,71 @@
         return '<span class="pool-battle-fee-chip">' + escapeHtml(label) + "</span>";
       }
 
-      // ── TVL lazy-fetch from /api/pool-tvl (DeFiLlama) ──────────────────────
-      var _tvlCache = {};       // key → {tvlUsd, ts}
-      var _tvlPending = {};     // key → true (request in flight)
-      var TVL_CACHE_TTL = 10 * 60 * 1000;
+      // ── TVL lazy-fetch from /api/pool-tvl (DexScreener + Revert) ───────────
+      var _tvlCache = {};
+      var _tvlPending = {};
+      var TVL_CACHE_TTL = 8 * 60 * 1000;
+
+      function normalizeChainKey(chain) {
+        var c = (chain || "").toLowerCase().replace(/\s+/g, "");
+        if (c === "ethereum" || c === "mainnet") return "mainnet";
+        if (c === "bsc" || c === "bnb" || c === "binancesmartchain") return "bsc";
+        if (c === "base") return "base";
+        if (c === "arbitrum" || c === "arbitrumone") return "arbitrum";
+        if (c === "optimism" || c === "opmainnet") return "optimism";
+        return c;
+      }
+
+      // Extract pool address from Krystal link or desc
+      // Krystal link: https://cloud-ui.krystal.app/positions/56/0xNFPM-tokenId
+      // Pool address must come from desc field (we store it there when building tools)
+      function poolAddressFromTool(tool) {
+        // Try desc — sheet-get-data may store pool address there via enrichment
+        var desc = (tool.desc || "").trim();
+        var m = desc.match(/pool[:\s]+?(0x[0-9a-fA-F]{40})/i);
+        if (m) return m[1];
+        // Try link — Krystal link has NFPM address, not pool — skip
+        return null;
+      }
 
       function tvlKeyForTool(tool) {
-        var chain = (tool.chain || "").toLowerCase().replace(/\s+/g, "");
-        // normalise chain to our API keys
-        var chainKey = chain === "ethereum" || chain === "mainnet" ? "mainnet"
-          : chain === "bsc" || chain === "bnb" || chain === "binancesmartchain" ? "bsc"
-          : chain === "base" ? "base"
-          : chain === "arbitrum" || chain === "arbitrumone" ? "arbitrum"
-          : chain === "optimism" ? "optimism"
-          : chain;
+        var chainKey = normalizeChainKey(tool.chain);
+        var link = (tool.link || "").trim();
+        // Key by link (most unique) or by pair+fee+chain
+        if (link && link.includes("revert.finance")) {
+          var nm = link.match(/position\/(\d+)/);
+          return nm ? "revert:" + chainKey + ":" + nm[1] : null;
+        }
+        var poolAddr = poolAddressFromTool(tool);
+        if (poolAddr) return "pool:" + chainKey + ":" + poolAddr.toLowerCase();
+        // Fallback: pair+fee+chain (unique enough per category)
         var pair = (tool.pair || "").trim();
         var parts = pair.split(/[\/\-]/).map(function(s){ return s.trim().toUpperCase(); }).filter(Boolean);
         if (parts.length < 2) return null;
         parts.sort();
-        var fee = (tool.fee || "").trim();
-        return [chainKey, parts[0], parts[1], fee].join("|");
+        return "pair:" + chainKey + ":" + parts.join("-") + ":" + (tool.fee || "");
       }
 
       function tvlApiUrl(tool) {
-        var chain = (tool.chain || "").toLowerCase().replace(/\s+/g, "");
-        var chainKey = chain === "ethereum" || chain === "mainnet" ? "mainnet"
-          : chain === "bsc" || chain === "bnb" || chain === "binancesmartchain" ? "bsc"
-          : chain === "base" ? "base"
-          : chain === "arbitrum" || chain === "arbitrumone" ? "arbitrum"
-          : chain === "optimism" ? "optimism"
-          : chain;
-        var pair = (tool.pair || "").trim();
-        var parts = pair.split(/[\/\-]/).map(function(s){ return s.trim(); }).filter(Boolean);
-        if (parts.length < 2) return null;
-        var url = "/api/pool-tvl?chain=" + encodeURIComponent(chainKey)
-          + "&token0=" + encodeURIComponent(parts[0])
-          + "&token1=" + encodeURIComponent(parts[1]);
-        if (tool.fee) url += "&fee=" + encodeURIComponent(tool.fee);
-        if (tool.platform) url += "&project=" + encodeURIComponent(
-          (tool.platform || "").toLowerCase().replace(/\s+v\d.*$/i, "").replace(/\s+/g, "")
-        );
-        return url;
+        var chainKey = normalizeChainKey(tool.chain);
+        var link = (tool.link || "").trim();
+
+        // Path 1: Revert Finance link → API resolves pool address
+        if (link && link.includes("revert.finance")) {
+          return "/api/pool-tvl?link=" + encodeURIComponent(link)
+            + "&chain=" + encodeURIComponent(chainKey)
+            + "&platform=" + encodeURIComponent(tool.platform || "");
+        }
+
+        // Path 2: Krystal or other — if we have pool address in desc
+        var poolAddr = poolAddressFromTool(tool);
+        if (poolAddr) {
+          return "/api/pool-tvl?poolAddress=" + encodeURIComponent(poolAddr)
+            + "&chain=" + encodeURIComponent(chainKey);
+        }
+
+        // No usable identifier
+        return null;
       }
 
       function formatTvl(usd) {

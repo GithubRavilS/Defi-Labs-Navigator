@@ -1,210 +1,182 @@
 /**
- * GET /api/pool-tvl?chain=mainnet&token0=USDC&token1=WETH&fee=0.05%&project=uniswap-v3
+ * GET /api/pool-tvl
  *
- * Returns TVL (and volume) for a liquidity pool by matching against DeFiLlama /pools.
- * DeFiLlama is free, no API key required.
- *
- * Cache: DeFiLlama full pool list is fetched at most once per 10 minutes per Vercel instance.
+ * Returns the exact TVL of a liquidity pool using DexScreener (by pool address).
+ * Pool address is resolved via:
+ *   1. Direct poolAddress param (if caller already has it, e.g. from Krystal)
+ *   2. Revert Finance API (for Revert-linked positions: uniswap v3/v4, pancakeswap v3)
  *
  * Query params:
- *   chain    - mainnet | bsc | base | arbitrum | optimism | polygon (required)
- *   token0   - symbol, e.g. USDC (required)
- *   token1   - symbol, e.g. WETH (required)
- *   fee      - fee tier string, e.g. "0.05%" or "500" bps (optional, improves accuracy)
- *   project  - DeFiLlama project slug hint, e.g. "uniswap-v3" (optional)
+ *   link         - position URL (revert.finance or cloud-ui.krystal.app)
+ *   poolAddress  - pool contract address (optional, skips Revert lookup)
+ *   chain        - mainnet | bsc | base | arbitrum | optimism (required if poolAddress given)
+ *
+ * DexScreener is free, no API key. Revert Finance public API is free, no key.
  */
 
 const https = require("https");
-const zlib = require("zlib");
 
-// In-memory cache for DeFiLlama full pool list
-let _cachedPools = null;
-let _cacheTs = 0;
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 min
-
-// DeFiLlama chain name → our internal chain key
-const LLAMA_CHAIN_MAP = {
-  ethereum: "mainnet",
-  "bnb chain": "bsc",
-  "binance smart chain": "bsc",
+// Our chain key → DexScreener network slug
+const CHAIN_TO_DEXSCREENER = {
+  mainnet: "ethereum",
+  ethereum: "ethereum",
   bsc: "bsc",
   base: "base",
   arbitrum: "arbitrum",
   optimism: "optimism",
+  "op mainnet": "optimism",
   polygon: "polygon",
   avalanche: "avalanche",
-  "zk sync era": "zksync",
   zksync: "zksync",
 };
 
-// Our chain key → set of DeFiLlama chain names
-function llamaChainMatches(llamaChain, ourChain) {
-  const normalized = (llamaChain || "").toLowerCase();
-  const mapped = LLAMA_CHAIN_MAP[normalized] || normalized;
-  return mapped === (ourChain || "").toLowerCase();
-}
-
-// Fee tier normalisation: "500" bps → "0.05%", "3000" → "0.3%", "0,05%" → "0.05%"
-function normalizeFee(fee) {
-  if (!fee) return null;
-  // Replace Russian/locale comma decimal separator with dot
-  let s = String(fee).trim().replace(",", ".");
-  if (s.endsWith("%")) {
-    // Already percent-formatted — normalize decimal places for comparison
-    const num = parseFloat(s);
-    if (isNaN(num)) return s;
-    // Round to avoid float noise: 0.0500% → "0.05%", 0.3000% → "0.3%"
-    return num.toFixed(4).replace(/\.?0+$/, "") + "%";
-  }
-  const bps = parseFloat(s);
-  if (!isNaN(bps) && bps >= 1) {
-    return (bps / 10000).toFixed(4).replace(/\.?0+$/, "") + "%";
-  }
-  return s;
-}
-
-// Token symbol aliases — DeFiLlama sometimes uses ETH, sometimes WETH
-// Expand a symbol set to include known aliases
-function expandSymbolAliases(sym) {
-  const s = sym.toUpperCase();
-  if (s === "ETH") return [s, "WETH"];
-  if (s === "WETH") return [s, "ETH"];
-  if (s === "BTC") return [s, "WBTC", "BTCB"];
-  if (s === "WBTC") return [s, "BTC", "BTCB"];
-  return [s];
-}
-
-// Project slug hints — Krystal protocol key → DeFiLlama project slugs
-const PROTOCOL_TO_LLAMA = {
-  uniswapv3: ["uniswap-v3"],
-  uniswapv4: ["uniswap-v4"],
-  pancakev3: ["pancakeswap-amm-v3"],
-  pancakev4: ["pancakeswap-amm", "pancakeswap-amm-v3"],
-  pancakev2: ["pancakeswap-amm"],
-  "aerodrome-concentrated": ["aerodrome-slipstream"],
-  "aerodrome-slipstream": ["aerodrome-slipstream"],
-  aerodromev2: ["aerodrome-slipstream"],
-  aerodromev1: ["aerodrome-v1"],
+// Revert Finance: our chain key → Revert network name
+const CHAIN_TO_REVERT = {
+  mainnet: "mainnet",
+  ethereum: "mainnet",
+  base: "base",
+  arbitrum: "arbitrum",
+  optimism: "optimism",
+  polygon: "polygon",
 };
 
-function fetchDeFiLlamaPools() {
+// Revert Finance: our chain+protocol → Revert protocol slug
+const PLATFORM_TO_REVERT_PROTOCOL = {
+  uniswapv3: "uniswapv3",
+  uniswapv4: "uniswapv4",
+  pancakev3: "pancakeswapv3",
+  "uniswap v3": "uniswapv3",
+  "uniswap v4": "uniswapv4",
+  "pancakeswap v3": "pancakeswapv3",
+};
+
+// In-memory cache: poolAddr_chain → { tvlUsd, ts }
+const _cache = new Map();
+const CACHE_TTL_MS = 8 * 60 * 1000; // 8 min
+
+function httpsGet(url, { timeout = 12000 } = {}) {
   return new Promise((resolve, reject) => {
     const req = https.get(
-      "https://yields.llama.fi/pools",
-      { headers: { "Accept-Encoding": "gzip, deflate, br", Accept: "application/json" } },
+      url,
+      { headers: { "User-Agent": "defilabs-navigator/1.0", Accept: "application/json" } },
       (res) => {
-        let stream = res;
-        const enc = (res.headers["content-encoding"] || "").toLowerCase();
-        if (enc === "gzip" || enc === "x-gzip") {
-          stream = res.pipe(zlib.createGunzip());
-        } else if (enc === "deflate") {
-          stream = res.pipe(zlib.createInflate());
-        } else if (enc === "br") {
-          stream = res.pipe(zlib.createBrotliDecompress());
-        }
-
         const chunks = [];
-        stream.on("data", (d) => chunks.push(d));
-        stream.on("end", () => {
+        res.on("data", (d) => chunks.push(d));
+        res.on("end", () => {
           try {
-            const body = Buffer.concat(chunks).toString("utf8");
-            const parsed = JSON.parse(body);
-            resolve(parsed.data || []);
+            resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString("utf8") });
           } catch (e) {
             reject(e);
           }
         });
-        stream.on("error", reject);
+        res.on("error", reject);
       },
     );
     req.on("error", reject);
-    req.setTimeout(25000, () => {
+    req.setTimeout(timeout, () => {
       req.destroy();
-      reject(new Error("DeFiLlama timeout"));
+      reject(new Error("timeout"));
     });
   });
 }
 
-async function getPools() {
-  const now = Date.now();
-  if (_cachedPools && now - _cacheTs < CACHE_TTL_MS) return _cachedPools;
-  const pools = await fetchDeFiLlamaPools();
-  _cachedPools = pools;
-  _cacheTs = now;
-  return pools;
+/**
+ * Extract (network, nftId) from a Revert Finance URL.
+ * Formats:
+ *   /#/uniswap-position/optimism/1089241  → { network: "optimism", nftId: "1089241" }
+ *   /#/uniswapv3-position/329542          → { network: null (use chain param), nftId: "329542" }
+ *   /#/uniswapv4-position/mainnet/12345   → { network: "mainnet", nftId: "12345" }
+ */
+function parseRevertLink(link) {
+  // New format: /#/<anything>-position/<network>/<id>
+  let m = link.match(/#\/[^/]+-position\/([a-z]+)\/(\d+)/i);
+  if (m) return { network: m[1].toLowerCase(), nftId: m[2] };
+  // Old format: /#/<anything>-position/<id>
+  m = link.match(/#\/[^/]+-position\/(\d+)/i);
+  if (m) return { network: null, nftId: m[1] };
+  // Catch-all: last numeric segment
+  m = link.match(/\/(\d{4,})\s*$/);
+  if (m) return { network: null, nftId: m[1] };
+  return null;
 }
 
-function findBestMatch(pools, { chain, token0, token1, fee, project }) {
-  const feeNorm = normalizeFee(fee);
+/**
+ * Extract pool address from a Krystal cloud-ui link.
+ * Links contain the position ID which encodes NFPM+tokenId, not pool address directly.
+ * We'll use poolAddress param instead for Krystal.
+ */
+function parseKrystalLink(link) {
+  // https://cloud-ui.krystal.app/positions/56/0xNFPM-tokenId
+  const m = link.match(/krystal\.app\/positions\/(\d+)\/(0x[0-9a-fA-F]+)-(\d+)/i);
+  if (!m) return null;
+  return { chainId: m[1], nfpm: m[2], tokenId: m[3] };
+}
 
-  // Expand token symbols with aliases (ETH↔WETH, BTC↔WBTC etc.)
-  const sym0Variants = new Set(expandSymbolAliases((token0 || "").trim()));
-  const sym1Variants = new Set(expandSymbolAliases((token1 || "").trim()));
-
-  // Allowed project slugs (try with and without restriction)
-  let allowedProjects = null;
-  if (project) {
-    const slug = (project || "").toLowerCase();
-    allowedProjects =
-      PROTOCOL_TO_LLAMA[slug] ||
-      Object.entries(PROTOCOL_TO_LLAMA).find(([k]) => slug.includes(k))?.[1] ||
-      null; // if unknown slug, don't restrict
+/**
+ * Get pool address via Revert Finance API.
+ * Returns pool contract address string or null.
+ * Revert response: { success, total_count, data: [ { pool, exchange, fee_tier, ... } ] }
+ */
+async function getPoolAddressFromRevert(nftId, revertNetwork, revertProtocol) {
+  const url = `https://api.revert.finance/v1/positions?positionId=${nftId}&network=${revertNetwork}&protocol=${revertProtocol}`;
+  try {
+    const { status, body } = await httpsGet(url, { timeout: 12000 });
+    if (status !== 200) return null;
+    const resp = JSON.parse(body);
+    // data is an array of positions
+    const pos = Array.isArray(resp.data) ? resp.data[0] : resp.data || resp;
+    return (pos && pos.pool) || null;
+  } catch {
+    return null;
   }
+}
 
-  let bestMatch = null;
-  let bestScore = -1;
-
-  // Two passes: first with project filter, then without if nothing found
-  const passes = allowedProjects ? [allowedProjects, null] : [null];
-
-  for (const projectFilter of passes) {
-    for (const p of pools) {
-      if (!llamaChainMatches(p.chain, chain)) continue;
-      if (projectFilter && !projectFilter.includes(p.project)) continue;
-
-      // Symbol matching — DeFiLlama stores "USDC-WETH" or "WETH-USDC"
-      const parts = (p.symbol || "").toUpperCase().split("-");
-      if (parts.length < 2) continue;
-
-      // Check that one part matches sym0 variants and another matches sym1 variants
-      // (order-independent)
-      const p0 = parts[0];
-      const p1 = parts[parts.length - 1]; // for 3-token symbols take last
-      const t0match =
-        (sym0Variants.has(p0) && sym1Variants.has(p1)) ||
-        (sym0Variants.has(p1) && sym1Variants.has(p0));
-      if (!t0match) continue;
-
-      let score = 20; // base: both tokens matched
-
-      // Exact symbol match (ETH=ETH) scores higher than alias match (ETH=WETH)
-      const sym0Raw = (token0 || "").toUpperCase().trim();
-      const sym1Raw = (token1 || "").toUpperCase().trim();
-      const exactSyms = new Set([sym0Raw, sym1Raw]);
-      const partsSet = new Set([p0, p1]);
-      const exactOverlap = [...exactSyms].filter((t) => partsSet.has(t)).length;
-      score += exactOverlap * 3;
-
-      // Fee match
-      if (feeNorm && p.poolMeta) {
-        const pMeta = normalizeFee(p.poolMeta);
-        if (pMeta === feeNorm) score += 10;
-      }
-
-      // Project filter bonus
-      if (!projectFilter) score -= 2; // second pass (no filter) slight penalty
-
-      // Prefer higher TVL when scores tie
-      score += Math.log10((p.tvlUsd || 1) + 1) * 0.01;
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestMatch = p;
-      }
-    }
-    if (bestMatch) break; // found in first pass, skip second
+/**
+ * Get TVL from DexScreener by pool address + chain.
+ * Returns number (USD) or null.
+ */
+async function getTvlFromDexScreener(poolAddress, dexChain) {
+  const url = `https://api.dexscreener.com/latest/dex/pairs/${dexChain}/${poolAddress}`;
+  try {
+    const { status, body } = await httpsGet(url, { timeout: 8000 });
+    if (status !== 200) return null;
+    const data = JSON.parse(body);
+    const pairs = data.pairs || (data.pair ? [data.pair] : []);
+    if (!pairs || !pairs.length) return null;
+    // If multiple pairs (rare), pick the one with matching address
+    const pair =
+      pairs.find((p) => (p.pairAddress || "").toLowerCase() === poolAddress.toLowerCase()) ||
+      pairs[0];
+    return pair?.liquidity?.usd ?? null;
+  } catch {
+    return null;
   }
-  return bestMatch;
+}
+
+/**
+ * Normalise chain string from frontend → our internal key.
+ */
+function normalizeChain(chain) {
+  const c = (chain || "").toLowerCase().trim();
+  if (c === "ethereum" || c === "mainnet") return "mainnet";
+  if (c === "bsc" || c === "bnb" || c === "binance smart chain" || c === "binancesmartchain")
+    return "bsc";
+  return c;
+}
+
+/**
+ * Normalise platform string → revert protocol slug.
+ */
+function platformToRevertProtocol(platform) {
+  const p = (platform || "").toLowerCase().replace(/\s+/g, "");
+  for (const [k, v] of Object.entries(PLATFORM_TO_REVERT_PROTOCOL)) {
+    if (p.includes(k.replace(/\s+/g, ""))) return v;
+  }
+  // fallback guesses
+  if (p.includes("uniswap") && p.includes("4")) return "uniswapv4";
+  if (p.includes("uniswap")) return "uniswapv3";
+  if (p.includes("pancake")) return "pancakeswapv3";
+  return null;
 }
 
 module.exports = async (req, res) => {
@@ -219,36 +191,78 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const { chain, token0, token1, fee, project } = req.query || {};
-  if (!chain || !token0 || !token1) {
-    res.status(400).json({ error: "chain, token0, token1 required" });
-    return;
-  }
+  const { link = "", poolAddress = "", chain = "", platform = "" } = req.query || {};
+  const chainKey = normalizeChain(chain);
+  const dexChain = CHAIN_TO_DEXSCREENER[chainKey];
 
-  try {
-    const pools = await getPools();
-    const match = findBestMatch(pools, { chain, token0, token1, fee, project });
-
-    if (!match) {
-      res.setHeader("Cache-Control", "public, max-age=300, s-maxage=600");
-      res.status(200).json({ found: false, tvlUsd: null });
-      return;
+  // ── Path 1: caller provides pool address directly (Krystal rows) ──────────
+  if (poolAddress && /^0x[0-9a-fA-F]{40}$/.test(poolAddress) && dexChain) {
+    const cacheKey = `${poolAddress.toLowerCase()}:${chainKey}`;
+    const cached = _cache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+      res.setHeader("Cache-Control", "public, max-age=300, s-maxage=480");
+      return res
+        .status(200)
+        .json({
+          found: cached.tvlUsd != null,
+          tvlUsd: cached.tvlUsd,
+          source: "dexscreener",
+          cached: true,
+        });
     }
 
-    res.setHeader("Cache-Control", "public, max-age=300, s-maxage=600");
-    res.status(200).json({
-      found: true,
-      tvlUsd: match.tvlUsd || null,
-      volumeUsd1d: match.volumeUsd1d || null,
-      apyBase: match.apyBase || null,
-      project: match.project,
-      symbol: match.symbol,
-      poolMeta: match.poolMeta,
-      chain: match.chain,
-      llamaPool: match.pool,
-    });
-  } catch (e) {
-    console.error("pool-tvl error", e);
-    res.status(500).json({ error: String(e.message || e).slice(0, 200) });
+    const tvlUsd = await getTvlFromDexScreener(poolAddress, dexChain);
+    _cache.set(cacheKey, { tvlUsd, ts: Date.now() });
+    res.setHeader("Cache-Control", "public, max-age=300, s-maxage=480");
+    return res.status(200).json({ found: tvlUsd != null, tvlUsd, source: "dexscreener" });
   }
+
+  // ── Path 2: Revert Finance link → pool address → DexScreener ─────────────
+  if (link && link.includes("revert.finance")) {
+    const parsed = parseRevertLink(link);
+    if (!parsed) {
+      return res.status(400).json({ error: "cannot parse revert link" });
+    }
+    const { network: linkNetwork, nftId } = parsed;
+    // Use network from URL first (most reliable), fallback to chain param
+    const revertNetwork = linkNetwork || CHAIN_TO_REVERT[chainKey] || chainKey;
+    const revertProtocol = platformToRevertProtocol(platform) || "uniswapv3";
+
+    const cacheKey = `revert:${revertNetwork}:${revertProtocol}:${nftId}`;
+    const cached = _cache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+      res.setHeader("Cache-Control", "public, max-age=300, s-maxage=480");
+      return res
+        .status(200)
+        .json({
+          found: cached.tvlUsd != null,
+          tvlUsd: cached.tvlUsd,
+          source: "revert+dexscreener",
+          cached: true,
+        });
+    }
+
+    if (!dexChain) {
+      return res.status(200).json({ found: false, tvlUsd: null, reason: "unsupported chain" });
+    }
+
+    const poolAddr = await getPoolAddressFromRevert(nftId, revertNetwork, revertProtocol);
+    if (!poolAddr) {
+      _cache.set(cacheKey, { tvlUsd: null, ts: Date.now() });
+      return res
+        .status(200)
+        .json({ found: false, tvlUsd: null, reason: "pool not found via revert" });
+    }
+
+    const tvlUsd = await getTvlFromDexScreener(poolAddr, dexChain);
+    _cache.set(cacheKey, { tvlUsd, ts: Date.now() });
+    res.setHeader("Cache-Control", "public, max-age=300, s-maxage=480");
+    return res
+      .status(200)
+      .json({ found: tvlUsd != null, tvlUsd, poolAddress: poolAddr, source: "revert+dexscreener" });
+  }
+
+  return res
+    .status(400)
+    .json({ error: "provide either poolAddress+chain or a revert.finance link+chain" });
 };
