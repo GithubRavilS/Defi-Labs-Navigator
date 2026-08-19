@@ -94,7 +94,9 @@ function parseFeePercent(feeStr) {
   const m = String(feeStr)
     .replace(",", ".")
     .match(/([\d.]+)/);
-  return m ? parseFloat(m[1]) : null;
+  const v = m ? parseFloat(m[1]) : null;
+  if (v === 0) return null;
+  return v;
 }
 
 function parsePairSymbols(pairStr) {
