@@ -620,7 +620,9 @@ module.exports = async (req, res) => {
   if (poolAddress && /^0x[0-9a-fA-F]{40}$/.test(poolAddress) && dexChain) {
     const ckey = `pool:${chainKey}:${poolAddress.toLowerCase()}`;
     const cached = cacheGet(ckey);
-    if (cached) return respond(cached.tvlUsd, { source: "dexscreener", cached: true });
+    if (cached && cached.tvlUsd != null) {
+      return respond(cached.tvlUsd, { source: "dexscreener", cached: true });
+    }
     const tvlUsd = await getTvlByPoolAddress(poolAddress, dexChain);
     cacheSet(ckey, tvlUsd);
     return respond(tvlUsd, { source: "dexscreener" });
@@ -638,7 +640,9 @@ module.exports = async (req, res) => {
     const revertProtocol = platformToRevertProtocol(platform);
     const ckey = `revert:${revertNetwork}:${revertProtocol}:${nftId}`;
     const cached = cacheGet(ckey);
-    if (cached) return respond(cached.tvlUsd, { source: "revert+dexscreener", cached: true });
+    if (cached && cached.tvlUsd != null) {
+      return respond(cached.tvlUsd, { source: "revert+dexscreener", cached: true });
+    }
 
     if (!dexChain) return respond(null, { reason: "unsupported chain" });
 
@@ -660,7 +664,17 @@ module.exports = async (req, res) => {
     const resolvedDex = CHAIN_TO_DEXSCREENER[resolvedChain];
     const ckey = `krystal:${resolvedChain}:${nfpm}:${tokenId}`;
     const cached = cacheGet(ckey);
-    if (cached) return respond(cached.tvlUsd, { source: "onchain+dexscreener", cached: true });
+    if (cached && cached.tvlUsd != null) {
+      return respond(cached.tvlUsd, { source: "onchain+dexscreener", cached: true });
+    }
+    // Retry with pair fallback if previous attempt cached null
+    if (cached && cached.tvlUsd == null && pair) {
+      const fb = await tryPairFeeFallback(pair, fee, resolvedDex, platform);
+      if (fb?.tvlUsd != null) {
+        cacheSet(ckey, fb.tvlUsd, fb);
+        return respond(fb.tvlUsd, { ...fb, fallback: true, cached: false });
+      }
+    }
 
     if (!resolvedDex || !CHAIN_TO_RPC[resolvedChain]) {
       return respond(null, { reason: "unsupported chain" });
