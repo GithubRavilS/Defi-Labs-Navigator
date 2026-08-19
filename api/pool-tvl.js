@@ -258,10 +258,10 @@ async function getPositionDataV4(nfpm, tokenId, chainKey) {
     const desc = meta.description || "";
     // Extract all 0x addresses from description (first = PoolManager, then token0, token1)
     const addrs = desc.match(/0x[0-9a-fA-F]{40}/g) || [];
-    if (addrs.length < 3) return null;
+    if (addrs.length < 2) return null;
     return {
-      token0: addrs[1].toLowerCase(),
-      token1: addrs[2].toLowerCase(),
+      token0: addrs[1] ? addrs[1].toLowerCase() : null,
+      token1: addrs[2] ? addrs[2].toLowerCase() : null,
       fee: null,
       isV4: true,
     };
@@ -348,32 +348,36 @@ async function getTvlByPoolAddress(poolAddress, dexChain) {
   return null;
 }
 
-// GeckoTerminal: find top pool TVL for two token addresses
+// GeckoTerminal: find top pool TVL for two token addresses.
+// token1 may be null for V4 ETH-native pairs (address(0) not captured by regex).
 async function getTvlByTokenPair(token0, token1, geckoNet) {
-  if (!geckoNet) return null;
+  if (!geckoNet || !token0) return null;
+  const ETH_KEYWORDS = ["weth", "/eth", "eth/", "wbnb", "wmatic"];
+  const isEthPair = !token1;
   try {
-    // Search pools for token0 first, then filter by token1
     const url = `https://api.geckoterminal.com/api/v2/networks/${geckoNet}/tokens/${token0.toLowerCase()}/pools?page=1`;
     const { status, body } = await httpsGet(url, { timeout: 8000 });
     if (status !== 200) return null;
     const data = JSON.parse(body);
     const pools = data.data || [];
-    // Find pool containing both tokens
+    let bestTvl = null;
     for (const pool of pools) {
-      const rels = pool.relationships || {};
-      const t0addr = (rels.base_token?.data?.id || "").split("_")[1] || "";
-      const t1addr = (rels.quote_token?.data?.id || "").split("_")[1] || "";
-      const has0 =
-        t0addr.toLowerCase() === token0.toLowerCase() ||
-        t1addr.toLowerCase() === token0.toLowerCase();
-      const has1 =
-        t0addr.toLowerCase() === token1.toLowerCase() ||
-        t1addr.toLowerCase() === token1.toLowerCase();
-      if (has0 && has1) {
-        const reserve = parseFloat(pool.attributes?.reserve_in_usd);
-        if (!isNaN(reserve) && reserve > 0) return reserve;
+      const reserve = parseFloat(pool.attributes?.reserve_in_usd);
+      if (isNaN(reserve) || reserve <= 0) continue;
+      if (isEthPair) {
+        const name = (pool.attributes?.name || "").toLowerCase();
+        if (ETH_KEYWORDS.some((k) => name.includes(k))) {
+          if (bestTvl === null || reserve > bestTvl) bestTvl = reserve;
+        }
+      } else {
+        const rels = pool.relationships || {};
+        const t0a = ((rels.base_token?.data?.id || "").split("_")[1] || "").toLowerCase();
+        const t1a = ((rels.quote_token?.data?.id || "").split("_")[1] || "").toLowerCase();
+        const has1 = t0a === token1.toLowerCase() || t1a === token1.toLowerCase();
+        if (has1 && (bestTvl === null || reserve > bestTvl)) bestTvl = reserve;
       }
     }
+    if (bestTvl !== null) return bestTvl;
   } catch {
     /* ignore */
   }
