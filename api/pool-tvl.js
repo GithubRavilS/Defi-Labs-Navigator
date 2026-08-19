@@ -15,6 +15,7 @@
  */
 
 const https = require("https");
+const zlib = require("zlib");
 
 // In-memory cache for DeFiLlama full pool list
 let _cachedPools = null;
@@ -75,11 +76,21 @@ function fetchDeFiLlamaPools() {
   return new Promise((resolve, reject) => {
     const req = https.get(
       "https://yields.llama.fi/pools",
-      { headers: { "Accept-Encoding": "gzip, deflate", Accept: "application/json" } },
+      { headers: { "Accept-Encoding": "gzip, deflate, br", Accept: "application/json" } },
       (res) => {
+        let stream = res;
+        const enc = (res.headers["content-encoding"] || "").toLowerCase();
+        if (enc === "gzip" || enc === "x-gzip") {
+          stream = res.pipe(zlib.createGunzip());
+        } else if (enc === "deflate") {
+          stream = res.pipe(zlib.createInflate());
+        } else if (enc === "br") {
+          stream = res.pipe(zlib.createBrotliDecompress());
+        }
+
         const chunks = [];
-        res.on("data", (d) => chunks.push(d));
-        res.on("end", () => {
+        stream.on("data", (d) => chunks.push(d));
+        stream.on("end", () => {
           try {
             const body = Buffer.concat(chunks).toString("utf8");
             const parsed = JSON.parse(body);
@@ -88,10 +99,11 @@ function fetchDeFiLlamaPools() {
             reject(e);
           }
         });
+        stream.on("error", reject);
       },
     );
     req.on("error", reject);
-    req.setTimeout(20000, () => {
+    req.setTimeout(25000, () => {
       req.destroy();
       reject(new Error("DeFiLlama timeout"));
     });
