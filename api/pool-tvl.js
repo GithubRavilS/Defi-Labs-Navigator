@@ -691,8 +691,10 @@ module.exports = async (req, res) => {
 
     const pairSymbols = parsePairSymbols(pair);
     const poolSymbols = pair ? await getPoolTokenSymbols(poolAddr, dexChain) : null;
-    const overlap =
-      poolSymbols && pairSymbols.length ? countSymbolOverlap(poolSymbols, pairSymbols) : 2;
+    let overlap = 2;
+    if (pairSymbols.length) {
+      overlap = poolSymbols ? countSymbolOverlap(poolSymbols, pairSymbols) : 0;
+    }
 
     if (overlap >= 2) {
       const tvlUsd = await getTvlByPoolAddress(poolAddr, dexChain);
