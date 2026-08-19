@@ -4930,22 +4930,26 @@
       function tvlApiUrl(tool) {
         var chainKey = normalizeChainKey(tool.chain);
         var link = (tool.link || "").trim();
+        var params = [];
 
-        // Revert Finance link or Krystal link → API handles both
         if (link && (link.includes("revert.finance") || link.includes("krystal.app"))) {
-          return "/api/pool-tvl?link=" + encodeURIComponent(link)
-            + "&chain=" + encodeURIComponent(chainKey)
-            + "&platform=" + encodeURIComponent(tool.platform || "");
+          params.push("link=" + encodeURIComponent(link));
+          params.push("chain=" + encodeURIComponent(chainKey));
+          params.push("platform=" + encodeURIComponent(tool.platform || ""));
+          if (tool.pair) params.push("pair=" + encodeURIComponent(tool.pair));
+          if (tool.fee) params.push("fee=" + encodeURIComponent(tool.fee));
+          return "/api/pool-tvl?" + params.join("&");
         }
 
-        // Direct pool address (from desc enrichment)
         var poolAddr = poolAddressFromTool(tool);
         if (poolAddr) {
-          return "/api/pool-tvl?poolAddress=" + encodeURIComponent(poolAddr)
-            + "&chain=" + encodeURIComponent(chainKey);
+          params.push("poolAddress=" + encodeURIComponent(poolAddr));
+          params.push("chain=" + encodeURIComponent(chainKey));
+          if (tool.pair) params.push("pair=" + encodeURIComponent(tool.pair));
+          if (tool.fee) params.push("fee=" + encodeURIComponent(tool.fee));
+          return "/api/pool-tvl?" + params.join("&");
         }
 
-        // Not a LP position link — skip (defillama, beefy, etc.)
         return null;
       }
 

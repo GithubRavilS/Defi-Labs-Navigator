@@ -39,6 +39,8 @@ function tvlUrl(tool) {
     platform: tool.platform || "",
     _: String(Date.now()),
   });
+  if (tool.pair) q.set("pair", tool.pair);
+  if (tool.fee) q.set("fee", tool.fee);
   return `${BASE}/api/pool-tvl?${q}`;
 }
 

@@ -74,7 +74,69 @@ const NFPM_TO_FACTORY = {
   "0x46a15b0b27311cedf172ab29e4f4766fbe7f4364": "0x0bfbcf9fa4f9c56b0f40a671ad40e0805a091865", // bsc+base+mainnet
   // Aerodrome CL (slipstream)
   "0x827922686190790b37229fd06084350e74485b72": "0x5e7bb104d84c7cb9b682aac2f3d509f5f406809a", // base
+  // Aerodrome Concentrated V3
+  "0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53": "0xf8f2eb4940cfe7d13603dddd87f123820fc061ef", // base
 };
+
+const SYMBOL_ALIASES = {
+  ETH: ["ETH", "WETH"],
+  WETH: ["ETH", "WETH"],
+  BTC: ["BTC", "WBTC", "CBBTC", "cbBTC"],
+  WBTC: ["BTC", "WBTC", "CBBTC", "cbBTC"],
+  CBBTC: ["BTC", "WBTC", "CBBTC", "cbBTC"],
+  USDT: ["USDT", "USDT0", "USDT_0"],
+  USDT0: ["USDT", "USDT0", "USDT_0"],
+  "USD\u20AE0": ["USDT", "USDT0", "USD\u20AE0"],
+};
+
+function parseFeePercent(feeStr) {
+  if (!feeStr) return null;
+  const m = String(feeStr)
+    .replace(",", ".")
+    .match(/([\d.]+)/);
+  return m ? parseFloat(m[1]) : null;
+}
+
+function parsePairSymbols(pairStr) {
+  return (pairStr || "")
+    .split(/[\/\-]/)
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean);
+}
+
+function symbolVariants(sym) {
+  let u = (sym || "").toUpperCase();
+  if (u === "USD\u20AE0") u = "USDT0";
+  return SYMBOL_ALIASES[u] || [u];
+}
+
+function pairNameMatchesSymbols(name, symbols) {
+  const n = (name || "").toUpperCase();
+  return symbols.every((sym) => symbolVariants(sym).some((v) => n.includes(v)));
+}
+
+function extractFeeFromName(name) {
+  const m = (name || "").replace(",", ".").match(/([\d.]+)\s*%/);
+  return m ? parseFloat(m[1]) : null;
+}
+
+function platformToDexIds(platform) {
+  const p = (platform || "").toLowerCase().replace(/\s+/g, "");
+  if (p.includes("aerodrome")) return ["aerodrome"];
+  if (p.includes("pancake")) return ["pancakeswap"];
+  if (p.includes("uniswap")) return ["uniswap"];
+  return null;
+}
+
+function isAerodromePlatform(platform, nfpm) {
+  const p = (platform || "").toLowerCase();
+  if (p.includes("aerodrome")) return true;
+  const n = (nfpm || "").toLowerCase();
+  return (
+    n === "0x827922686190790b37229fd06084350e74485b72" ||
+    n === "0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53"
+  );
+}
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
@@ -155,7 +217,9 @@ const CACHE_TTL_MS = 8 * 60 * 1000;
 
 function cacheGet(key) {
   const v = _cache.get(key);
-  return v && Date.now() - v.ts < CACHE_TTL_MS ? v : null;
+  if (!v) return null;
+  const ttl = v.tvlUsd == null ? 90 * 1000 : CACHE_TTL_MS;
+  return Date.now() - v.ts < ttl ? v : null;
 }
 function cacheSet(key, tvlUsd, extra = {}) {
   _cache.set(key, { tvlUsd, ts: Date.now(), ...extra });
@@ -256,14 +320,15 @@ async function getPositionDataV4(nfpm, tokenId, chainKey) {
     if (!uri || !uri.includes("base64,")) return null;
     const meta = JSON.parse(Buffer.from(uri.split("base64,")[1], "base64").toString("utf8"));
     const desc = meta.description || "";
-    // Extract all 0x addresses from description (first = PoolManager, then token0, token1)
     const addrs = desc.match(/0x[0-9a-fA-F]{40}/g) || [];
     if (addrs.length < 2) return null;
+    const feeFromName = extractFeeFromName(meta.name || "");
     return {
       token0: addrs[1] ? addrs[1].toLowerCase() : null,
       token1: addrs[2] ? addrs[2].toLowerCase() : null,
-      fee: null,
+      fee: feeFromName,
       isV4: true,
+      pairName: meta.name || "",
     };
   } catch {
     return null;
@@ -384,6 +449,135 @@ async function getTvlByTokenPair(token0, token1, geckoNet) {
   return null;
 }
 
+async function getDexIdForPool(poolAddress, dexChain) {
+  try {
+    const { status, body } = await httpsGet(
+      `https://api.dexscreener.com/latest/dex/pairs/${dexChain}/${poolAddress.toLowerCase()}`,
+      { timeout: 6000 },
+    );
+    if (status !== 200) return null;
+    const data = JSON.parse(body);
+    const pairs = data.pairs || (data.pair ? [data.pair] : []);
+    const pair = pairs[0];
+    return pair?.dexId || null;
+  } catch {
+    return null;
+  }
+}
+
+function pickBestPoolCandidate(candidates, feePct, dexIds, isV4) {
+  if (!candidates.length) return null;
+  let pool = candidates;
+
+  if (feePct != null) {
+    const exact = pool.filter((c) => c.fee != null && Math.abs(c.fee - feePct) < 0.02);
+    if (exact.length) pool = exact;
+    else {
+      const close = pool.filter((c) => c.fee != null && Math.abs(c.fee - feePct) < 0.15);
+      if (close.length) pool = close;
+    }
+  }
+
+  if (dexIds && dexIds.length) {
+    const dexMatch = pool.filter((c) => c.dexId && dexIds.includes(c.dexId));
+    if (dexMatch.length) pool = dexMatch;
+  }
+
+  if (isV4) {
+    const v4 = pool.filter((c) => c.isV4);
+    if (v4.length) pool = v4;
+  } else {
+    const nonV4 = pool.filter((c) => !c.isV4);
+    if (nonV4.length) pool = nonV4;
+  }
+
+  pool.sort((a, b) => b.tvl - a.tvl);
+  return pool[0] || null;
+}
+
+// Universal fallback: search by pair + fee + chain + platform
+async function getTvlByPairFeeSearch(pair, fee, dexChain, platform) {
+  const symbols = parsePairSymbols(pair);
+  const feePct = parseFeePercent(fee);
+  if (symbols.length < 2 || !dexChain) return null;
+
+  const geckoNet = CHAIN_TO_GECKO[dexChain];
+  const dexIds = platformToDexIds(platform);
+  const isV4 = (platform || "").toLowerCase().includes("v4");
+  const candidates = [];
+
+  // GeckoTerminal pool search (best for fee-tier names)
+  if (geckoNet) {
+    try {
+      const q = encodeURIComponent(symbols.join(" "));
+      const { status, body } = await httpsGet(
+        `https://api.geckoterminal.com/api/v2/search/pools?query=${q}&network=${geckoNet}`,
+        { timeout: 9000 },
+      );
+      if (status === 200) {
+        for (const pool of JSON.parse(body).data || []) {
+          const name = pool.attributes?.name || "";
+          if (!pairNameMatchesSymbols(name, symbols)) continue;
+          const reserve = parseFloat(pool.attributes?.reserve_in_usd);
+          if (isNaN(reserve) || reserve <= 0) continue;
+          const addr = (pool.attributes?.address || "").toLowerCase();
+          let dexId = null;
+          if (addr && dexIds) dexId = await getDexIdForPool(addr, dexChain);
+          candidates.push({
+            tvl: reserve,
+            fee: extractFeeFromName(name),
+            dexId,
+            isV4: false,
+            source: "gecko-pair-search",
+            poolAddress: addr,
+          });
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // DexScreener search
+  try {
+    const q = encodeURIComponent(symbols.join(" "));
+    const { status, body } = await httpsGet(
+      `https://api.dexscreener.com/latest/dex/search?q=${q}`,
+      { timeout: 9000 },
+    );
+    if (status === 200) {
+      for (const p of JSON.parse(body).pairs || []) {
+        if (p.chainId !== dexChain) continue;
+        const base = (p.baseToken?.symbol || "").toUpperCase();
+        const quote = (p.quoteToken?.symbol || "").toUpperCase();
+        if (!pairNameMatchesSymbols(`${base} / ${quote}`, symbols)) continue;
+        const tvl = p.liquidity?.usd;
+        if (tvl == null || tvl <= 0) continue;
+        const labels = p.labels || [];
+        candidates.push({
+          tvl,
+          fee: extractFeeFromName(p.pairName || `${base}/${quote}`) || null,
+          dexId: p.dexId || null,
+          isV4: labels.includes("v4"),
+          source: "dexscreener-pair-search",
+          poolAddress: (p.pairAddress || "").toLowerCase(),
+        });
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const best = pickBestPoolCandidate(candidates, feePct, dexIds, isV4);
+  if (!best) return null;
+  return { tvlUsd: best.tvl, source: best.source, poolAddress: best.poolAddress };
+}
+
+async function tryPairFeeFallback(pair, fee, dexChain, platform) {
+  if (!pair) return null;
+  return getTvlByPairFeeSearch(pair, fee, dexChain, platform);
+}
+
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
 module.exports = async (req, res) => {
@@ -394,13 +588,32 @@ module.exports = async (req, res) => {
   }
   if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
 
-  const { link = "", poolAddress = "", chain = "", platform = "" } = req.query || {};
+  const {
+    link = "",
+    poolAddress = "",
+    chain = "",
+    platform = "",
+    pair = "",
+    fee = "",
+  } = req.query || {};
   const chainKey = normalizeChain(chain);
   const dexChain = CHAIN_TO_DEXSCREENER[chainKey];
 
   const respond = (tvlUsd, extra = {}) => {
     res.setHeader("Cache-Control", "public, max-age=300, s-maxage=480");
     return res.status(200).json({ found: tvlUsd != null, tvlUsd, ...extra });
+  };
+
+  const finish = async (ckey, tvlUsd, extra = {}) => {
+    if (tvlUsd == null && pair) {
+      const fb = await tryPairFeeFallback(pair, fee, dexChain, platform);
+      if (fb?.tvlUsd != null) {
+        if (ckey) cacheSet(ckey, fb.tvlUsd, fb);
+        return respond(fb.tvlUsd, { ...fb, fallback: true });
+      }
+    }
+    if (ckey) cacheSet(ckey, tvlUsd, extra);
+    return respond(tvlUsd, extra);
   };
 
   // ── Path A: direct pool address ────────────────────────────────────────────
@@ -431,12 +644,10 @@ module.exports = async (req, res) => {
 
     const poolAddr = await getPoolAddressFromRevert(nftId, revertNetwork, revertProtocol);
     if (!poolAddr) {
-      cacheSet(ckey, null);
-      return respond(null, { reason: "not found in revert" });
+      return finish(ckey, null, { reason: "not found in revert" });
     }
     const tvlUsd = await getTvlByPoolAddress(poolAddr, dexChain);
-    cacheSet(ckey, tvlUsd, { poolAddress: poolAddr });
-    return respond(tvlUsd, { source: "revert+gecko", poolAddress: poolAddr });
+    return finish(ckey, tvlUsd, { source: "revert+gecko", poolAddress: poolAddr });
   }
 
   // ── Path C: Krystal link → on-chain NFPM → Factory → DexScreener ──────────
@@ -455,86 +666,83 @@ module.exports = async (req, res) => {
       return respond(null, { reason: "unsupported chain" });
     }
 
-    // Uniswap V4 PositionManagers — positions() reverts; use tokenURI to get token addresses
     const isV4Nfpm = platform.toLowerCase().includes("v4");
     if (isV4Nfpm) {
       const posV4 = await getPositionDataV4(nfpm, tokenId, resolvedChain);
       if (!posV4) {
-        cacheSet(ckey, null);
-        return respond(null, { reason: "v4 tokenuri lookup failed" });
+        return finish(ckey, null, { reason: "v4 tokenuri lookup failed" });
       }
       const geckoNet = CHAIN_TO_GECKO[resolvedDex];
-      const tvlUsd = await getTvlByTokenPair(posV4.token0, posV4.token1, geckoNet);
-      cacheSet(ckey, tvlUsd);
-      return respond(tvlUsd, { source: "v4+gecko" });
+      let tvlUsd = await getTvlByTokenPair(posV4.token0, posV4.token1, geckoNet);
+      if (tvlUsd == null) {
+        const fb = await getTvlByPairFeeSearch(
+          pair || posV4.pairName,
+          fee || (posV4.fee != null ? `${posV4.fee}%` : ""),
+          resolvedDex,
+          platform,
+        );
+        if (fb?.tvlUsd != null) return finish(ckey, fb.tvlUsd, fb);
+      }
+      return finish(ckey, tvlUsd, { source: "v4+gecko" });
     }
 
-    // Step 1: get token0, token1, fee from NFPM (V3-style)
+    // Step 1: get token0, token1, fee/tickSpacing from NFPM (V3-style)
     let pos = await getPositionData(nfpm, tokenId, resolvedChain);
+    const isAero = isAerodromePlatform(platform, nfpm);
 
-    // If positions() reverts (e.g. Aerodrome CL uses tickSpacing not fee),
-    // fall back to tokenURI → GeckoTerminal by token pair
     if (!pos) {
       const posV4 = await getPositionDataV4(nfpm, tokenId, resolvedChain);
       if (posV4) {
         const geckoNet = CHAIN_TO_GECKO[resolvedDex];
         const tvlUsd = await getTvlByTokenPair(posV4.token0, posV4.token1, geckoNet);
-        cacheSet(ckey, tvlUsd);
-        return respond(tvlUsd, { source: "tokenuri+gecko" });
+        return finish(ckey, tvlUsd, { source: "tokenuri+gecko" });
       }
-      cacheSet(ckey, null);
-      return respond(null, { reason: "nfpm lookup failed" });
+      return finish(ckey, null, { reason: "nfpm lookup failed" });
     }
 
-    // Step 2: find the factory for this NFPM
     const factory = NFPM_TO_FACTORY[nfpm.toLowerCase()];
-    if (!factory) {
+    let resolvedFactory = factory;
+    if (!resolvedFactory) {
       const factoryResult = await ethCall(resolvedChain, nfpm, "0xc45a0155");
-      const fallbackFactory = factoryResult ? "0x" + factoryResult.slice(-40) : null;
-      if (!fallbackFactory || fallbackFactory === "0x0000000000000000000000000000000000000000") {
-        cacheSet(ckey, null);
-        return respond(null, { reason: "unknown nfpm factory" });
+      resolvedFactory = factoryResult ? "0x" + factoryResult.slice(-40) : null;
+      if (!resolvedFactory || resolvedFactory === "0x0000000000000000000000000000000000000000") {
+        return finish(ckey, null, { reason: "unknown nfpm factory" });
       }
-      const poolAddr = await getPoolFromFactory(
-        fallbackFactory,
-        pos.token0,
-        pos.token1,
-        pos.fee,
-        resolvedChain,
-      );
-      if (!poolAddr) {
-        cacheSet(ckey, null);
-        return respond(null, { reason: "pool not found in factory" });
-      }
-      const tvlUsd = await getTvlByPoolAddress(poolAddr, resolvedDex);
-      cacheSet(ckey, tvlUsd, { poolAddress: poolAddr });
-      return respond(tvlUsd, {
-        source: "onchain+dexscreener",
-        poolAddress: poolAddr,
-        feeBps: pos.fee,
-      });
     }
 
-    // Step 3: Factory.getPool(token0, token1, fee) → exact pool address
-    const poolAddr = await getPoolFromFactory(
-      factory,
+    // Aerodrome uses tickSpacing (field4), not Uniswap fee tiers
+    const spacingOrFee = pos.fee;
+    let poolAddr = await getPoolFromFactory(
+      resolvedFactory,
       pos.token0,
       pos.token1,
-      pos.fee,
+      spacingOrFee,
       resolvedChain,
     );
-    if (!poolAddr) {
-      cacheSet(ckey, null);
-      return respond(null, { reason: "pool not found in factory" });
+
+    // Brute-force common Aerodrome tick spacings if first attempt fails
+    if (!poolAddr && isAero) {
+      for (const ts of [1, 10, 50, 100, 200, 2000, spacingOrFee]) {
+        poolAddr = await getPoolFromFactory(
+          resolvedFactory,
+          pos.token0,
+          pos.token1,
+          ts,
+          resolvedChain,
+        );
+        if (poolAddr) break;
+      }
     }
 
-    // Step 4: DexScreener + GeckoTerminal fallback by exact pool address
+    if (!poolAddr) {
+      return finish(ckey, null, { reason: "pool not found in factory" });
+    }
+
     const tvlUsd = await getTvlByPoolAddress(poolAddr, resolvedDex);
-    cacheSet(ckey, tvlUsd, { poolAddress: poolAddr });
-    return respond(tvlUsd, {
-      source: "onchain+dexscreener",
+    return finish(ckey, tvlUsd, {
+      source: "onchain+gecko",
       poolAddress: poolAddr,
-      feeBps: pos.fee,
+      feeBps: spacingOrFee,
     });
   }
 
