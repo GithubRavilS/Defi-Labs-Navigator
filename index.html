@@ -4907,14 +4907,19 @@
       function tvlKeyForTool(tool) {
         var chainKey = normalizeChainKey(tool.chain);
         var link = (tool.link || "").trim();
-        // Key by link (most unique) or by pair+fee+chain
+        // Revert: #/uniswap-position/mainnet/1305328 or #/uniswap-position/1305328
         if (link && link.includes("revert.finance")) {
-          var nm = link.match(/position\/(\d+)/);
-          return nm ? "revert:" + chainKey + ":" + nm[1] : null;
+          var rm = link.match(/position\/(?:[a-z]+\/)?(\d+)/i);
+          return rm ? "revert:" + chainKey + ":" + rm[1] : null;
+        }
+        // Krystal: /positions/8453/0xNFPM-tokenId
+        if (link && link.includes("krystal.app")) {
+          var km = link.match(/krystal\.app\/positions\/(\d+)\/(0x[0-9a-fA-F]{40})-(\d+)/i);
+          if (km) return "krystal:" + km[1] + ":" + km[2].toLowerCase() + ":" + km[3];
         }
         var poolAddr = poolAddressFromTool(tool);
         if (poolAddr) return "pool:" + chainKey + ":" + poolAddr.toLowerCase();
-        // Fallback: pair+fee+chain (unique enough per category)
+        // Fallback: pair+fee+chain (less precise — multiple positions may share key)
         var pair = (tool.pair || "").trim();
         var parts = pair.split(/[\/\-]/).map(function(s){ return s.trim().toUpperCase(); }).filter(Boolean);
         if (parts.length < 2) return null;
@@ -4991,7 +4996,12 @@
         var cached = _tvlCache[key];
         var now = Date.now();
         if (cached && now - cached.ts < TVL_CACHE_TTL) {
-          if (cached.tvlUsd == null) return "";
+          if (cached.tvlUsd == null) {
+            return '<span class="pool-tvl-badge pool-tvl-badge--na" data-tvl-key="' + escapeHtml(key) + '">'
+              + '<span class="tvl-label">TVL</span>'
+              + '<span class="tvl-value">—</span>'
+              + '</span>';
+          }
           var fmt = formatTvl(cached.tvlUsd);
           if (!fmt) return "";
           return '<span class="pool-tvl-badge" data-tvl-key="' + escapeHtml(key) + '">'
