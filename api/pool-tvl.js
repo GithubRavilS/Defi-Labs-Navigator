@@ -4,7 +4,7 @@
  * Returns the EXACT TVL of a liquidity pool position.
  *
  * Resolution pipeline:
- *   A. revert.finance link  → Revert API → pool address → DexScreener
+ *   A. revert.finance link  → Revert API /positions/{net}/{proto}/{id} → exact pool TVL
  *   B. krystal link         → NFPM.positions() on-chain → token0+token1+fee
  *                             → Factory.getPool() on-chain → exact pool address
  *                             → DexScreener by pool address → exact TVL
@@ -38,6 +38,15 @@ const CHAIN_TO_RPC = {
   arbitrum: ["https://arb1.arbitrum.io/rpc", "https://arbitrum.publicnode.com"],
   optimism: ["https://mainnet.optimism.io", "https://optimism.publicnode.com"],
   polygon: ["https://polygon-rpc.com", "https://polygon.publicnode.com"],
+};
+
+// Uniswap V3 NFPM per chain (for on-chain fallback when Revert API fails)
+const CHAIN_TO_UNISWAP_V3_NFPM = {
+  mainnet: "0xc36442b4a4522e871399cd717abdd847ab11fe88",
+  optimism: "0xc36442b4a4522e871399cd717abdd847ab11fe88",
+  bsc: "0x7b8a01b39d58278b5de7e48c8449c9f4f5170613",
+  base: "0x03a520b32c04bf3beef7bef1b5e31f91fe8f31d8",
+  arbitrum: "0x91ae842a5ffd8d12023116943e72a606179294f3",
 };
 
 // Krystal chain ID → our chain key
@@ -152,12 +161,16 @@ function isAerodromePlatform(platform, nfpm) {
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
-function httpsGet(url, { timeout = 12000 } = {}) {
+function httpsGet(url, { timeout = 12000, headers: extraHeaders = {} } = {}) {
   return new Promise((resolve, reject) => {
     const req = https.get(
       url,
       {
-        headers: { "User-Agent": "defilabs-navigator/3.0", Accept: "application/json" },
+        headers: {
+          "User-Agent": "defilabs-navigator/3.0",
+          Accept: "application/json",
+          ...extraHeaders,
+        },
       },
       (res) => {
         let stream = res;
@@ -267,6 +280,12 @@ function parseKrystalLink(link) {
 
 // ─── Revert Finance ───────────────────────────────────────────────────────────
 
+function pairFromV4Meta(pairName) {
+  const m = (pairName || "").match(/-\s*([\w₮.]+)\/([\w₮.]+)\s*-/i);
+  if (m) return `${m[1]}/${m[2]}`;
+  return pairName || "";
+}
+
 function platformToRevertProtocol(platform) {
   const p = (platform || "").toLowerCase().replace(/\s+/g, "");
   if (p.includes("uniswap") && p.includes("4")) return "uniswapv4";
@@ -275,17 +294,40 @@ function platformToRevertProtocol(platform) {
   return "uniswapv3";
 }
 
-async function getPoolAddressFromRevert(nftId, network, protocol) {
-  const url = `https://api.revert.finance/v1/positions?positionId=${nftId}&network=${network}&protocol=${protocol}`;
+async function getRevertPosition(nftId, network, protocol) {
+  const url = `https://api.revert.finance/v1/positions/${network}/${protocol}/${nftId}`;
   try {
-    const { status, body } = await httpsGet(url, { timeout: 12000 });
+    const { status, body } = await httpsGet(url, {
+      timeout: 12000,
+      headers: {
+        Origin: "https://revert.finance",
+        Referer: "https://revert.finance/",
+      },
+    });
     if (status !== 200) return null;
     const resp = JSON.parse(body);
-    const pos = Array.isArray(resp.data) ? resp.data[0] : resp.data || resp;
-    return (pos && pos.pool) || null;
+    const pos = resp.data;
+    if (!pos?.pool) return null;
+    const symbols = Object.values(pos.tokens || {})
+      .map((t) => (t.symbol || "").toUpperCase())
+      .filter(Boolean);
+    const feeTier = pos.fee_tier != null ? parseInt(pos.fee_tier, 10) / 10000 : null;
+    return { pool: pos.pool, symbols, feeTier };
   } catch {
     return null;
   }
+}
+
+async function resolvePoolOnChain(nftId, chainKey, protocol) {
+  if ((protocol || "").includes("v4")) return null;
+  const nfpm = CHAIN_TO_UNISWAP_V3_NFPM[chainKey];
+  if (!nfpm || !CHAIN_TO_RPC[chainKey]) return null;
+  const pos = await getPositionData(nfpm, nftId, chainKey);
+  if (!pos) return null;
+  const factory = NFPM_TO_FACTORY[nfpm.toLowerCase()];
+  if (!factory) return null;
+  const pool = await getPoolFromFactory(factory, pos.token0, pos.token1, pos.fee, chainKey);
+  return pool ? { pool, feeTier: pos.fee / 10000 } : null;
 }
 
 // ─── On-chain RPC calls ───────────────────────────────────────────────────────
@@ -509,7 +551,11 @@ function pickBestPoolCandidate(candidates, feePct, dexIds, isV4) {
   if (feePct != null) {
     const exact = pool.filter((c) => c.fee != null && Math.abs(c.fee - feePct) < 0.015);
     if (exact.length) pool = exact;
-    else return null;
+    else if (isV4) {
+      const close = pool.filter((c) => c.fee != null && Math.abs(c.fee - feePct) < 0.02);
+      if (close.length) pool = close;
+      else return null;
+    } else return null;
   }
 
   if (dexIds && dexIds.length) {
@@ -555,13 +601,11 @@ async function getTvlByPairFeeSearch(pair, fee, dexChain, platform) {
           const reserve = parseFloat(pool.attributes?.reserve_in_usd);
           if (isNaN(reserve) || reserve <= 0) continue;
           const addr = (pool.attributes?.address || "").toLowerCase();
-          let dexId = null;
-          if (addr && dexIds) dexId = await getDexIdForPool(addr, dexChain);
           candidates.push({
             tvl: reserve,
             fee: extractFeeFromName(name),
-            dexId,
-            isV4: false,
+            dexId: null,
+            isV4: /v4/i.test(name),
             source: "gecko-pair-search",
             poolAddress: addr,
           });
@@ -680,21 +724,45 @@ module.exports = async (req, res) => {
     const { network: linkNetwork, nftId } = parsed;
     const revertNetwork = linkNetwork || CHAIN_TO_REVERT[chainKey] || chainKey;
     const revertProtocol = platformToRevertProtocol(platform);
-    const ckey = `v2:revert:${revertNetwork}:${revertProtocol}:${nftId}`;
+    const ckey = `v3:revert:${revertNetwork}:${revertProtocol}:${nftId}`;
     const cached = cacheGet(ckey);
     if (cached && cached.tvlUsd != null) {
-      return respond(cached.tvlUsd, { source: "revert+dexscreener", cached: true });
+      return respond(cached.tvlUsd, { source: cached.source || "revert+gecko", cached: true });
     }
 
     if (!dexChain) return respond(null, { reason: "unsupported chain" });
 
-    const poolAddr = await getPoolAddressFromRevert(nftId, revertNetwork, revertProtocol);
-    if (!poolAddr) {
-      return finishWithPairFallback(ckey, { reason: "not found in revert" });
+    const rev = await getRevertPosition(nftId, revertNetwork, revertProtocol);
+    const isV4 = revertProtocol.includes("v4");
+
+    if (rev) {
+      if (isV4 || rev.pool.length > 42) {
+        const pairStr = pair || rev.symbols.slice(0, 2).join("/");
+        const feeStr =
+          fee || (rev.feeTier != null ? `${rev.feeTier}%`.replace(/(\.\d*?)0+%/, "$1%") : "");
+        const fb = await getTvlByPairFeeSearch(pairStr, feeStr, dexChain, platform || "uniswap v4");
+        if (fb?.tvlUsd != null) {
+          cacheSet(ckey, fb.tvlUsd, fb);
+          return respond(fb.tvlUsd, fb);
+        }
+        return finishWithPairFallback(ckey, { reason: "v4 pool not found" });
+      }
+
+      const pairSymbols = parsePairSymbols(pair);
+      const overlap = pairSymbols.length ? countSymbolOverlap(rev.symbols, pairSymbols) : 2;
+      if (overlap > 0) {
+        const tvlUsd = await getTvlByPoolAddress(rev.pool, dexChain);
+        return respondExact(ckey, tvlUsd, rev.pool, "revert+gecko");
+      }
     }
 
-    const tvlUsd = await getTvlByPoolAddress(poolAddr, dexChain);
-    return respondExact(ckey, tvlUsd, poolAddr, "revert+gecko");
+    const onchain = await resolvePoolOnChain(nftId, chainKey, revertProtocol);
+    if (onchain) {
+      const tvlUsd = await getTvlByPoolAddress(onchain.pool, dexChain);
+      return respondExact(ckey, tvlUsd, onchain.pool, "onchain+gecko");
+    }
+
+    return finishWithPairFallback(ckey, { reason: "revert position not found" });
   }
 
   // ── Path C: Krystal link → on-chain NFPM → Factory → DexScreener ──────────
@@ -705,7 +773,7 @@ module.exports = async (req, res) => {
     const { chainId, nfpm, tokenId } = parsed;
     const resolvedChain = CHAIN_ID_TO_KEY[chainId] || chainKey;
     const resolvedDex = CHAIN_TO_DEXSCREENER[resolvedChain];
-    const ckey = `v2:krystal:${resolvedChain}:${nfpm}:${tokenId}`;
+    const ckey = `v3:krystal:${resolvedChain}:${nfpm}:${tokenId}`;
     const cached = cacheGet(ckey);
     if (cached && cached.tvlUsd != null) {
       return respond(cached.tvlUsd, { source: "onchain+dexscreener", cached: true });
@@ -726,16 +794,20 @@ module.exports = async (req, res) => {
     const isV4Nfpm = platform.toLowerCase().includes("v4");
     if (isV4Nfpm) {
       const posV4 = await getPositionDataV4(nfpm, tokenId, resolvedChain);
-      const feeStr = fee || (posV4?.fee != null ? `${posV4.fee}%` : "");
-      const fb = await getTvlByPairFeeSearch(
-        pair || posV4?.pairName || "",
-        feeStr,
-        resolvedDex,
-        platform,
-      );
+      const feeStr = posV4?.fee != null ? `${posV4.fee}%` : fee || "";
+      const searchPair = pair || pairFromV4Meta(posV4?.pairName) || "";
+      const fb = await getTvlByPairFeeSearch(searchPair, feeStr, resolvedDex, platform);
       if (fb?.tvlUsd != null) {
         if (ckey) cacheSet(ckey, fb.tvlUsd, fb);
         return respond(fb.tvlUsd, fb);
+      }
+      // V4 pools often share fee tier with V3 on indexers — retry with sheet fee
+      if (feeStr !== fee && fee) {
+        const fb2 = await getTvlByPairFeeSearch(searchPair, fee, resolvedDex, platform);
+        if (fb2?.tvlUsd != null) {
+          if (ckey) cacheSet(ckey, fb2.tvlUsd, fb2);
+          return respond(fb2.tvlUsd, fb2);
+        }
       }
       return finishWithPairFallback(ckey, { reason: "v4 pool not found" });
     }
