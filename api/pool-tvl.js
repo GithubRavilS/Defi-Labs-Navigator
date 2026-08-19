@@ -507,13 +507,9 @@ function pickBestPoolCandidate(candidates, feePct, dexIds, isV4) {
   let pool = candidates;
 
   if (feePct != null) {
-    const exact = pool.filter((c) => c.fee != null && Math.abs(c.fee - feePct) < 0.02);
+    const exact = pool.filter((c) => c.fee != null && Math.abs(c.fee - feePct) < 0.015);
     if (exact.length) pool = exact;
-    else {
-      const close = pool.filter((c) => c.fee != null && Math.abs(c.fee - feePct) < 0.08);
-      if (close.length) pool = close;
-      else return null; // never pick a different fee tier
-    }
+    else return null;
   }
 
   if (dexIds && dexIds.length) {
@@ -709,7 +705,7 @@ module.exports = async (req, res) => {
     const { chainId, nfpm, tokenId } = parsed;
     const resolvedChain = CHAIN_ID_TO_KEY[chainId] || chainKey;
     const resolvedDex = CHAIN_TO_DEXSCREENER[resolvedChain];
-    const ckey = `krystal:${resolvedChain}:${nfpm}:${tokenId}`;
+    const ckey = `v2:krystal:${resolvedChain}:${nfpm}:${tokenId}`;
     const cached = cacheGet(ckey);
     if (cached && cached.tvlUsd != null) {
       return respond(cached.tvlUsd, { source: "onchain+dexscreener", cached: true });
