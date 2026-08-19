@@ -198,7 +198,7 @@ function httpsGet(url, { timeout = 12000, headers: extraHeaders = {} } = {}) {
   });
 }
 
-function httpsPost(url, body, { timeout = 10000 } = {}) {
+function httpsPost(url, body, { timeout = 10000, headers: extraHeaders = {} } = {}) {
   return new Promise((resolve, reject) => {
     const bodyBuf = Buffer.from(JSON.stringify(body));
     const urlObj = new URL(url);
@@ -211,6 +211,7 @@ function httpsPost(url, body, { timeout = 10000 } = {}) {
         "Content-Type": "application/json",
         "Content-Length": bodyBuf.length,
         "User-Agent": "defilabs-navigator/3.0",
+        ...extraHeaders,
       },
     };
     const req = https.request(options, (res) => {
@@ -656,6 +657,68 @@ async function tryPairFeeFallback(pair, fee, dexChain, platform) {
   return getTvlByPairFeeSearch(pair, fee, dexChain, platform);
 }
 
+// ─── Uniswap V4 (official app gateway — same source as app.uniswap.org) ───────
+
+const UNISWAP_GQL_URL = "https://interface.gateway.uniswap.org/v1/graphql";
+
+const CHAIN_TO_UNISWAP_GQL = {
+  mainnet: "ETHEREUM",
+  ethereum: "ETHEREUM",
+  base: "BASE",
+  arbitrum: "ARBITRUM",
+  optimism: "OPTIMISM",
+  polygon: "POLYGON",
+  bsc: "BNB",
+};
+
+function isUniswapV4Platform(platform) {
+  const p = (platform || "").toLowerCase().replace(/\s+/g, "");
+  return p.includes("uniswap") && p.includes("v4");
+}
+
+async function uniswapGql(query, variables = {}) {
+  try {
+    const { status, body } = await httpsPost(
+      UNISWAP_GQL_URL,
+      { query, variables },
+      {
+        timeout: 12000,
+        headers: {
+          Origin: "https://app.uniswap.org",
+          Referer: "https://app.uniswap.org/",
+        },
+      },
+    );
+    if (status !== 200) return null;
+    const parsed = JSON.parse(body);
+    if (parsed.errors?.length) return null;
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+async function getTvlFromUniswapV4Pool(poolId, chainKey) {
+  const gqlChain = CHAIN_TO_UNISWAP_GQL[chainKey];
+  if (!gqlChain || !poolId) return null;
+  const data = await uniswapGql(
+    `query V4PoolTvl($chain: Chain!, $poolId: String!) {
+      v4Pool(chain: $chain, poolId: $poolId) {
+        totalLiquidity { value }
+      }
+    }`,
+    { chain: gqlChain, poolId: poolId.toLowerCase() },
+  );
+  const val = parseFloat(data?.v4Pool?.totalLiquidity?.value);
+  return !isNaN(val) && val > 0 ? val : null;
+}
+
+async function resolveUniswapV4PoolId(nftId, chainKey) {
+  const revertNetwork = CHAIN_TO_REVERT[chainKey] || chainKey;
+  const rev = await getRevertPosition(nftId, revertNetwork, "uniswapv4");
+  return rev?.pool || null;
+}
+
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
 module.exports = async (req, res) => {
@@ -737,15 +800,13 @@ module.exports = async (req, res) => {
 
     if (rev) {
       if (isV4 || rev.pool.length > 42) {
-        const pairStr = pair || rev.symbols.slice(0, 2).join("/");
-        const feeStr =
-          fee || (rev.feeTier != null ? `${rev.feeTier}%`.replace(/(\.\d*?)0+%/, "$1%") : "");
-        const fb = await getTvlByPairFeeSearch(pairStr, feeStr, dexChain, platform || "uniswap v4");
-        if (fb?.tvlUsd != null) {
-          cacheSet(ckey, fb.tvlUsd, fb);
-          return respond(fb.tvlUsd, fb);
+        const uniCkey = `v4:uni:revert:${revertNetwork}:${nftId}`;
+        const tvlUsd = await getTvlFromUniswapV4Pool(rev.pool, chainKey);
+        if (tvlUsd != null) {
+          return respondExact(uniCkey, tvlUsd, rev.pool, "uniswap-v4-gateway");
         }
-        return finishWithPairFallback(ckey, { reason: "v4 pool not found" });
+        if (ckey) cacheSet(ckey, null, { reason: "uniswap v4 pool not found" });
+        return respond(null, { reason: "uniswap v4 pool not found", poolId: rev.pool });
       }
 
       const pairSymbols = parsePairSymbols(pair);
@@ -791,6 +852,27 @@ module.exports = async (req, res) => {
       return respond(null, { reason: "unsupported chain" });
     }
 
+    if (isUniswapV4Platform(platform)) {
+      const uniCkey = `v4:uni:krystal:${resolvedChain}:${tokenId}`;
+      const cachedUni = cacheGet(uniCkey);
+      if (cachedUni && cachedUni.tvlUsd != null) {
+        return respond(cachedUni.tvlUsd, {
+          source: "uniswap-v4-gateway",
+          cached: true,
+          poolAddress: cachedUni.poolAddress,
+        });
+      }
+      const poolId = await resolveUniswapV4PoolId(tokenId, resolvedChain);
+      if (poolId) {
+        const tvlUsd = await getTvlFromUniswapV4Pool(poolId, resolvedChain);
+        if (tvlUsd != null) {
+          return respondExact(uniCkey, tvlUsd, poolId, "uniswap-v4-gateway");
+        }
+      }
+      if (ckey) cacheSet(ckey, null, { reason: "uniswap v4 pool not found" });
+      return respond(null, { reason: "uniswap v4 pool not found" });
+    }
+
     const isV4Nfpm = platform.toLowerCase().includes("v4");
     if (isV4Nfpm) {
       const posV4 = await getPositionDataV4(nfpm, tokenId, resolvedChain);
@@ -801,7 +883,6 @@ module.exports = async (req, res) => {
         if (ckey) cacheSet(ckey, fb.tvlUsd, fb);
         return respond(fb.tvlUsd, fb);
       }
-      // V4 pools often share fee tier with V3 on indexers — retry with sheet fee
       if (feeStr !== fee && fee) {
         const fb2 = await getTvlByPairFeeSearch(searchPair, fee, resolvedDex, platform);
         if (fb2?.tvlUsd != null) {
