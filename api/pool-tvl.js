@@ -113,8 +113,18 @@ function symbolVariants(sym) {
 }
 
 function pairNameMatchesSymbols(name, symbols) {
-  const n = (name || "").toUpperCase();
-  return symbols.every((sym) => symbolVariants(sym).some((v) => n.includes(v)));
+  const raw = (name || "").toUpperCase();
+  // Only accept simple two-token pool names like "WETH / USDC 0.05%"
+  const beforeFee = raw.split(/\d+\.?\d*\s*%/)[0];
+  const segments = beforeFee
+    .split("/")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (segments.length !== 2) return false;
+
+  return symbols.every((sym) =>
+    symbolVariants(sym).some((v) => segments.some((seg) => seg.includes(v))),
+  );
 }
 
 function extractFeeFromName(name) {
@@ -512,7 +522,7 @@ async function getTvlByPairFeeSearch(pair, fee, dexChain, platform) {
   if (geckoNet) {
     try {
       const qParts = [...symbols];
-      if (feePct != null) qParts.push(`${feePct}%`);
+      if (feePct != null && feePct >= 0.01) qParts.push(`${feePct}%`);
       const q = encodeURIComponent(qParts.join(" "));
       const { status, body } = await httpsGet(
         `https://api.geckoterminal.com/api/v2/search/pools?query=${q}&network=${geckoNet}`,
