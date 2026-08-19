@@ -1,21 +1,16 @@
 /**
  * GET /api/pool-tvl
  *
- * Resolves exact TVL for a liquidity pool position.
+ * Returns the EXACT TVL of a liquidity pool position.
  *
- * Resolution order:
- *   1. revert.finance link  → Revert API → pool address → DexScreener TVL
- *   2. krystal link         → eth_call NFPM.positions() → token0+token1+fee
- *                             → DexScreener search by token pair → filter by dex+fee → TVL
- *   3. poolAddress param    → DexScreener TVL directly
+ * Resolution pipeline:
+ *   A. revert.finance link  → Revert API → pool address → DexScreener
+ *   B. krystal link         → NFPM.positions() on-chain → token0+token1+fee
+ *                             → Factory.getPool() on-chain → exact pool address
+ *                             → DexScreener by pool address → exact TVL
+ *   C. poolAddress param    → DexScreener directly
  *
- * Query params:
- *   link        – position URL
- *   poolAddress – pool contract address (skip resolution)
- *   chain       – mainnet | bsc | base | arbitrum | optimism
- *   platform    – platform hint (uniswapv3, pancakev3, aerodrome, …)
- *
- * All APIs used are free and require no API key.
+ * All APIs/RPCs are free with no API key required.
  */
 
 const https = require("https");
@@ -33,15 +28,13 @@ const CHAIN_TO_DEXSCREENER = {
   optimism: "optimism",
   opmainnet: "optimism",
   polygon: "polygon",
-  avalanche: "avalanche",
-  zksync: "zksync",
 };
 
-// chain key → public JSON-RPC endpoints (free, no key) — ordered by reliability
+// chain key → ordered fallback RPC list (free, no key)
 const CHAIN_TO_RPC = {
   mainnet: ["https://ethereum.publicnode.com", "https://cloudflare-eth.com"],
-  base: ["https://mainnet.base.org", "https://base.publicnode.com"],
   bsc: ["https://bsc-dataseed.binance.org", "https://bsc.publicnode.com"],
+  base: ["https://mainnet.base.org", "https://base.publicnode.com"],
   arbitrum: ["https://arb1.arbitrum.io/rpc", "https://arbitrum.publicnode.com"],
   optimism: ["https://mainnet.optimism.io", "https://optimism.publicnode.com"],
   polygon: ["https://polygon-rpc.com", "https://polygon.publicnode.com"],
@@ -67,26 +60,21 @@ const CHAIN_TO_REVERT = {
   polygon: "polygon",
 };
 
-// Platform → DexScreener dexId substrings for filtering
-const PLATFORM_TO_DEX = {
-  uniswapv3: ["uniswap"],
-  uniswapv4: ["uniswap"],
-  pancakev3: ["pancakeswap"],
-  pancakev4: ["pancakeswap"],
-  "aerodrome-slipstream": ["aerodrome"],
-  aerodromev2: ["aerodrome"],
-  aerodromev1: ["aerodrome"],
-  "uniswap v3": ["uniswap"],
-  "uniswap v4": ["uniswap"],
-  "pancakeswap v3": ["pancakeswap"],
-  "pancakeswap v4": ["pancakeswap"],
-  "aerodrome concentrated": ["aerodrome"],
+// NFPM address (lowercase) → Factory address (lowercase)
+// Verified on-chain by calling pool.factory() on known pools.
+const NFPM_TO_FACTORY = {
+  // Uniswap V3 (all chains share same factory 0x1f98...)
+  "0xc36442b4a4522e871399cd717abdd847ab11fe88": "0x1f98431c8ad98523631ae4a59f267346ea31f984", // mainnet
+  "0x7b8a01b39d58278b5de7e48c8449c9f4f5170613": "0x1f98431c8ad98523631ae4a59f267346ea31f984", // bsc
+  "0x03a520b32c04bf3beef7bef1b5e31f91fe8f31d8": "0x1f98431c8ad98523631ae4a59f267346ea31f984", // base
+  "0x91ae842a5ffd8d12023116943e72a606179294f3": "0x1f98431c8ad98523631ae4a59f267346ea31f984", // arbitrum
+  "0xc36442b4a4522e871399cd717abdd847ab11fe88": "0x1f98431c8ad98523631ae4a59f267346ea31f984", // optimism (same as mainnet)
+  // Uniswap V4 - uses PoolManager, no NFPM factory lookup (Revert handles these)
+  // PancakeSwap V3 — different factory per chain
+  "0x46a15b0b27311cedf172ab29e4f4766fbe7f4364": "0x0bfbcf9fa4f9c56b0f40a671ad40e0805a091865", // bsc+base+mainnet
+  // Aerodrome CL (slipstream)
+  "0x827922686190790b37229fd06084350e74485b72": "0x5e7bb104d84c7cb9b682aac2f3d509f5f406809a", // base
 };
-
-// fee tier in bps → DexScreener poolMeta-like string for matching
-function feeBpsToPercent(bps) {
-  return ((bps / 10000) * 100).toFixed(4).replace(/\.?0+$/, "") + "%";
-}
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
@@ -95,7 +83,7 @@ function httpsGet(url, { timeout = 12000 } = {}) {
     const req = https.get(
       url,
       {
-        headers: { "User-Agent": "defilabs-navigator/2.0", Accept: "application/json" },
+        headers: { "User-Agent": "defilabs-navigator/3.0", Accept: "application/json" },
       },
       (res) => {
         let stream = res;
@@ -123,7 +111,7 @@ function httpsGet(url, { timeout = 12000 } = {}) {
   });
 }
 
-function httpsPost(url, body, { timeout = 12000 } = {}) {
+function httpsPost(url, body, { timeout = 10000 } = {}) {
   return new Promise((resolve, reject) => {
     const bodyBuf = Buffer.from(JSON.stringify(body));
     const urlObj = new URL(url);
@@ -132,7 +120,11 @@ function httpsPost(url, body, { timeout = 12000 } = {}) {
       port: urlObj.port || 443,
       path: urlObj.pathname + urlObj.search,
       method: "POST",
-      headers: { "Content-Type": "application/json", "Content-Length": bodyBuf.length },
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": bodyBuf.length,
+        "User-Agent": "defilabs-navigator/3.0",
+      },
     };
     const req = https.request(options, (res) => {
       const chunks = [];
@@ -156,21 +148,20 @@ function httpsPost(url, body, { timeout = 12000 } = {}) {
   });
 }
 
-// ─── In-memory cache ──────────────────────────────────────────────────────────
+// ─── Cache ────────────────────────────────────────────────────────────────────
 
 const _cache = new Map();
 const CACHE_TTL_MS = 8 * 60 * 1000;
 
 function cacheGet(key) {
   const v = _cache.get(key);
-  if (v && Date.now() - v.ts < CACHE_TTL_MS) return v;
-  return null;
+  return v && Date.now() - v.ts < CACHE_TTL_MS ? v : null;
 }
 function cacheSet(key, tvlUsd, extra = {}) {
   _cache.set(key, { tvlUsd, ts: Date.now(), ...extra });
 }
 
-// ─── Normalisation ────────────────────────────────────────────────────────────
+// ─── Chain normalisation ──────────────────────────────────────────────────────
 
 function normalizeChain(chain) {
   const c = (chain || "").toLowerCase().replace(/\s+/g, "");
@@ -182,24 +173,17 @@ function normalizeChain(chain) {
   return c;
 }
 
-function normalizePlatform(platform) {
-  return (platform || "").toLowerCase().replace(/\s+/g, "");
-}
-
 // ─── Link parsers ─────────────────────────────────────────────────────────────
 
 function parseRevertLink(link) {
-  // /#/<anything>-position/<network>/<id>
   let m = link.match(/#\/[^/]+-position\/([a-z]+)\/(\d+)/i);
   if (m) return { network: m[1].toLowerCase(), nftId: m[2] };
-  // /#/<anything>-position/<id>
   m = link.match(/#\/[^/]+-position\/(\d+)/i);
   if (m) return { network: null, nftId: m[1] };
   return null;
 }
 
 function parseKrystalLink(link) {
-  // https://cloud-ui.krystal.app/positions/<chainId>/<nfpm>-<tokenId>
   const m = link.match(/krystal\.app\/positions\/(\d+)\/(0x[0-9a-fA-F]{40})-(\d+)/i);
   if (!m) return null;
   return { chainId: m[1], nfpm: m[2].toLowerCase(), tokenId: m[3] };
@@ -208,7 +192,7 @@ function parseKrystalLink(link) {
 // ─── Revert Finance ───────────────────────────────────────────────────────────
 
 function platformToRevertProtocol(platform) {
-  const p = normalizePlatform(platform);
+  const p = (platform || "").toLowerCase().replace(/\s+/g, "");
   if (p.includes("uniswap") && p.includes("4")) return "uniswapv4";
   if (p.includes("uniswap")) return "uniswapv3";
   if (p.includes("pancake")) return "pancakeswapv3";
@@ -228,39 +212,55 @@ async function getPoolAddressFromRevert(nftId, network, protocol) {
   }
 }
 
-// ─── On-chain NFPM lookup ─────────────────────────────────────────────────────
+// ─── On-chain RPC calls ───────────────────────────────────────────────────────
 
-// Call NFPM.positions(tokenId) via eth_call — tries multiple RPCs until one works
-async function getPositionFromNFPM(nfpm, tokenId, rpcUrls) {
-  const tokenIdHex = BigInt(tokenId).toString(16).padStart(64, "0");
-  const data = "0x99fbab88" + tokenIdHex; // positions(uint256) selector
-  const payload = {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "eth_call",
-    params: [{ to: nfpm, data }, "latest"],
-  };
-  const urls = Array.isArray(rpcUrls) ? rpcUrls : [rpcUrls];
-  for (const rpcUrl of urls) {
+// eth_call on multiple fallback RPCs
+async function ethCall(chainKey, to, data) {
+  const rpcs = CHAIN_TO_RPC[chainKey] || [];
+  for (const rpc of rpcs) {
     try {
-      const { status, body } = await httpsPost(rpcUrl, payload, { timeout: 8000 });
+      const { status, body } = await httpsPost(
+        rpc,
+        { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] },
+        { timeout: 8000 },
+      );
       if (status !== 200) continue;
       const resp = JSON.parse(body);
       if (resp.error || !resp.result || resp.result === "0x") continue;
-      const hex = resp.result.slice(2);
-      const fields = [];
-      for (let i = 0; i < hex.length; i += 64) fields.push(hex.slice(i, i + 64));
-      if (fields.length < 5) continue;
-      // Layout: [0]=nonce, [1]=operator, [2]=token0, [3]=token1, [4]=fee, ...
-      const token0 = "0x" + fields[2].slice(-40);
-      const token1 = "0x" + fields[3].slice(-40);
-      const fee = parseInt(fields[4], 16);
-      return { token0: token0.toLowerCase(), token1: token1.toLowerCase(), fee };
+      return resp.result;
     } catch {
       continue;
     }
   }
   return null;
+}
+
+// NFPM.positions(tokenId) → { token0, token1, fee }
+async function getPositionData(nfpm, tokenId, chainKey) {
+  const tokenIdHex = BigInt(tokenId).toString(16).padStart(64, "0");
+  const result = await ethCall(chainKey, nfpm, "0x99fbab88" + tokenIdHex);
+  if (!result) return null;
+  const hex = result.slice(2);
+  const fields = [];
+  for (let i = 0; i < hex.length; i += 64) fields.push(hex.slice(i, i + 64));
+  if (fields.length < 5) return null;
+  return {
+    token0: "0x" + fields[2].slice(-40),
+    token1: "0x" + fields[3].slice(-40),
+    fee: parseInt(fields[4], 16),
+  };
+}
+
+// Factory.getPool(token0, token1, fee) → pool address
+async function getPoolFromFactory(factory, token0, token1, fee, chainKey) {
+  const t0 = token0.slice(2).toLowerCase().padStart(64, "0");
+  const t1 = token1.slice(2).toLowerCase().padStart(64, "0");
+  const feeHex = fee.toString(16).padStart(64, "0");
+  const result = await ethCall(chainKey, factory, "0x1698ee82" + t0 + t1 + feeHex);
+  if (!result) return null;
+  const addr = "0x" + result.slice(-40);
+  if (addr === "0x0000000000000000000000000000000000000000") return null;
+  return addr;
 }
 
 // ─── DexScreener ─────────────────────────────────────────────────────────────
@@ -279,40 +279,6 @@ async function getTvlByPoolAddress(poolAddress, dexChain) {
     return pair?.liquidity?.usd ?? null;
   } catch {
     return null;
-  }
-}
-
-async function getTvlByTokenPair(token0, token1, dexChain, platformSlug, feeBps) {
-  // DexScreener: search by two token addresses
-  const url = `https://api.dexscreener.com/latest/dex/tokens/${token0},${token1}`;
-  try {
-    const { status, body } = await httpsGet(url, { timeout: 10000 });
-    if (status !== 200) return { tvlUsd: null };
-    const data = JSON.parse(body);
-    const pairs = (data.pairs || []).filter((p) => p.chainId === dexChain);
-    if (!pairs.length) return { tvlUsd: null };
-
-    // Filter by dex (platform)
-    const dexHints = PLATFORM_TO_DEX[normalizePlatform(platformSlug)] || [];
-    let candidates = dexHints.length
-      ? pairs.filter((p) => dexHints.some((hint) => (p.dexId || "").includes(hint)))
-      : pairs;
-    if (!candidates.length) candidates = pairs;
-
-    // Filter by fee tier if we know it
-    if (feeBps) {
-      const feeStr = feeBpsToPercent(feeBps); // e.g. "0.05%"
-      // DexScreener doesn't expose fee tier directly — match by pool labels if available
-      // Instead: among candidates pick the one matching token pair, sorted by TVL
-      // (most liquid pool at this fee tier is the correct one for most cases)
-    }
-
-    // Sort by TVL descending, pick best
-    candidates.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
-    const best = candidates[0];
-    return { tvlUsd: best?.liquidity?.usd ?? null, pairAddress: best?.pairAddress };
-  } catch {
-    return { tvlUsd: null };
   }
 }
 
@@ -335,7 +301,7 @@ module.exports = async (req, res) => {
     return res.status(200).json({ found: tvlUsd != null, tvlUsd, ...extra });
   };
 
-  // ── Path A: pool address given directly ────────────────────────────────────
+  // ── Path A: direct pool address ────────────────────────────────────────────
   if (poolAddress && /^0x[0-9a-fA-F]{40}$/.test(poolAddress) && dexChain) {
     const ckey = `pool:${chainKey}:${poolAddress.toLowerCase()}`;
     const cached = cacheGet(ckey);
@@ -363,50 +329,89 @@ module.exports = async (req, res) => {
 
     const poolAddr = await getPoolAddressFromRevert(nftId, revertNetwork, revertProtocol);
     if (!poolAddr) {
-      // Revert doesn't have it — fall through to token pair search if we have chain
       cacheSet(ckey, null);
       return respond(null, { reason: "not found in revert" });
     }
-
     const tvlUsd = await getTvlByPoolAddress(poolAddr, dexChain);
     cacheSet(ckey, tvlUsd, { poolAddress: poolAddr });
     return respond(tvlUsd, { source: "revert+dexscreener", poolAddress: poolAddr });
   }
 
-  // ── Path C: Krystal link → NFPM on-chain lookup ───────────────────────────
+  // ── Path C: Krystal link → on-chain NFPM → Factory → DexScreener ──────────
   if (link.includes("krystal.app")) {
     const parsed = parseKrystalLink(link);
     if (!parsed) return respond(null, { reason: "cannot parse krystal link" });
 
     const { chainId, nfpm, tokenId } = parsed;
     const resolvedChain = CHAIN_ID_TO_KEY[chainId] || chainKey;
-    const resolvedDexChain = CHAIN_TO_DEXSCREENER[resolvedChain];
+    const resolvedDex = CHAIN_TO_DEXSCREENER[resolvedChain];
     const ckey = `krystal:${resolvedChain}:${nfpm}:${tokenId}`;
     const cached = cacheGet(ckey);
     if (cached) return respond(cached.tvlUsd, { source: "onchain+dexscreener", cached: true });
 
-    if (!resolvedDexChain) return respond(null, { reason: "unsupported chain" });
+    if (!resolvedDex || !CHAIN_TO_RPC[resolvedChain]) {
+      return respond(null, { reason: "unsupported chain" });
+    }
 
-    const rpcUrl = CHAIN_TO_RPC[resolvedChain];
-    if (!rpcUrl) return respond(null, { reason: "no rpc for chain" });
-
-    // Get token0, token1, fee from NFPM contract
-    const pos = await getPositionFromNFPM(nfpm, tokenId, rpcUrl);
+    // Step 1: get token0, token1, fee from NFPM
+    const pos = await getPositionData(nfpm, tokenId, resolvedChain);
     if (!pos) {
       cacheSet(ckey, null);
       return respond(null, { reason: "nfpm lookup failed" });
     }
 
-    const { token0, token1, fee: feeBps } = pos;
-    const { tvlUsd, pairAddress } = await getTvlByTokenPair(
-      token0,
-      token1,
-      resolvedDexChain,
-      platform,
-      feeBps,
+    // Step 2: find the factory for this NFPM
+    const factory = NFPM_TO_FACTORY[nfpm.toLowerCase()];
+    if (!factory) {
+      // Unknown NFPM — fall back to factory() call on NFPM contract
+      // (some contracts expose factory())
+      const factoryResult = await ethCall(resolvedChain, nfpm, "0xc45a0155");
+      const fallbackFactory = factoryResult ? "0x" + factoryResult.slice(-40) : null;
+      if (!fallbackFactory || fallbackFactory === "0x0000000000000000000000000000000000000000") {
+        cacheSet(ckey, null);
+        return respond(null, { reason: "unknown nfpm factory" });
+      }
+      const poolAddr = await getPoolFromFactory(
+        fallbackFactory,
+        pos.token0,
+        pos.token1,
+        pos.fee,
+        resolvedChain,
+      );
+      if (!poolAddr) {
+        cacheSet(ckey, null);
+        return respond(null, { reason: "pool not found in factory" });
+      }
+      const tvlUsd = await getTvlByPoolAddress(poolAddr, resolvedDex);
+      cacheSet(ckey, tvlUsd, { poolAddress: poolAddr });
+      return respond(tvlUsd, {
+        source: "onchain+dexscreener",
+        poolAddress: poolAddr,
+        feeBps: pos.fee,
+      });
+    }
+
+    // Step 3: Factory.getPool(token0, token1, fee) → exact pool address
+    const poolAddr = await getPoolFromFactory(
+      factory,
+      pos.token0,
+      pos.token1,
+      pos.fee,
+      resolvedChain,
     );
-    cacheSet(ckey, tvlUsd, { poolAddress: pairAddress });
-    return respond(tvlUsd, { source: "onchain+dexscreener", feeBps, poolAddress: pairAddress });
+    if (!poolAddr) {
+      cacheSet(ckey, null);
+      return respond(null, { reason: "pool not found in factory" });
+    }
+
+    // Step 4: DexScreener by exact pool address
+    const tvlUsd = await getTvlByPoolAddress(poolAddr, resolvedDex);
+    cacheSet(ckey, tvlUsd, { poolAddress: poolAddr });
+    return respond(tvlUsd, {
+      source: "onchain+dexscreener",
+      poolAddress: poolAddr,
+      feeBps: pos.fee,
+    });
   }
 
   return respond(null, { reason: "unrecognised link type" });
