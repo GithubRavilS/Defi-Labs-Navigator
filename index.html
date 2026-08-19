@@ -4926,21 +4926,21 @@
         var chainKey = normalizeChainKey(tool.chain);
         var link = (tool.link || "").trim();
 
-        // Path 1: Revert Finance link → API resolves pool address
-        if (link && link.includes("revert.finance")) {
+        // Revert Finance link or Krystal link → API handles both
+        if (link && (link.includes("revert.finance") || link.includes("krystal.app"))) {
           return "/api/pool-tvl?link=" + encodeURIComponent(link)
             + "&chain=" + encodeURIComponent(chainKey)
             + "&platform=" + encodeURIComponent(tool.platform || "");
         }
 
-        // Path 2: Krystal or other — if we have pool address in desc
+        // Direct pool address (from desc enrichment)
         var poolAddr = poolAddressFromTool(tool);
         if (poolAddr) {
           return "/api/pool-tvl?poolAddress=" + encodeURIComponent(poolAddr)
             + "&chain=" + encodeURIComponent(chainKey);
         }
 
-        // No usable identifier
+        // Not a LP position link — skip (defillama, beefy, etc.)
         return null;
       }
 
