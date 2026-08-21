@@ -3228,6 +3228,7 @@
         var meta = parsePoolMetaFromDesc(tool.desc);
         if (!tool.chain && meta.chain) tool.chain = meta.chain;
         if (!tool.fee && meta.fee !== "") tool.fee = meta.fee;
+        if (tool.chain) tool.chain = normalizeChainDisplayLabel(tool.chain);
         return tool;
       }
 
@@ -3846,11 +3847,21 @@
             }
 
             pool = dedupePoolBattleToolsList(pool);
-            data.tools = other.concat(pool);
+            var prevEth = (data.tools || []).filter(function (t) {
+              return t.categoryId === "ethereum";
+            }).length;
             var counts = { ethereum: 0, bitcoin: 0, stables: 0, rwa: rwaTools.length };
             pool.forEach(function (t) {
               if (counts[t.categoryId] != null) counts[t.categoryId]++;
             });
+            if (counts.ethereum === 0 && prevEth > 0) {
+              console.warn(
+                "DeFi Navigator: gviz без ETH-пулов (фильтр листа?) — оставляем /api/sheet-data",
+                { gviz: counts, prevEth: prevEth },
+              );
+              return data;
+            }
+            data.tools = other.concat(pool);
             console.log("DeFi Navigator: пулы из листа ethereum (колонка Q)", counts);
             return data;
           });
@@ -4656,8 +4667,7 @@
       }
 
       function poolBattleIdentityKeyChain_(chain) {
-        return String(chain || "")
-          .trim()
+        return normalizeChainDisplayLabel(chain)
           .toLowerCase()
           .replace(/\s+/g, "");
       }
@@ -4852,10 +4862,26 @@
         return parseFloat(s);
       }
 
+      function normalizeChainDisplayLabel(chain) {
+        var c = String(chain || "")
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, "");
+        if (!c) return "";
+        if (c === "ethereum" || c === "mainnet" || c === "eth") return "Ethereum";
+        if (c === "arbitrum" || c === "arbitrumone" || c === "arb") return "Arbitrum";
+        if (c === "optimism" || c === "opmainnet" || c === "op") return "Optimism";
+        if (c === "base") return "Base";
+        if (c === "polygon" || c === "matic") return "Polygon";
+        if (c === "bsc" || c === "bnb" || c === "binancesmartchain" || c === "bnbsmartchain")
+          return "BNB";
+        return String(chain || "").trim();
+      }
+
       function formatChainLabel(tool) {
         var chain = String(tool.chain || "").trim();
-        if (chain) return chain;
-        return parsePoolMetaFromDesc(tool.desc).chain || "";
+        if (chain) return normalizeChainDisplayLabel(chain);
+        return normalizeChainDisplayLabel(parsePoolMetaFromDesc(tool.desc).chain || "");
       }
 
       function formatFeeLabelFromTool(tool) {
