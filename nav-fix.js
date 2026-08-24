@@ -136,5 +136,5 @@
     if (typeof _orig === "function") return _orig.apply(this, arguments);
   };
 
-  console.log("DeFi Navigator: nav-fix.js v2 loaded");
+  console.log("DeFi Compass: nav-fix.js v2 loaded");
 })();

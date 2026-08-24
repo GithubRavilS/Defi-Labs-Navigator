@@ -1,7 +1,7 @@
 {
-  "name": "defi-labs-navigator",
+  "name": "defi-compass",
   "version": "1.0.0",
-  "description": "DeFi Labs Navigator - data from Google Sheets",
+  "description": "DeFi Compass - data from Google Sheets",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

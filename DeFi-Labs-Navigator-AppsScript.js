@@ -1,5 +1,5 @@
 /**
- * DeFi Labs Navigator — скрипт для Google Apps Script
+ * DeFi Compass — скрипт для Google Apps Script
  * Читает данные из таблицы и отдаёт их в формате JSON (для сайта на GitHub Pages).
  *
  * КАК ПОДКЛЮЧИТЬ:
@@ -9,7 +9,7 @@
  *    RWA: в «Свойства скрипта» задай JUPITER_API_KEY (portal.jup.ag, Free) — без ключа Jupiter отдаёт 0 позиций.
  *    LABS LEND: лист «lending», триггер syncLendingSheetHourly (см. installLendingHourlyTrigger).
  * 4. Меню «Развёртывание» → «Новое развёртывание» → тип «Веб-приложение».
- * 5. Описание: например «DeFi Navigator API». Выполнять от имени: «Я». Доступ: «Все».
+ * 5. Описание: например «DeFi Compass API». Выполнять от имени: «Я». Доступ: «Все».
  * 6. Нажми «Развернуть», скопируй URL (он вида …/exec).
  * 7. В HTML-файле сайта вставь этот URL в переменную DATA_API_URL (см. README).
  */
@@ -159,7 +159,7 @@ function getRwaWalletFromSheet_(sh) {
   return "";
 }
 
-/** Кошелёк только из листа «DeFi Labs Navigator» (битва пуллов), ячейка B6. */
+/** Кошелёк только из таблицы DeFi Compass (файл в Drive может называться «DeFi Labs Navigator»), ячейка B6. */
 function getRwaWalletForSync_(sourceSh) {
   return getRwaWalletFromSheet_(sourceSh);
 }
@@ -1678,7 +1678,7 @@ function appendRwaDailyLog_(ss, rows) {
   upsertRwaIncomeDailySnapshot_(ss, rows);
 }
 
-/** VIP Navigator Data для RWA не используем — только таблица DeFi Labs Navigator. */
+/** VIP Navigator Data для RWA не используем — только основная таблица DeFi Compass. */
 function copyRwaDataToSiteSpreadsheet_() {
   return false;
 }
@@ -1905,7 +1905,7 @@ function installRwaHourlyTrigger() {
   } catch (e) {}
   SpreadsheetApp.getActiveSpreadsheet().toast(
     "Авто-синх RWA включён (каждый час)",
-    "DeFi Navigator",
+    "DeFi Compass",
     6,
   );
 }
@@ -1928,7 +1928,7 @@ function onOpen() {
     Logger.log("RWA trigger migration: " + e);
   }
   SpreadsheetApp.getUi()
-    .createMenu("DeFi Navigator")
+    .createMenu("DeFi Compass")
     .addItem("Проверить файл RWA (статус Z3)", "verifyRwaSpreadsheetTarget")
     .addItem("Перенести RWA в A1 (из H30)", "relayoutRwaSheetToA1")
     .addItem("Синхронизировать RWA (Jupiter)", "syncRwaJupiterPositions")
@@ -1954,7 +1954,7 @@ function saveJupiterApiKeyFromZ4_() {
   }
   PropertiesService.getScriptProperties().setProperty("JUPITER_API_KEY", key);
   writeRwaSyncStatus_(sh, "Jupiter key сохранён в свойствах скрипта · " + key.length + " симв.");
-  SpreadsheetApp.getActiveSpreadsheet().toast("Ключ Jupiter сохранён", "DeFi Navigator", 8);
+  SpreadsheetApp.getActiveSpreadsheet().toast("Ключ Jupiter сохранён", "DeFi Compass", 8);
 }
 
 /** Разовая фиксация времени открытия (~вчера 16:00 по Варшаве), если Jupiter отдаёт неверную дату. */
@@ -1980,7 +1980,7 @@ function anchorAllRwaOpenYesterday16Warsaw_() {
   }
   SpreadsheetApp.getActiveSpreadsheet().toast(
     "Зафиксировано открытие " + yesterdayStr + " 16:00 для " + n + " поз. → «Синхронизировать RWA»",
-    "DeFi Navigator",
+    "DeFi Compass",
     10,
   );
 }

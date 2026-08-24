@@ -167,7 +167,7 @@ function httpsGet(url, { timeout = 12000, headers: extraHeaders = {} } = {}) {
       url,
       {
         headers: {
-          "User-Agent": "defilabs-navigator/3.0",
+          "User-Agent": "defi-compass/3.0",
           Accept: "application/json",
           ...extraHeaders,
         },
@@ -210,7 +210,7 @@ function httpsPost(url, body, { timeout = 10000, headers: extraHeaders = {} } = 
       headers: {
         "Content-Type": "application/json",
         "Content-Length": bodyBuf.length,
-        "User-Agent": "defilabs-navigator/3.0",
+        "User-Agent": "defi-compass/3.0",
         ...extraHeaders,
       },
     };

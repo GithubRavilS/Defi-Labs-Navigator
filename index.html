@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>DeFi Labs Navigator — Обзор инвестиционных стратегий</title>
+    <title>DeFi Compass — Обзор инвестиционных стратегий</title>
     <style>
       * {
         margin: 0;
@@ -2511,7 +2511,7 @@
         <!-- DASHBOARD PAGE -->
         <div id="dashboardPage" class="dashboard-page active">
           <div class="dashboard-header">
-            <h1 class="dashboard-title" data-i18n="pageTitle">DeFi Labs Navigator</h1>
+            <h1 class="dashboard-title" data-i18n="pageTitle">DeFi Compass</h1>
             <p class="dashboard-subtitle" data-i18n="pageSubtitle">
               Обзор 100+ инвестиционных инструментов в стратегиях DeFi
             </p>
@@ -2782,7 +2782,7 @@
           navTitle: "Навигация",
           dashboard: "Дашборд",
           categoriesTitle: "Категории",
-          pageTitle: "DeFi Labs Navigator",
+          pageTitle: "DeFi Compass",
           pageSubtitle: "Обзор 100+ инвестиционных инструментов в стратегиях DeFi",
           topPerformers: "🔥 Лучшие за 7 дней",
           allCategories: "📂 Все категории",
@@ -2827,7 +2827,7 @@
           active: "Активно",
           warning: "Внимание",
           chartApyLabel: "",
-          titleTag: "DeFi Labs Навигатор — Обзор инвестиционных стратегий",
+          titleTag: "DeFi Compass — Обзор инвестиционных стратегий",
           dataSourceOffline: "Офлайн-режим",
           dataSourceUpdated: "Данные обновлены",
           dataSourceError: "Ошибка загрузки",
@@ -2883,7 +2883,7 @@
           navTitle: "Navigation",
           dashboard: "Dashboard",
           categoriesTitle: "Categories",
-          pageTitle: "DeFi Labs Navigator",
+          pageTitle: "DeFi Compass",
           pageSubtitle: "Explore 100+ investment instruments across DeFi strategies",
           topPerformers: "🔥 Top Performers (Last 7 days)",
           allCategories: "📂 All Categories",
@@ -2928,7 +2928,7 @@
           active: "Active",
           warning: "Warning",
           chartApyLabel: "",
-          titleTag: "DeFi Labs Navigator - Investment Strategy Explorer",
+          titleTag: "DeFi Compass - Investment Strategy Explorer",
           dataSourceOffline: "Offline mode",
           dataSourceUpdated: "Data refreshed",
           dataSourceError: "Load error",
@@ -3620,7 +3620,7 @@
           });
           counts[categoryId] = (counts[categoryId] || 0) + 1;
         }
-        console.log("DeFi Navigator: ethereum unified gviz (колонка Q)", counts);
+        console.log("DeFi Compass: ethereum unified gviz (колонка Q)", counts);
         return out;
       }
 
@@ -3856,13 +3856,13 @@
             });
             if (counts.ethereum === 0 && prevEth > 0) {
               console.warn(
-                "DeFi Navigator: gviz без ETH-пулов (фильтр листа?) — оставляем /api/sheet-data",
+                "DeFi Compass: gviz без ETH-пулов (фильтр листа?) — оставляем /api/sheet-data",
                 { gviz: counts, prevEth: prevEth },
               );
               return data;
             }
             data.tools = other.concat(pool);
-            console.log("DeFi Navigator: пулы из листа ethereum (колонка Q)", counts);
+            console.log("DeFi Compass: пулы из листа ethereum (колонка Q)", counts);
             return data;
           });
         });
@@ -4401,7 +4401,7 @@
           if (!tools.length) return false;
           if (applyRwaCacheToAllTools()) {
             finishDataLoad();
-            console.log("DeFi Navigator: RWA применено:", tools.length);
+            console.log("DeFi Compass: RWA применено:", tools.length);
             return true;
           }
           return false;
@@ -4419,11 +4419,11 @@
           });
           if (existing.length > 0) {
             patchPoolBattleToolsFromRows(data.tools, rwaTools, "rwa");
-            console.log("DeFi Navigator: RWA APY/период из таблицы (gviz patch):", rwaTools.length);
+            console.log("DeFi Compass: RWA APY/период из таблицы (gviz patch):", rwaTools.length);
             return data;
           }
           appendRwaToolsToData(data, rwaTools);
-          console.log("DeFi Navigator: RWA подгружено из таблицы (gviz):", rwaTools.length);
+          console.log("DeFi Compass: RWA подгружено из таблицы (gviz):", rwaTools.length);
           return data;
         });
       }
@@ -5799,6 +5799,7 @@
           if (window.location.protocol === "file:") return false;
           var h = (window.location.hostname || "").toLowerCase();
           if (h.indexOf("defilabsvipnavigator.vercel.app") !== -1) return true;
+          if (h.indexOf("defi-compass.vercel.app") !== -1) return true;
           if (h.indexOf("github.io") !== -1) return false;
           if (h === "localhost" || h === "127.0.0.1") return true;
           return false;
@@ -6063,7 +6064,7 @@
             if (!data || !Array.isArray(data.tools)) throw new Error("sheet-data empty");
             if (data.error) throw new Error(String(data.error));
             applyLoadedData(data);
-            console.log("DeFi Navigator: данные напрямую из Excel (/api/sheet-data)", {
+            console.log("DeFi Compass: данные напрямую из Excel (/api/sheet-data)", {
               tools: allTools.length,
               ethereum: allTools.filter(function (t) {
                 return t.categoryId === "ethereum";
@@ -6080,7 +6081,7 @@
             return { apiCallbackReceived: true, source: "sheet-data" };
           })
           .catch(function (err) {
-            console.warn("DeFi Navigator: /api/sheet-data", err);
+            console.warn("DeFi Compass: /api/sheet-data", err);
             return null;
           });
       }
@@ -6092,7 +6093,7 @@
             finishDataLoad();
             return sheetMeta;
           }
-          console.warn("DeFi Navigator: sheet-data недоступен, fallback gviz");
+          console.warn("DeFi Compass: sheet-data недоступен, fallback gviz");
           return loadDataOnceFromGvizPools();
         });
       }
@@ -6109,7 +6110,7 @@
           return loadPoolBattleFromPatchedGviz(seed).then(function (merged) {
             applyLoadedData(merged);
             finishDataLoad();
-            console.log("DeFi Navigator: пулы из gviz (fallback)", {
+            console.log("DeFi Compass: пулы из gviz (fallback)", {
               tools: allTools.length,
               ethereum: allTools.filter(function (t) {
                 return t.categoryId === "ethereum";
