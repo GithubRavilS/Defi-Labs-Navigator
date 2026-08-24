@@ -5798,6 +5798,7 @@
         try {
           if (window.location.protocol === "file:") return false;
           var h = (window.location.hostname || "").toLowerCase();
+          if (h.indexOf("deficompass.vercel.app") !== -1) return true;
           if (h.indexOf("defilabsvipnavigator.vercel.app") !== -1) return true;
           if (h.indexOf("defi-compass.vercel.app") !== -1) return true;
           if (h.indexOf("github.io") !== -1) return false;
