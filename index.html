@@ -2600,6 +2600,10 @@
               <div class="pool-filter-label" data-i18n="filterFee">Комиссия</div>
               <div class="pool-filter-chips" id="poolFilterFeeChips"></div>
             </div>
+            <div class="pool-filter-group hidden" id="poolFilterRangeGroup">
+              <div class="pool-filter-label" data-i18n="filterRange">Диапазон</div>
+              <div class="pool-filter-chips" id="poolFilterRangeChips"></div>
+            </div>
             <button
               type="button"
               class="pool-filter-reset hidden"
@@ -2873,8 +2877,9 @@
           filterPlatform: "Платформа",
           filterChain: "Блокчейн",
           filterFee: "Комиссия",
+          filterRange: "Диапазон",
           filterReset: "Сбросить фильтры",
-          filterBarAria: "Фильтры по платформе, блокчейну и комиссии",
+          filterBarAria: "Фильтры по платформе, блокчейну, комиссии и диапазону",
         },
         en: {
           logo: "DeFi Labs",
@@ -2971,8 +2976,9 @@
           filterPlatform: "Platform",
           filterChain: "Blockchain",
           filterFee: "Fee tier",
+          filterRange: "Range",
           filterReset: "Reset filters",
-          filterBarAria: "Filters by platform, blockchain, and fee tier",
+          filterBarAria: "Filters by platform, blockchain, fee tier, and price range",
         },
       };
 
@@ -4435,7 +4441,17 @@
         platforms: new Set(),
         chains: new Set(),
         fees: new Set(),
+        ranges: new Set(),
       };
+
+      /** Канонические ETH-диапазоны; отклонение границ до 5% считается тем же диапазоном. */
+      var ETHEREUM_RANGE_MATCH_TOLERANCE = 0.05;
+      var ETHEREUM_RANGE_BANDS = [
+        { id: "eth-1150-2000", min: 1150, max: 2000 },
+        { id: "eth-1100-2800", min: 1100, max: 2800 },
+        { id: "eth-1500-2800", min: 1500, max: 2800 },
+        { id: "eth-1100-4000", min: 1100, max: 4000 },
+      ];
 
       var PLATFORM_FILTERS = [
         {
@@ -4494,6 +4510,47 @@
         return formatFeeLabel(key);
       }
 
+      function formatEthereumRangeBandLabel(band) {
+        if (!band) return "";
+        return "$" + formatPriceToken(band.min) + "–$" + formatPriceToken(band.max);
+      }
+
+      function ethereumRangeBandMatchScore(range, band) {
+        if (!range || !band || band.min <= 0 || band.max <= 0) return Number.POSITIVE_INFINITY;
+        var eMin = Math.abs(range.min - band.min) / band.min;
+        var eMax = Math.abs(range.max - band.max) / band.max;
+        if (eMin > ETHEREUM_RANGE_MATCH_TOLERANCE || eMax > ETHEREUM_RANGE_MATCH_TOLERANCE) {
+          return Number.POSITIVE_INFINITY;
+        }
+        return eMin + eMax;
+      }
+
+      function getToolEthereumRangeBandId(tool) {
+        if (!tool || tool.categoryId !== "ethereum") return "";
+        var range = getOrderedPriceRangeNumbers(tool);
+        if (!range) return "";
+        var bestId = "";
+        var bestScore = Number.POSITIVE_INFINITY;
+        var i;
+        for (i = 0; i < ETHEREUM_RANGE_BANDS.length; i++) {
+          var band = ETHEREUM_RANGE_BANDS[i];
+          var score = ethereumRangeBandMatchScore(range, band);
+          if (score < bestScore) {
+            bestScore = score;
+            bestId = band.id;
+          }
+        }
+        return bestId;
+      }
+
+      function poolFilterSetForType(filterType) {
+        if (filterType === "platform") return poolFilterState.platforms;
+        if (filterType === "chain") return poolFilterState.chains;
+        if (filterType === "fee") return poolFilterState.fees;
+        if (filterType === "range") return poolFilterState.ranges;
+        return null;
+      }
+
       function toolMatchesPoolFilters(tool) {
         if (poolFilterState.platforms.size) {
           var platformId = getToolPlatformFilterId(tool);
@@ -4506,6 +4563,10 @@
         if (poolFilterState.fees.size) {
           var feeKey = getToolFeeFilterKey(tool);
           if (!feeKey || !poolFilterState.fees.has(feeKey)) return false;
+        }
+        if (poolFilterState.ranges.size) {
+          var rangeId = getToolEthereumRangeBandId(tool);
+          if (!rangeId || !poolFilterState.ranges.has(rangeId)) return false;
         }
         return true;
       }
@@ -4588,21 +4649,36 @@
           "fee",
         );
 
+        var rangeGroup = document.getElementById("poolFilterRangeGroup");
+        var showRangeFilter = categoryId === "ethereum";
+        if (rangeGroup) rangeGroup.classList.toggle("hidden", !showRangeFilter);
+        if (showRangeFilter) {
+          renderPoolFilterChipGroup(
+            "poolFilterRangeChips",
+            ETHEREUM_RANGE_BANDS.map(function (band) {
+              return { id: band.id, label: formatEthereumRangeBandLabel(band) };
+            }),
+            poolFilterState.ranges,
+            "range",
+          );
+        } else {
+          poolFilterState.ranges.clear();
+          var rangeChips = document.getElementById("poolFilterRangeChips");
+          if (rangeChips) rangeChips.innerHTML = "";
+        }
+
         var resetBtn = document.getElementById("poolFilterResetBtn");
         var hasActive =
           poolFilterState.platforms.size > 0 ||
           poolFilterState.chains.size > 0 ||
-          poolFilterState.fees.size > 0;
+          poolFilterState.fees.size > 0 ||
+          poolFilterState.ranges.size > 0;
         if (resetBtn) resetBtn.classList.toggle("hidden", !hasActive);
       }
 
       function togglePoolFilter(filterType, filterId) {
-        var set =
-          filterType === "platform"
-            ? poolFilterState.platforms
-            : filterType === "chain"
-              ? poolFilterState.chains
-              : poolFilterState.fees;
+        var set = poolFilterSetForType(filterType);
+        if (!set || !filterId) return;
         if (set.has(filterId)) set.delete(filterId);
         else set.add(filterId);
         rerenderCurrentCategoryTools();
@@ -4612,6 +4688,7 @@
         poolFilterState.platforms.clear();
         poolFilterState.chains.clear();
         poolFilterState.fees.clear();
+        poolFilterState.ranges.clear();
         rerenderCurrentCategoryTools();
       }
 
@@ -4619,6 +4696,7 @@
         poolFilterState.platforms.clear();
         poolFilterState.chains.clear();
         poolFilterState.fees.clear();
+        poolFilterState.ranges.clear();
       }
 
       function categoryUsesPoolBattleGrouping(categoryId) {

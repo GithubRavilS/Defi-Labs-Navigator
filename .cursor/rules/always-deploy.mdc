@@ -1,0 +1,12 @@
+---
+description: Always commit and push DeFi Compass changes; never ask about deploy
+alwaysApply: true
+---
+
+# Always deploy
+
+After shipping product/site/API changes in this repo, **commit the relevant files and `git push` the current branch** so Vercel production updates.
+
+Do **not** ask whether to deploy, push, or open a PR for a deploy. Never ask this on any branch.
+
+Do not commit unrelated untracked scripts, dumps, or secrets.
